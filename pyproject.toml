@@ -1,0 +1,25 @@
+[project]
+name = "studysystem"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "mohammadmassaf", email = "mahdiassaf998@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "mcp>=2,<3",
+]
+
+[project.scripts]
+studysystem = "studysystem:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.7",
+]
