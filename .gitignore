@@ -2,5 +2,10 @@
 __pycache__/
 .ruff_cache/
 .pytest_cache/
+*.egg-info/
+.coverage
+*.db
+*.db-wal
+*.db-shm
 .claude/settings.local.json
 CLAUDE.local.md

@@ -1,7 +1,7 @@
 [project]
 name = "studysystem"
 version = "0.1.0"
-description = "Add your description here"
+description = "An MCP server that plans and tracks a student's semester: courses, past exams, topics, a ranked study plan, logged hours."
 readme = "README.md"
 authors = [
     { name = "mohammadmassaf", email = "mahdiassaf998@gmail.com" }
@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-studysystem = "studysystem:main"
+studysystem = "studysystem.server:main"
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]
@@ -23,3 +23,14 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.7",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "DTZ"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
