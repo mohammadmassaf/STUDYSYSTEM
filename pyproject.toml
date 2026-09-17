@@ -9,6 +9,8 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "mcp>=2,<3",
+    "platformdirs>=4.11.9",
+    "sqlalchemy>=2.0.54",
 ]
 
 [project.scripts]
