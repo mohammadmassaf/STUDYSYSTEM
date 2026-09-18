@@ -8,13 +8,15 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.20.0",
+    "click>=8.5.0",
     "mcp>=2,<3",
     "platformdirs>=4.11.9",
     "sqlalchemy>=2.0.54",
 ]
 
 [project.scripts]
-studysystem = "studysystem.server:main"
+study = "studysystem.cli:study"
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]
