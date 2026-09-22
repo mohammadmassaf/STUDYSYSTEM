@@ -1,0 +1,49 @@
+name: tests
+
+# Two engines, one suite (D-08). SQLite is the only engine v1 ships; the Postgres job is what
+# turns "the same SQL runs online later" from a claim into a check. They are separate jobs so a
+# pull request shows which engine broke without anyone opening a log.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check src/ tests/
+      - run: uv run pytest -q
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # Without this the job races the container and connects to nothing.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      # With this set, the engine-parametrised tests run twice: once on SQLite, once here.
+      # Unset - anyone's laptop - the Postgres half skips instead of failing.
+      - run: uv run pytest -q
+        env:
+          STUDYSYSTEM_TEST_PG: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
