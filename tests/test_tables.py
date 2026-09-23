@@ -188,11 +188,17 @@ def insert(conn, table: str, row: dict) -> None:
         conn.execute(metadata.tables[table].insert().values(**row))
 
 
-def assert_rejected(conn, table: str, row: dict, constraint: str) -> None:
-    """The row must be refused, and by the named constraint - not by a neighbour."""
+def assert_rejected(conn, table: str, row: dict, constraint: str | tuple[str, ...]) -> None:
+    """The row must be refused, and by the named constraint - not by a neighbour.
+
+    A tuple names the constraints any of which may legitimately fire, for the column whose own
+    CHECK another constraint strictly subsumes (see SUBSUMED)."""
+    names = (constraint,) if isinstance(constraint, str) else constraint
     with pytest.raises(IntegrityError) as excinfo:
         insert(conn, table, row)
-    assert constraint in str(excinfo.value), f"expected {constraint}, got: {excinfo.value}"
+    assert any(name in str(excinfo.value) for name in names), (
+        f"expected {' or '.join(names)}, got: {excinfo.value}"
+    )
 
 
 # --- the checks the helpers generate --------------------------------------
@@ -227,12 +233,40 @@ def _generated_checks() -> list[tuple[str, str, str, object]]:
 
 GENERATED = _generated_checks()
 
+# The bad value breaks the column's own CHECK - but on the template row it can break a
+# neighbouring constraint at the same time, and which of the two a database reports is its own
+# business: SQLite names the first one declared, Postgres need not. A case that relies on that
+# order passes on one engine and fails on the other, which is what the two-engine rig is for.
+# These patches move the companion columns so the named constraint is the only one left broken.
+ISOLATE: dict[tuple[str, str], dict] = {
+    # `resolved_at IS NOT NULL` <=> `status <> 'pending'`, and any bad status is <> 'pending'.
+    ("capacity_suggestion", "status"): dict(resolved_at=X),
+    ("replacement_queue", "status"): dict(resolved_at=X),
+    ("generation_task", "status"): dict(closed_at=X),  # closed_at <=> status <> 'open'
+    ("generation_directive", "status"): dict(confirmed_at=X),  # <=> status <> 'proposed'
+    ("plan", "scope"): dict(scope_course_id=None),  # a course id <=> scope = 'course'
+    ("practice_item", "answer_provenance"): dict(answer_key="..."),  # 'none' <=> no answer_key
+    # origin 'past-exam' forces source_marker; 'textbook' carries no past exam and no novelty.
+    ("practice_item", "source_marker"): dict(origin="textbook", past_exam_id=None, position=None),
+    ("observation", "claim_key"): dict(topic_id=None),  # a topic id <=> claim_key 'topic-marks'
+}
+
+# `claim_class_by_key` allows only known (claim_key, claim_class) pairs, so it is strictly
+# stronger than either column's enum: no row breaks one enum alone. The row is still refused,
+# and by a constraint that implies the enum, so the case accepts that name too.
+SUBSUMED: dict[tuple[str, str], str] = {
+    ("observation", "claim_key"): "ck_observation_claim_class_by_key",
+    ("observation", "claim_class"): "ck_observation_claim_class_by_key",
+}
+
 
 @pytest.mark.parametrize(
     ("table", "column", "constraint", "bad"), GENERATED, ids=[c[2] for c in GENERATED]
 )
 def test_generated_check_rejects(db, table, column, constraint, bad):
-    assert_rejected(db, table, row_for(table, **{column: bad}), constraint)
+    row = row_for(table, **{column: bad} | ISOLATE.get((table, column), {}))
+    also = SUBSUMED.get((table, column))
+    assert_rejected(db, table, row, (constraint, also) if also else constraint)
 
 
 # --- the rules ------------------------------------------------------------
