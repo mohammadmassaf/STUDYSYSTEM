@@ -10,3 +10,10 @@ Currently: a smoke-test server with one tool, `ping`, that returns the server ti
   start and again after every upgrade; the server refuses to start while the schema is behind.
 - `uv run study serve` — start the MCP server on stdio.
 - `uv run study downgrade base` — undo every migration (development only).
+
+## Testing
+
+- `uv run pytest` — the full suite. Without a Postgres it proves SQLite only; the Postgres
+  cases skip themselves.
+- To run both engines locally, bring up the Postgres in `compose.yaml`. The commands are in
+  that file's header comment. CI runs both engines on every push.
