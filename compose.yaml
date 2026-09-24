@@ -1,0 +1,33 @@
+# The Postgres half of the suite, on a laptop (D-08).
+#
+# CI gets its Postgres from a GitHub service container; this is the same engine for the same
+# tests, reachable the same way. Without it `uv run pytest` still passes - the Postgres
+# parameters skip themselves - so the local suite proves only SQLite, and the two-engine check
+# has teeth in CI alone. Bring this up when the schema or its SQL changes.
+#
+#   docker compose up -d
+#   STUDYSYSTEM_TEST_PG=postgresql+psycopg://postgres:postgres@localhost:5433/postgres uv run pytest -q
+#   docker compose down        # add -v to drop the data too
+#
+# Port 5433, not 5432: a Postgres installed on the host owns 5432, and the clash surfaces as a
+# connection that succeeds against the wrong server.
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    # Without this `docker compose up -d` returns before the server accepts connections, and
+    # the first test to connect is the one that fails.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
