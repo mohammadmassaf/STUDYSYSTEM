@@ -12,6 +12,7 @@ dependencies = [
     "click>=8.5.0",
     "mcp>=2,<3",
     "platformdirs>=4.11.9",
+    "python-ulid>=4.0.1",
     "sqlalchemy>=2.0.54",
 ]
 
