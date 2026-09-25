@@ -8,6 +8,7 @@ import click
 from studysystem.db import migrate
 from studysystem.db.engine import db_path, make_engine, snapshot
 from studysystem.server import main as serve_main
+from studysystem.services.users import ensure_user
 
 
 @click.group()
@@ -25,9 +26,11 @@ def migrate_cmd() -> None:
 
     before = migrate.current_revision(engine)
     migrate.upgrade(engine)
+    user_id = ensure_user(engine)  # a no-op after the first run (D-31)
 
     click.echo(f"snapshot: {target}")
     click.echo(f"{before} -> {migrate.current_revision(engine)}")
+    click.echo(f"user: {user_id}")
 
 
 @study.command()
