@@ -25,10 +25,12 @@ from studysystem.db.tables import metadata
 
 PG_URL = os.environ.get("STUDYSYSTEM_TEST_PG")
 
-# The two consumers get a database each, so neither has to care what order tests run in:
-# one holds a schema built by `metadata.create_all`, the other is wiped and re-migrated.
+# Each consumer gets a database of its own, so none has to care what order tests run in:
+# one holds a schema built by `metadata.create_all`, one is wiped and re-migrated, and the
+# service tests get a fresh schema per test.
 TABLES_DB = "studysystem_tables"
 MIGRATE_DB = "studysystem_migrate"
+SERVICES_DB = "studysystem_services"
 
 ENGINES = [
     "sqlite",
@@ -106,5 +108,24 @@ def empty_engine(request) -> Iterator[Engine]:
         with engine.begin() as conn:
             conn.exec_driver_sql("DROP SCHEMA public CASCADE")
             conn.exec_driver_sql("CREATE SCHEMA public")
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture(params=ENGINES)
+def service_engine(request) -> Iterator[Engine]:
+    """The whole schema on an empty database, fresh for every test, for code that writes rows.
+
+    SQLite here is the runtime engine - a file, with `BEGIN IMMEDIATE` on every transaction - not
+    the in-memory one above: a write unit proved on a different transaction setup proves nothing.
+    """
+    if request.param == "sqlite":
+        from studysystem.db.engine import db_path, make_engine
+
+        engine = make_engine(db_path())
+    else:
+        engine = pg_engine(SERVICES_DB)
+        metadata.drop_all(engine)
+    metadata.create_all(engine)
     yield engine
     engine.dispose()
