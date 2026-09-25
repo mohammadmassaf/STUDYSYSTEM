@@ -9,16 +9,19 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Engine
 
+from studysystem.errors import StudyError
+
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
-class SchemaBehindHead(Exception):
+class SchemaBehindHead(StudyError):
     def __init__(self, current, head):
         self.current, self.head = current, head
-        self.code = "schema_behind_head"
-        self.message = f"database is at {current}, head is {head}"
-        self.fix = "run: study migrate"
-        super().__init__(self.message)
+        super().__init__(
+            code="schema_behind_head",
+            message=f"database is at {current}, head is {head}",
+            fix="run: study migrate",
+        )
 
 
 def alembic_config(engine: Engine | None = None) -> Config:
