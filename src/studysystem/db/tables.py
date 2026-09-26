@@ -133,17 +133,6 @@ user = Table("user", metadata, ulid_pk(), ts())
 
 # --- course structure -----------------------------------------------------
 
-# TODO(human): `course`. Contract at physical-schema.md "### `course`". Checklist:
-#   - ulid_pk, owner, code, name, semester_name, created_at
-#   - two tier pairs: instructor (Text, no rule), credits (Float, "> 0")
-#   - target_grade 0-100 nullable; strategy enum with default; strategy_changed_at nullable
-#   - conceded bool + conceded_at, with the implication conceded = 1 => conceded_at NN
-#   - source_course_id: nullable Text, CHECK IS NULL in v1 (a plain CheckConstraint, no FK yet)
-#   - semester_start / semester_end dates, semester_end > semester_start when both set
-#     (hint: when both set - so what must the CHECK do when one is NULL?)
-#   - semester_end_approx bool
-#   - unique (user_id, lower(code), semester_name): lower(code) is an expression, so this is an
-#     Index(..., unique=True) built after the Table, using func.lower(course.c.code)
 course = Table(
     "course",
     metadata,
@@ -173,7 +162,7 @@ Index(
     "ux_course_code",
     course.c.user_id,
     func.lower(course.c.code),
-    course.c.semester_name,
+    func.lower(course.c.semester_name),
     unique=True,
 )
 

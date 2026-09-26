@@ -48,8 +48,8 @@ def add_course(engine: Engine, user_id: str, code: str, name: str, semester_name
         existing = conn.execute(
             select(course.c.id).where(
                 course.c.user_id == user_id,
-                func.lower(course.c.code) == code.lower(),
-                course.c.semester_name == semester_name,
+                func.lower(course.c.code) == func.lower(code),
+                func.lower(course.c.semester_name) == func.lower(semester_name),
             )
         ).scalar_one_or_none()
         if existing is not None:

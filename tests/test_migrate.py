@@ -5,14 +5,15 @@ import sys
 
 import pytest
 from click.testing import CliRunner
-from sqlalchemy import CheckConstraint, inspect
+from sqlalchemy import CheckConstraint, insert, inspect
+from sqlalchemy.exc import IntegrityError
 
 from studysystem.cli import study
 from studysystem.db import migrate
 from studysystem.db.engine import data_dir, db_path, make_engine, snapshot
-from studysystem.db.tables import metadata
+from studysystem.db.tables import course, metadata, user
 
-HEAD = "0001"
+HEAD = "0002"
 
 
 def stamp() -> str | None:
@@ -158,3 +159,22 @@ def test_migration_creates_every_check(empty_engine):
     }
     assert declared - built == set()
     assert len(built) == len(declared)
+
+
+def test_the_migrated_index_refuses_a_semester_in_another_case(empty_engine):
+    """D-40, on the migrated database: the index-name check above cannot see an expression."""
+    migrate.upgrade(empty_engine)
+    row = {
+        "user_id": "0" * 26,
+        "code": "I3302-E",
+        "name": "Server-Side Web Development",
+        "instructor_tier": "unknown",
+        "credits_tier": "unknown",
+        "created_at": "2026-09-26T00:00:00Z",
+    }
+    with empty_engine.begin() as conn:
+        conn.execute(insert(user).values(id="0" * 26, created_at=row["created_at"]))
+        conn.execute(insert(course).values(id="1" * 26, semester_name="Semester 1", **row))
+
+    with pytest.raises(IntegrityError), empty_engine.begin() as conn:
+        conn.execute(insert(course).values(id="2" * 26, semester_name="SEMESTER 1", **row))

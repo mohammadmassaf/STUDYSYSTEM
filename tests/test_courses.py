@@ -89,3 +89,14 @@ def test_an_empty_input_is_invalid_and_writes_nothing(service_engine, user_id, c
     assert excinfo.value.code == "invalid_value"
     assert excinfo.value.field_errors[0]["field"] == field
     assert counts(service_engine) == (0, 0, 0)
+
+
+def test_the_same_semester_in_another_case_is_course_exists(service_engine, user_id):
+    """D-40: a retyped "semester 1" finds the course, never makes a second one."""
+    add_course(service_engine, user_id, "I3302-E", "Server-Side Web Development", SEM)
+
+    with pytest.raises(StudyError) as excinfo:
+        add_course(service_engine, user_id, "I3302-E", "Server-Side Web Development", SEM.lower())
+
+    assert excinfo.value.code == "course_exists"
+    assert counts(service_engine) == (1, 1, 1)
