@@ -59,7 +59,7 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         code: str,
         name: str,
         kind: str,
-        weight: float | None = None,
+        weight: str | float | None = None,
         semester_name: str | None = None,
     ) -> CallToolResult:
         return run(
@@ -98,7 +98,7 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "is the capacity for that day. A vacation is two calls - its start and the return."
         ),
     )
-    def study_set_capacity(hours_per_week: float, from_date: str) -> CallToolResult:
+    def study_set_capacity(hours_per_week: str | float, from_date: str) -> CallToolResult:
         return run(
             lambda: capacity.set_capacity(engine, current_user(engine), hours_per_week, from_date)
         )
