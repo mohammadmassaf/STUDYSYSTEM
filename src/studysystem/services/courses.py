@@ -4,21 +4,26 @@ A new course knows only what identifies it. Everything else starts NULL with tie
 never 0 - and moves to `declared` only when Mohammad states it.
 """
 
-from sqlalchemy import Engine, func, insert, select, update  # noqa: F401
+from sqlalchemy import Engine, func, insert, select, update
 
-from studysystem.db.tables import course  # noqa: F401
-from studysystem.errors import StudyError  # noqa: F401
-from studysystem.services import values  # noqa: F401
-from studysystem.services.assessments import insert_slot_and_assessment  # noqa: F401
-from studysystem.services.ids import new_id, now  # noqa: F401
-from studysystem.services.lookups import find_course  # noqa: F401
-from studysystem.services.units import write_unit  # noqa: F401
+from studysystem.db.tables import course
+from studysystem.errors import StudyError
+from studysystem.services import values
+from studysystem.services.assessments import insert_slot_and_assessment
+from studysystem.services.ids import new_id, now
+from studysystem.services.lookups import find_course
+from studysystem.services.units import write_unit
 
 # D-15: with no breakdown known, the final is the whole grade - an inference, not a fact.
 DEFAULT_FINAL = "Final exam"
 
-# What study_set_course_input accepts (D-37).
-COURSE_FIELDS = ("credits", "instructor", "target_grade")
+# What study_set_course_input accepts (D-37), each with its value check - the bounds are the
+# table's CHECKs, so the service refuses first and the CHECK stays a backstop (D-36).
+COURSE_FIELDS = {
+    "credits": lambda v: values.number("credits", v, gt=0),
+    "instructor": lambda v: values.text("instructor", v),
+    "target_grade": lambda v: values.number("target_grade", v, ge=0, le=100),
+}
 
 # Fields that sound like course inputs but have another home - the unknown_field fix names it.
 OTHER_HOMES = {
@@ -32,14 +37,6 @@ OTHER_HOMES = {
 def add_course(engine: Engine, user_id: str, code: str, name: str, semester_name: str) -> dict:
     """The course, its default final slot and that final's sitting, as one unit (Write units).
     Returns {"course_id", "slot_id", "assessment_id"}."""
-    # TODO(human):
-    #   before the lock: code, name and semester are non-empty text
-    #   in one unit:
-    #     this user already has the code in this semester (any case) -> course_exists,
-    #       the fix pointing at study_set_course_input
-    #     the course row: new id, owner, code, name, semester; instructor and credits
-    #       unknown (value NULL, tier unknown); target grade NULL; the rest by column default
-    #     the default final through the helper: an exam, weight 100, tier inferred (D-15)
     code = values.text("code", code)
     name = values.text("name", name)
     semester_name = values.text("semester_name", semester_name)
@@ -91,12 +88,32 @@ def set_course_input(
 ) -> dict:
     """Set one declared input on a course (D-37: setting declares, no way back to unknown).
     Returns {"course_id", "field", "value"}, plus the tier when the field has one."""
-    # TODO(human):
-    #   before the lock:
-    #     field not in COURSE_FIELDS -> unknown_field; the fix names the other home when
-    #       OTHER_HOMES knows it, else lists COURSE_FIELDS
-    #     no value -> invalid_value (D-37)
-    #     check the value by field: credits above 0 | instructor text | target grade 0-100
-    #   in one unit: find the course, update that one column - and its tier to declared,
-    #     except target_grade, which has no tier column
-    raise NotImplementedError
+    if field not in COURSE_FIELDS:
+        home = OTHER_HOMES.get(field)
+        raise StudyError(
+            code="unknown_field",
+            message=f"{field} is not a course input",
+            fix=f"set {field} with {home}"
+            if home is not None
+            else f"field must be one of: {', '.join(COURSE_FIELDS)}",
+            field_errors=[{"field": "field", "problem": f"{field!r} is not a course input"}],
+        )
+
+    if value is None:
+        raise values.invalid(
+            field,
+            "a set value cannot go back to unknown",
+            f"send the {field} you know; leave it unset while it is unknown",
+        )
+    nb = COURSE_FIELDS[field](value)
+    changes = {field: nb}
+    result = {"field": field, "value": nb}
+    if field != "target_grade":  # the one course input with no tier column
+        changes[f"{field}_tier"] = "declared"
+        result["tier"] = "declared"
+
+    with write_unit(engine) as conn:
+        course_id = find_course(conn, user_id, code, semester_name)
+        conn.execute(update(course).values(changes).where(course.c.id == course_id))
+
+    return {"course_id": course_id, **result}
