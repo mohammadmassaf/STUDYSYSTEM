@@ -5,19 +5,34 @@ The slot is the recurring component ("Final exam") and owns the past-paper pool;
 `assessment` row is this term's sitting - weight, date, time, room (ticket 21).
 """
 
-from sqlalchemy import Connection, Engine, func, insert, select, update  # noqa: F401
+from sqlalchemy import Connection, Engine, func, insert, select, update
 
-from studysystem.db.tables import assessment, assessment_slot  # noqa: F401
-from studysystem.errors import StudyError  # noqa: F401
-from studysystem.services import values  # noqa: F401
-from studysystem.services.ids import new_id, now  # noqa: F401
-from studysystem.services.lookups import find_assessment, find_course  # noqa: F401
-from studysystem.services.units import write_unit  # noqa: F401
+from studysystem.db.tables import assessment, assessment_slot
+from studysystem.errors import StudyError
+from studysystem.services import values
+from studysystem.services.ids import new_id, now
+from studysystem.services.lookups import find_assessment, find_course
+from studysystem.services.units import write_unit
 
 KINDS = ("exam", "project", "lab")
 
-# What study_set_assessment_input accepts. Status and mark are the post-exam flow's, not 1.7's.
-ASSESSMENT_FIELDS = ("weight", "date", "time", "room")
+# What study_set_assessment_input accepts, each with its value check - the bounds are the table's
+# CHECKs (D-36). Status and mark are the post-exam flow's, not 1.7's. `date` is the odd one: its
+# check returns a pair, (the date to store, whether it is approximate) - D-39.
+ASSESSMENT_FIELDS = {
+    "weight": lambda v: values.number("weight", v, ge=0, le=100),
+    "date": lambda v: values.day_or_month("date", v),
+    "time": lambda v: values.clock("time", v),
+    "room": lambda v: values.text("room", v),
+}
+
+# Fields that sound like assessment inputs but belong to the course - the unknown_field fix names
+# the tool that sets them.
+OTHER_HOMES = {
+    "credits": "study_set_course_input",
+    "instructor": "study_set_course_input",
+    "target_grade": "study_set_course_input",
+}
 
 
 def insert_slot_and_assessment(
@@ -32,34 +47,6 @@ def insert_slot_and_assessment(
     """Helper: one slot and its one sitting, on the caller's unit. Shared by `add_course` (the
     default final) and `add_assessment`, so the session-type rule lives in one place.
     Returns {"slot_id", "assessment_id"}."""
-    # TODO(human):
-    #   Every value either arrives as an argument or is made here; nothing is looked up.
-    #   Inputs are already checked by the caller - this only writes.
-    #
-    #   1. make the ids and the timestamp you will need
-    #        (the assessment row points at the slot's id - when must that id exist?)
-    #
-    #   2. insert one assessment_slot row:
-    #        id          <- a new id
-    #        owner_id    <- the user_id argument (the evidence cluster names it owner_id)
-    #        course_id   <- argument
-    #        name        <- argument            e.g. "Final exam"
-    #        kind        <- argument            e.g. "exam"
-    #        created_at  <- now
-    #
-    #   3. insert one assessment row:
-    #        id           <- another new id
-    #        user_id      <- the user_id argument
-    #        slot_id      <- the slot's id from step 2
-    #        weight       <- argument            e.g. 100, or None
-    #        weight_tier  <- argument            e.g. "inferred" - no column default,
-    #                                            so leaving it out fails the insert
-    #        session_type <- "first" if the kind is exam, else nothing (NULL)
-    #        created_at   <- now
-    #      leave out date, date_approx, time, room, status, mark - their defaults
-    #      (NULL, 0, NULL, NULL, "upcoming", NULL) are what a new sitting is
-    #
-    #   4. hand back {"slot_id": ..., "assessment_id": ...}
 
     slot_id = new_id()
     created_at = now()
@@ -102,14 +89,36 @@ def add_assessment(
 ) -> dict:
     """A new slot + sitting on an existing course. A weight given is declared; none is unknown.
     Returns {"course_id", "slot_id", "assessment_id"}."""
-    # TODO(human):
-    #   before the lock: check name, kind and (if given) weight
-    #   in one unit:
-    #     find the course
-    #     a slot of that course already has this name (any case) -> slot_exists,
-    #       the fix pointing at study_set_assessment_input
-    #     insert through the helper, with the tier that matches whether a weight came in
-    raise NotImplementedError
+    name = values.text("name", name)
+    if weight is not None:
+        weight = values.number("weight", weight, ge=0, le=100)
+    if kind not in KINDS:
+        raise values.invalid("kind", f"{kind!r} is not a kind", f"send one of: {', '.join(KINDS)}")
+    with write_unit(engine) as conn:
+        course_id = find_course(conn, user_id, code, semester_name)
+        slot_exist = conn.execute(
+            select(assessment_slot.c.id).where(
+                assessment_slot.c.course_id == course_id,
+                func.lower(assessment_slot.c.name) == func.lower(name),
+            )
+        ).scalar_one_or_none()
+        if slot_exist is not None:
+            raise StudyError(
+                code="slot_exists",
+                message=f"this course already has an assessment called {name}",
+                fix="change its weight, date, time or room with study_set_assessment_input",
+                field_errors=[{"field": "name", "problem": "already used in this course"}],
+            )
+        ids = insert_slot_and_assessment(
+            conn,
+            user_id,
+            course_id,
+            name,
+            kind,
+            weight,
+            "declared" if weight is not None else "unknown",
+        )
+    return {"course_id": course_id, **ids}
 
 
 def set_assessment_input(
@@ -123,12 +132,37 @@ def set_assessment_input(
 ) -> dict:
     """Set one input on a sitting (D-37: setting declares, no way back to unknown).
     Returns {"assessment_id", "field", "value"} plus the tier or approx flag it changed."""
-    # TODO(human):
-    #   before the lock:
-    #     field not one of ASSESSMENT_FIELDS -> unknown_field; the fix lists them, and for
-    #       credits / instructor / target_grade points at study_set_course_input
-    #     no value -> invalid_value (D-37)
-    #     check the value by field: weight 0-100 | date, exact or month (D-39) | time | room text
-    #   in one unit: find the course, then the assessment, then update only the columns this
-    #     field owns - weight moves its tier to declared, date moves the approx flag with it
-    raise NotImplementedError
+    if field not in ASSESSMENT_FIELDS:
+        home = OTHER_HOMES.get(field)
+        raise StudyError(
+            code="unknown_field",
+            message=f"{field} is not an assessment input",
+            fix=f"set {field} with {home}"
+            if home is not None
+            else f"field must be one of: {', '.join(ASSESSMENT_FIELDS)}",
+            field_errors=[{"field": "field", "problem": f"{field!r} is not an assessment input"}],
+        )
+    if value is None:
+        raise values.invalid(
+            field,
+            "a set value cannot go back to unknown",
+            f"send the {field} you know; leave it unset while it is unknown",
+        )
+    nb = ASSESSMENT_FIELDS[field](value)
+    if field == "date":  # D-39: the checker hands back (date, approximate?) - two columns
+        nb, approx = nb
+        changes = {"date": nb, "date_approx": int(approx)}  # 0/1 column, not a boolean
+        result = {"field": field, "value": nb, "date_approx": int(approx)}
+    else:
+        changes = {field: nb}
+        result = {"field": field, "value": nb}
+    if field == "weight":
+        changes["weight_tier"] = "declared"
+        result["tier"] = "declared"
+
+    with write_unit(engine) as conn:
+        course_id = find_course(conn, user_id, code, semester_name)
+        assessment_id = find_assessment(conn, user_id, course_id, assessment_name)
+        conn.execute(update(assessment).values(changes).where(assessment.c.id == assessment_id))
+
+    return {"assessment_id": assessment_id, **result}
