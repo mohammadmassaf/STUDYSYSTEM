@@ -129,3 +129,29 @@ def service_engine(request) -> Iterator[Engine]:
     metadata.create_all(engine)
     yield engine
     engine.dispose()
+
+
+# --- users ----------------------------------------------------------------
+
+
+@pytest.fixture
+def user_id(service_engine) -> str:
+    """The one v1 user, as `study migrate` makes it."""
+    from studysystem.services.users import ensure_user
+
+    return ensure_user(service_engine)
+
+
+@pytest.fixture
+def other_user_id(service_engine, user_id) -> str:
+    """A second user row - v1 never makes one, but ownership has to hold when it exists."""
+    from sqlalchemy import insert
+
+    from studysystem.db.tables import user
+    from studysystem.services.ids import new_id, now
+    from studysystem.services.units import write_unit
+
+    uid = new_id()
+    with write_unit(service_engine) as conn:
+        conn.execute(insert(user).values(id=uid, created_at=now()))
+    return uid
