@@ -33,11 +33,6 @@ def number(
 ) -> float:
     """A float within the bounds given: `gt` is strictly above, `ge` at least, `le` at most.
     Cowork may send `"3"` for 3, so a numeric string counts."""
-    # TODO(human):
-    #   turn the value into a float - a number, or a string that reads as one
-    #   anything else (a word, a bool, an empty string) -> invalid
-    #   each bound that was given: outside it -> invalid, the problem naming the bound
-    #   hand back the float
     if isinstance(value, bool):
         raise invalid(
             field, f"{value!r} is true/false, not a number", "send a number, e.g. 3 or 3.5"
@@ -62,9 +57,6 @@ def number(
 
 def text(field: str, value: object) -> str:
     """Non-empty text, surrounding spaces stripped."""
-    # TODO(human):
-    #   not a string, or nothing left after stripping -> invalid
-    #   hand back the stripped string
 
     if not isinstance(value, str):
         raise invalid(field, f"{value!r} is not text", f"send {field} as text")
@@ -77,9 +69,6 @@ def text(field: str, value: object) -> str:
 
 def day(field: str, value: object) -> str:
     """A real calendar date as `YYYY-MM-DD`."""
-    # TODO(human):
-    #   must be a string in exactly that shape, and a date that exists (2027-02-30 does not)
-    #   hand it back unchanged
     # The regex holds the shape; fromisoformat alone also takes 20270118 and 2027-W03-1.
     # [0-9], not \d: \d also matches Arabic-Indic digits.
     if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
@@ -94,11 +83,6 @@ def day(field: str, value: object) -> str:
 def day_or_month(field: str, value: object) -> tuple[str, bool]:
     """D-39: `YYYY-MM-DD` is exact; `YYYY-MM` is the 1st of that month, marked approximate.
     Returns (the date to store, whether it is approximate)."""
-    # TODO(human):
-
-    #   the exact shape -> reuse the day check, not approximate
-    #   the month shape -> the 1st of that month (it must be a real month), approximate
-    #   anything else -> invalid, and the fix shows both shapes
     shapes = "send YYYY-MM-DD, or YYYY-MM when only the month is known"
     if not isinstance(value, str):
         raise invalid(field, f"{value!r} is not a date", shapes)
@@ -114,8 +98,6 @@ def day_or_month(field: str, value: object) -> tuple[str, bool]:
 
 def clock(field: str, value: object) -> str:
     """A wall-clock time, `HH:MM`, 24-hour."""
-    # TODO(human):
-    #   two digits, a colon, two digits; hour 00-23, minute 00-59; else invalid
     shape = "send a 24-hour time like 09:00 or 14:30"
     if not isinstance(value, str) or not re.fullmatch(r"[0-9]{2}:[0-9]{2}", value):
         raise invalid(field, f"{value!r} is not an HH:MM time", shape)
