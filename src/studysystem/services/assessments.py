@@ -18,7 +18,8 @@ KINDS = ("exam", "project", "lab")
 
 # What study_set_assessment_input accepts, each with its value check - the bounds are the table's
 # CHECKs (D-36). Status and mark are the post-exam flow's, not 1.7's. `date` is the odd one: its
-# check returns a pair, (the date to store, whether it is approximate) - D-39.
+# check returns a pair, (the date to store, whether it is approximate). `2027-01-18` is exact;
+# `~2027-01-18` (an exam window's first day, D-41) and `2027-01` (the 1st, D-39) are approximate.
 ASSESSMENT_FIELDS = {
     "weight": lambda v: values.number("weight", v, ge=0, le=100),
     "date": lambda v: values.day_or_month("date", v),

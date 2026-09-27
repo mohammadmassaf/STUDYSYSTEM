@@ -68,6 +68,7 @@ def test_day_hands_back_a_real_date_unchanged():
         "18/01/2027",
         "2027-01",  # a month is day_or_month's job, not day's
         " 2027-01-18",
+        "~2027-01-18",  # capacity dates stay exact; ~ is day_or_month's (D-41)
         20270118,
         "٢٠٢٧-٠١-١٨",  # Arabic-Indic digits
     ],
@@ -85,21 +86,45 @@ def test_day_rejects(raw):
         ("2027-01-18", ("2027-01-18", False)),
         ("2027-01", ("2027-01-01", True)),
         ("2027-12", ("2027-12-01", True)),
+        ("~2027-01-18", ("2027-01-18", True)),  # D-41: that day at the earliest
+        ("~2028-02-29", ("2028-02-29", True)),  # a leap year
     ],
 )
-def test_day_or_month_exact_or_first_of_month(raw, stored):
+def test_day_or_month_exact_approximate_day_or_first_of_month(raw, stored):
     assert values.day_or_month("date", raw) == stored
 
 
 @pytest.mark.parametrize(
     "raw",
-    ["2027-13", "2027-00", "2027-1", "January 2027", "2027-02-30", 202701, None],
+    [
+        "2027-13",
+        "2027-00",
+        "2027-1",
+        "January 2027",
+        "2027-02-30",
+        202701,
+        None,
+        "~2027-02-30",  # approximate, but still not a real day
+        "~2027-01",  # a month is already approximate - one spelling per meaning
+        "~ 2027-01-18",
+        " ~2027-01-18",
+        "~~2027-01-18",
+        "2027-01-18~",
+        "≈2027-01-18",  # only ~ means approximate
+    ],
 )
 def test_day_or_month_rejects(raw):
     with pytest.raises(StudyError) as excinfo:
         values.day_or_month("date", raw)
     assert excinfo.value.code == "invalid_value"
     assert [e["field"] for e in excinfo.value.field_errors] == ["date"]
+
+
+def test_day_or_month_refusal_names_the_approximate_form():
+    """The host learns the ~ form from a refusal as well as from the tool description."""
+    with pytest.raises(StudyError) as excinfo:
+        values.day_or_month("date", "mid January")
+    assert "~YYYY-MM-DD" in excinfo.value.fix
 
 
 @pytest.mark.parametrize("raw", ["09:00", "00:00", "23:59"])

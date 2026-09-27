@@ -90,6 +90,20 @@ def test_setting_up_a_course_end_to_end(call):
     assert body(call(*steps[2]))["date_approx"] == 1
 
 
+def test_an_exam_window_date_goes_in_approximate_through_the_tool(call):
+    """D-41, the way the 16 real sittings go in: the window's first day, marked a guess."""
+    add_web(call)
+    call("study_add_assessment", {"code": "I3302-E", "name": "Midterm", "kind": "exam"})
+
+    result = call(
+        "study_set_assessment_input",
+        {"code": "I3302-E", "assessment": "Midterm", "field": "date", "value": "~2026-11-16"},
+    )
+
+    assert not result.is_error, result.content[0].text
+    assert (body(result)["value"], body(result)["date_approx"]) == ("2026-11-16", 1)
+
+
 @pytest.mark.parametrize(
     ("name", "args", "field"),
     [

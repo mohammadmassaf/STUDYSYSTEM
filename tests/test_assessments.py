@@ -92,6 +92,23 @@ def test_a_later_exact_date_clears_the_approximate_flag(service_engine, user_id,
     assert (a["date"], a["date_approx"]) == ("2027-01-18", 0)
 
 
+def test_an_exam_window_first_day_is_stored_approximate(service_engine, user_id, web):
+    """D-41: finals run from 18 January - the day is known at the earliest, not confirmed."""
+    result = set_final(service_engine, user_id, "date", "~2027-01-18")
+
+    assert result["value"] == "2027-01-18" and result["date_approx"] == 1
+    a = sitting(service_engine, web["assessment_id"])
+    assert (a["date"], a["date_approx"]) == ("2027-01-18", 1)
+
+
+def test_the_confirmed_day_replaces_the_window_guess(service_engine, user_id, web):
+    set_final(service_engine, user_id, "date", "~2027-01-18")
+    set_final(service_engine, user_id, "date", "2027-01-18")
+
+    a = sitting(service_engine, web["assessment_id"])
+    assert (a["date"], a["date_approx"]) == ("2027-01-18", 0)
+
+
 def test_setting_the_time_and_room(service_engine, user_id, web):
     assert set_final(service_engine, user_id, "time", "09:00") == {
         "assessment_id": web["assessment_id"],

@@ -82,12 +82,18 @@ def day(field: str, value: object) -> str:
 
 def day_or_month(field: str, value: object) -> tuple[str, bool]:
     """D-39: `YYYY-MM-DD` is exact; `YYYY-MM` is the 1st of that month, marked approximate.
+    D-41: `~YYYY-MM-DD` is that day at the earliest (an exam window's first day), approximate.
     Returns (the date to store, whether it is approximate)."""
-    shapes = "send YYYY-MM-DD, or YYYY-MM when only the month is known"
+    shapes = (
+        "send YYYY-MM-DD for a confirmed day, ~YYYY-MM-DD for the earliest possible day "
+        "(e.g. an exam window's first day), or YYYY-MM when only the month is known"
+    )
     if not isinstance(value, str):
         raise invalid(field, f"{value!r} is not a date", shapes)
     if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
         return day(field, value), False
+    if re.fullmatch(r"~[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        return day(field, value[1:]), True
     if re.fullmatch(r"[0-9]{4}-[0-9]{2}", value):
         month = int(value[5:])
         if month < 1 or month > 12:
