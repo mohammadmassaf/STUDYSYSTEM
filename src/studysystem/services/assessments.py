@@ -93,8 +93,7 @@ def add_assessment(
     name = values.text("name", name)
     if weight is not None:
         weight = values.number("weight", weight, ge=0, le=100)
-    if kind not in KINDS:
-        raise values.invalid("kind", f"{kind!r} is not a kind", f"send one of: {', '.join(KINDS)}")
+    kind = values.choice("kind", kind, KINDS)
     with write_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
         slot_exist = conn.execute(

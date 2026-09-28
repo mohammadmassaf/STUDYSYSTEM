@@ -67,6 +67,23 @@ def text(field: str, value: object) -> str:
     return value
 
 
+def choice(field: str, value: object, options: tuple[str, ...]) -> str:
+    """One of `options`, matched ignoring case and surrounding spaces: "First" can only mean
+    `first`, so refusing it would only cost the host a retry."""
+    if not isinstance(value, str) or value.strip().lower() not in options:
+        raise invalid(field, f"{value!r} is not one of them", f"send one of: {', '.join(options)}")
+    return value.strip().lower()
+
+
+def flag(field: str, value: object) -> bool:
+    """True or false. Cowork may send `"false"` for false, so the words count."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+        return value.strip().lower() == "true"
+    raise invalid(field, f"{value!r} is not true or false", "send true or false")
+
+
 def day(field: str, value: object) -> str:
     """A real calendar date as `YYYY-MM-DD`."""
     # The regex holds the shape; fromisoformat alone also takes 20270118 and 2027-W03-1.

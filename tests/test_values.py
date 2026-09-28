@@ -140,3 +140,34 @@ def test_clock_rejects(raw):
         values.clock("time", raw)
     assert excinfo.value.code == "invalid_value"
     assert [e["field"] for e in excinfo.value.field_errors] == ["time"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "stored"),
+    [("first", "first"), ("First", "first"), (" SECOND ", "second")],
+)
+def test_choice_matches_ignoring_case_and_spaces(raw, stored):
+    assert values.choice("session_type", raw, ("first", "second")) == stored
+
+
+@pytest.mark.parametrize("raw", ["resit", "", "firstt", None, 1])
+def test_choice_rejects_and_the_fix_lists_the_options(raw):
+    with pytest.raises(StudyError) as excinfo:
+        values.choice("session_type", raw, ("first", "second"))
+    assert [e["field"] for e in excinfo.value.field_errors] == ["session_type"]
+    assert "first, second" in excinfo.value.fix
+
+
+@pytest.mark.parametrize(
+    ("raw", "stored"),
+    [(True, True), (False, False), ("true", True), (" False ", False)],
+)
+def test_flag_takes_a_bool_or_its_word(raw, stored):
+    assert values.flag("session_delayed", raw) is stored
+
+
+@pytest.mark.parametrize("raw", ["yes", "0", 0, 1, None])
+def test_flag_rejects_anything_else(raw):
+    with pytest.raises(StudyError) as excinfo:
+        values.flag("session_delayed", raw)
+    assert [e["field"] for e in excinfo.value.field_errors] == ["session_delayed"]

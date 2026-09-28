@@ -261,6 +261,12 @@ def test_a_project_has_no_session_type(service_engine, user_id, web_bare):
     )
 
 
+def test_the_kind_is_matched_in_any_case(service_engine, user_id, web_bare):
+    add_assessment(service_engine, user_id, "I3302-E", "Project", " Project ", 20)
+
+    assert slots(service_engine, web_bare["course_id"])["Project"][0] == "project"
+
+
 def test_a_name_the_course_already_has_in_any_case_is_slot_exists(
     service_engine, user_id, web_bare
 ):
