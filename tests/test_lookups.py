@@ -6,7 +6,7 @@ import pytest
 from studysystem.errors import StudyError
 from studysystem.services.assessments import insert_slot_and_assessment
 from studysystem.services.courses import add_course
-from studysystem.services.lookups import find_assessment, find_course
+from studysystem.services.lookups import find_assessment, find_course, find_slot
 from studysystem.services.units import write_unit
 
 SEM = "Semester 1 2026-2027"
@@ -62,6 +62,36 @@ def test_another_user_s_course_is_not_found(service_engine, user_id, other_user_
     add_course(service_engine, other_user_id, "I3302-E", "Someone else's", SEM)
 
     err = lookup_error(service_engine, find_course, user_id, "I3302-E", None)
+
+    assert err.code == "not_found"
+
+
+# --- find_slot --------------------------------------------------------------
+
+
+def test_find_slot_matches_the_name_in_any_case(service_engine, user_id):
+    ids = add_course(service_engine, user_id, "I3302-E", "Server-Side Web Development", SEM)
+
+    with service_engine.connect() as conn:
+        found = find_slot(conn, user_id, ids["course_id"], "final EXAM")
+
+    assert found == ids["slot_id"]
+
+
+def test_a_near_miss_slot_is_not_found_never_created(service_engine, user_id):
+    """D-42: "Final" is not "Final exam" - the paper pool must not split."""
+    ids = add_course(service_engine, user_id, "I3302-E", "Server-Side Web Development", SEM)
+
+    err = lookup_error(service_engine, find_slot, user_id, ids["course_id"], "Final")
+
+    assert err.code == "not_found"
+    assert "Final exam" in err.fix
+
+
+def test_another_user_s_slot_is_not_found(service_engine, user_id, other_user_id):
+    ids = add_course(service_engine, user_id, "I3302-E", "Server-Side Web Development", SEM)
+
+    err = lookup_error(service_engine, find_slot, other_user_id, ids["course_id"], "Final exam")
 
     assert err.code == "not_found"
 

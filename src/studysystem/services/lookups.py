@@ -41,14 +41,13 @@ def find_course(conn: Connection, user_id: str, code: str, semester_name: str | 
     return rows[0].id
 
 
-def find_assessment(conn: Connection, user_id: str, course_id: str, name: str) -> str:
-    """The id of the assessment under this course's slot called `name` (case-insensitive).
-    One per slot in 1.7 - nothing adds a resit sitting yet."""
+def find_slot(conn: Connection, user_id: str, course_id: str, name: str) -> str:
+    """The id of this course's slot called `name` (case-insensitive). Never creates one: a
+    near miss like "Mid-term" is `not_found` listing the real names, so the paper pool cannot
+    split across two slots (D-35, D-42)."""
     found = conn.execute(
-        select(assessment.c.id)
-        .join_from(assessment_slot, assessment)
-        .where(
-            assessment.c.user_id == user_id,
+        select(assessment_slot.c.id).where(
+            assessment_slot.c.owner_id == user_id,
             assessment_slot.c.course_id == course_id,
             func.lower(assessment_slot.c.name) == func.lower(name),
         )
@@ -73,3 +72,14 @@ def find_assessment(conn: Connection, user_id: str, course_id: str, name: str) -
         "or add a new one with study_add_assessment",
         field_errors=[{"field": "assessment", "problem": "no assessment with this name"}],
     )
+
+
+def find_assessment(conn: Connection, user_id: str, course_id: str, name: str) -> str:
+    """The id of the sitting under this course's slot called `name`. One per slot in 1.7 -
+    nothing adds a resit sitting yet."""
+    slot_id = find_slot(conn, user_id, course_id, name)
+    return conn.execute(
+        select(assessment.c.id).where(
+            assessment.c.user_id == user_id, assessment.c.slot_id == slot_id
+        )
+    ).scalar_one()
