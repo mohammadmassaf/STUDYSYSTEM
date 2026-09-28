@@ -155,3 +155,29 @@ def other_user_id(service_engine, user_id) -> str:
     with write_unit(service_engine) as conn:
         conn.execute(insert(user).values(id=uid, created_at=now()))
     return uid
+
+
+# --- tools ------------------------------------------------------------------
+
+
+@pytest.fixture
+def call(service_engine, user_id):
+    """Call one tool on a server wired to this test's database; returns the CallToolResult.
+    `user_id` is asked for only so the user row exists - every tool resolves it with
+    `current_user`, as `study migrate` would have made it."""
+    import asyncio
+
+    from mcp import Client
+
+    from studysystem.server import create_server
+
+    server = create_server(service_engine)
+
+    def _call(name: str, args: dict):
+        async def go():
+            async with Client(server) as client:
+                return await client.call_tool(name, args)
+
+        return asyncio.run(go())
+
+    return _call

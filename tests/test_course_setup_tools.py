@@ -8,6 +8,7 @@ import pytest
 from mcp import Client
 
 from studysystem.server import create_server
+from tests._papers import pdf_bytes, write
 
 SEM = "Semester 1 2026-2027"
 SETUP_TOOLS = {
@@ -17,23 +18,6 @@ SETUP_TOOLS = {
     "study_set_assessment_input",
     "study_set_capacity",
 }
-
-
-@pytest.fixture
-def call(service_engine, user_id):
-    """Call one tool on a server wired to this test's database; returns the CallToolResult.
-    `user_id` is asked for only so the user row exists - every tool resolves it with
-    `current_user`, as `study migrate` would have made it."""
-    server = create_server(service_engine)
-
-    def _call(name: str, args: dict):
-        async def go():
-            async with Client(server) as client:
-                return await client.call_tool(name, args)
-
-        return asyncio.run(go())
-
-    return _call
 
 
 def body(result) -> dict:
@@ -135,3 +119,53 @@ def test_a_bad_value_comes_back_in_the_d17_shape_not_the_sdk_s(call, name, args,
     assert err["code"] == "invalid_value"
     assert err["field_errors"][0]["field"] == field
     assert err["fix"]
+
+
+# --- study_add_past_exam ------------------------------------------------------
+
+
+def test_add_past_exam_is_listed(service_engine):
+    async def go():
+        async with Client(create_server(service_engine)) as client:
+            return await client.list_tools()
+
+    assert "study_add_past_exam" in {t.name for t in asyncio.run(go()).tools}
+
+
+def test_a_paper_goes_in_through_the_tool(call, tmp_path):
+    add_web(call)
+    path = write(tmp_path / "dl", "I3302_20192020_First.pdf", pdf_bytes("Final 2020-02-17"))
+
+    result = call(
+        "study_add_past_exam",
+        {
+            "code": "I3302-E",
+            "assessment": "Final exam",
+            "session_type": "first",
+            "session_date": "2020-02-17",
+            "paths": [path],
+            "instructor": "Dr. Mohamad Hamze",
+        },
+    )
+
+    assert not result.is_error, result.content[0].text
+    assert body(result)["has_text_layer"] is True
+
+
+def test_a_near_miss_slot_comes_back_as_not_found_through_the_tool(call, tmp_path):
+    add_web(call)
+    path = write(tmp_path / "dl", "p.pdf", pdf_bytes("x"))
+
+    result = call(
+        "study_add_past_exam",
+        {
+            "code": "I3302-E",
+            "assessment": "Final",
+            "session_type": "first",
+            "session_date": "2020-02-17",
+            "paths": path,
+        },
+    )
+
+    assert result.is_error
+    assert body(result)["code"] == "not_found"
