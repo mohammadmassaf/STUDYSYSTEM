@@ -8,13 +8,18 @@ finds it already there.
 
 A paper is **one PDF, or one or more page images in page order** (photos downloaded to the
 laptop). A PDF is kept as `<sha256>.pdf`; images as a folder `<sha256>/` of `01.jpg`, `02.png`...
+
+The way back out is `read_pages`: generation hands the host the paper's text and pictures, never
+a path.
 """
 
 import hashlib
+import io
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+import pypdfium2 as pdfium
 from pypdf import PdfReader
 from pypdf.errors import PyPdfError
 
@@ -115,3 +120,69 @@ def keep(paper: Paper) -> list[str]:
             shutil.copyfile(src, partial / name)
         partial.rename(folder)
     return names
+
+
+@dataclass(frozen=True)
+class Page:
+    """One page on its way out (D-49): its text, a picture of it, or both."""
+
+    text: str | None  # None for a photo - its words are only in the picture
+    image: bytes | None  # None when the text is the whole page
+    mime_type: str | None
+
+
+MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
+
+# A PDF page is drawn at 1.5x (108 dpi) and saved as JPEG quality 70: paper 1's figures read
+# cleanly at ~150 KB of base64 a page, where 2x costs half as much again (D-49).
+RENDER_SCALE = 1.5
+JPEG_QUALITY = 70
+
+
+def read_pages(file_ref: str) -> list[Page]:
+    """The kept paper, page by page in page order - how it leaves the server as content, never
+    as a path (D-44). A PDF page carries its text, plus a picture when an image sits on it; a
+    photo is a picture with no text."""
+    if file_ref.endswith("/"):
+        folder = papers_dir() / file_ref.rstrip("/")
+        return [
+            Page(None, f.read_bytes(), MIME[f.suffix.lower()]) for f in sorted(folder.iterdir())
+        ]
+
+    path = papers_dir() / file_ref
+    reader = PdfReader(path)
+    pictured = {i for i, page in enumerate(reader.pages) if _has_image(page)}
+    pictures = _render(path, pictured) if pictured else {}
+    return [
+        Page(
+            page.extract_text() or "",
+            pictures.get(i),
+            "image/jpeg" if i in pictured else None,
+        )
+        for i, page in enumerate(reader.pages)
+    ]
+
+
+def _has_image(page) -> bool:
+    """Whether an image is placed on the page itself. A figure drawn with the PDF's own lines is
+    not an image and is missed - D-49's accepted cost."""
+    resources = page.get("/Resources")
+    xobjects = resources.get_object().get("/XObject") if resources is not None else None
+    if xobjects is None:
+        return False
+    return any(x.get_object().get("/Subtype") == "/Image" for x in xobjects.get_object().values())
+
+
+def _render(path: Path, indexes: set[int]) -> dict[int, bytes]:
+    """JPEG pictures of the pages at `indexes` (from 0)."""
+    pdf = pdfium.PdfDocument(path)
+    try:
+        pictures = {}
+        for i in sorted(indexes):
+            image = pdf[i].render(scale=RENDER_SCALE).to_pil().convert("RGB")
+            buffer = io.BytesIO()
+            image.save(buffer, "JPEG", quality=JPEG_QUALITY)
+            pictures[i] = buffer.getvalue()
+        return pictures
+    finally:
+        pdf.close()

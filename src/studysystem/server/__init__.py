@@ -1,6 +1,7 @@
 """The MCP front door: build the server, wire every tool module, run the transport."""
 
 import datetime
+import logging
 import sys
 
 from mcp.server import MCPServer
@@ -8,7 +9,7 @@ from sqlalchemy import Engine
 
 from studysystem.db.engine import db_path, make_engine, snapshot
 from studysystem.db.migrate import SchemaBehindHead, check_schema
-from studysystem.tools import course_setup, past_exams, ping
+from studysystem.tools import course_setup, generation, past_exams, ping
 
 
 def create_server(engine: Engine) -> MCPServer:
@@ -18,10 +19,14 @@ def create_server(engine: Engine) -> MCPServer:
     ping.register(mcp)
     course_setup.register(mcp, engine)
     past_exams.register(mcp, engine)
+    generation.register(mcp, engine)
     return mcp
 
 
 def main() -> None:
+    # stderr only: stdout carries the MCP messages. The SDK stays at warnings; ours at info.
+    logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="%(asctime)s %(message)s")
+    logging.getLogger("studysystem").setLevel(logging.INFO)
     engine = make_engine(db_path())
     try:
         check_schema(engine)

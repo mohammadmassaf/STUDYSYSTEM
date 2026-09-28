@@ -5,7 +5,7 @@ import pytest
 
 from studysystem.errors import StudyError
 from studysystem.services import intake
-from tests._papers import JPEG, PNG, pdf_bytes, write
+from tests._papers import JPEG, PNG, pdf_bytes, pdf_pages, write
 
 
 @pytest.fixture
@@ -150,3 +150,44 @@ def test_a_refusal_keeps_nothing(downloads):
     refusal([*pages(downloads, 2), write(downloads, "notes.txt", b"hello")])
 
     assert not intake.papers_dir().exists()
+
+
+# --- the way back out (D-49) --------------------------------------------------------
+
+
+def kept(paths) -> str:
+    """Read and keep a paper as add_past_exam would; returns its file_ref."""
+    paper = intake.read(paths)
+    intake.keep(paper)
+    return paper.file_ref
+
+
+def test_a_typed_pdf_leaves_as_text(downloads):
+    ref = kept([write(downloads, "p.pdf", pdf_pages(["page one", "page two"]))])
+
+    pages = intake.read_pages(ref)
+
+    assert [p.text for p in pages] == ["page one", "page two"]
+    assert [p.image for p in pages] == [None, None]
+
+
+def test_a_page_with_a_figure_also_leaves_as_a_jpeg(downloads):
+    ref = kept([write(downloads, "p.pdf", pdf_pages(["one", "two", "three"], pictured={2}))])
+
+    pages = intake.read_pages(ref)
+
+    assert [p.image is not None for p in pages] == [False, True, False]
+    assert pages[1].mime_type == "image/jpeg"
+    assert pages[1].image.startswith(JPEG[:3])
+    assert pages[1].text.strip() == "two"  # the text goes too
+
+
+def test_photos_leave_as_pictures_with_no_text(downloads):
+    ref = kept([write(downloads, "1.jpg", JPEG), write(downloads, "2.png", PNG + b"2")])
+
+    pages = intake.read_pages(ref)
+
+    assert [(p.text, p.image, p.mime_type) for p in pages] == [
+        (None, JPEG, "image/jpeg"),
+        (None, PNG + b"2", "image/png"),
+    ]
