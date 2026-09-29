@@ -967,6 +967,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "click" },
+    { name = "jsonschema" },
     { name = "mcp" },
     { name = "pillow" },
     { name = "platformdirs" },
@@ -987,6 +988,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.20.0" },
     { name = "click", specifier = ">=8.5.0" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "mcp", specifier = ">=2,<3" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "platformdirs", specifier = ">=4.11.9" },

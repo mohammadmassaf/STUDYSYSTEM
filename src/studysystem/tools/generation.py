@@ -1,4 +1,5 @@
-"""The generation contract, outbound (D-11, D-47): the host asks, the server hands it a task."""
+"""The generation contract (D-11, D-47): the host asks, the server hands it a task; the host
+submits, the server keeps what is valid (D-52, D-53)."""
 
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
@@ -6,7 +7,7 @@ from sqlalchemy import Engine
 
 from studysystem.services import generation
 from studysystem.services.users import current_user
-from studysystem.tools.results import run_task
+from studysystem.tools.results import run, run_task
 
 
 def register(mcp: MCPServer, engine: Engine) -> None:
@@ -26,4 +27,21 @@ def register(mcp: MCPServer, engine: Engine) -> None:
     def study_start_generation(kind: str, past_exam_id: str | None = None) -> CallToolResult:
         return run_task(
             lambda: generation.start_generation(engine, current_user(engine), kind, past_exam_id)
+        )
+
+    @mcp.tool(
+        name="study_submit_generation",
+        description=(
+            "Submit the result of a generation task: task_id from study_start_generation, "
+            "payload the JSON its schema describes. Valid items are kept; each invalid one "
+            "comes back in item_errors, named by its place in this payload - fix those and "
+            "submit again, sending only them or everything (items already accepted are "
+            "skipped, never rewritten). missing lists positions no item has filled yet. "
+            "A task takes at most 3 submissions; it closes when one has no errors and no "
+            "missing position."
+        ),
+    )
+    def study_submit_generation(task_id: str, payload: dict) -> CallToolResult:
+        return run(
+            lambda: generation.submit_generation(engine, current_user(engine), task_id, payload)
         )
