@@ -223,14 +223,19 @@ def test_a_printed_answer_key_is_verified_source(service_engine, user_id, task_i
     assert second["answer_provenance"] == "none"
 
 
-def test_an_empty_answer_key_is_an_item_error(service_engine, user_id, task_id):
-    """ "" is not a printed answer: the host must send null (D-57)."""
-    items = broken(paper1_items(), 2, answer_key="")
+@pytest.mark.parametrize("field", ["answer_key", "question"])
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_answer_key_or_question_is_an_item_error(
+    service_engine, user_id, task_id, field, blank
+):
+    """Blank is not printed text: a missing answer is null (D-57), and a question has words."""
+    items = broken(paper1_items(), 2, **{field: blank})
 
     reply = submit(service_engine, user_id, task_id, payload(items))
 
     (err,) = reply["item_errors"]
-    assert (err["item_ordinal"], err["code"], err["field"]) == (2, "minLength", "answer_key")
+    assert (err["item_ordinal"], err["code"], err["field"]) == (2, "pattern", field)
+    assert err["message"] == f"{field} must contain at least one non-space character"
     assert 2 not in [r["position"] for r in rows(service_engine, practice_item)]
 
 

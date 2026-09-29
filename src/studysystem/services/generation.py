@@ -72,12 +72,12 @@ TRANSCRIPTION_SCHEMA = {
                     },
                     "question": {
                         "type": "string",
-                        "minLength": 1,
+                        "pattern": r"\S",
                         "description": "the question exactly as printed, with its examples",
                     },
                     "answer_key": {
                         "type": ["string", "null"],
-                        "minLength": 1,
+                        "pattern": r"\S",
                         "description": "only an answer printed on the paper; otherwise null",
                     },
                     "marks": {
@@ -267,6 +267,7 @@ def _transcription_task(conn: Connection, paper, task_id: str) -> Task:
     for index, p in enumerate(pages, start=1):
         page = {}
         if p.image is not None:
+            assert p.mime_type is not None  # intake sets it with every picture
             picture = Picture(mime_type=p.mime_type, data=base64.b64encode(p.image).decode())
             pictures.append(picture)
             count += 1
@@ -480,7 +481,12 @@ def _schema_errors(ordinal: int, item: Any) -> list[dict]:
     for err in _ITEM_CHECK.iter_errors(item):
         if err.path:  # a field's own value is wrong: marks -9, topic of the wrong shape
             name = str(err.path[0])
-            message = TOPIC_SHAPE if name == "topic" else err.message
+            if name == "topic":
+                message = TOPIC_SHAPE
+            elif err.validator == "pattern":  # the only pattern is \S: blank text
+                message = f"{name} must contain at least one non-space character"
+            else:
+                message = err.message
             errors.append(_item_error(ordinal, str(err.validator), name, message))
         elif err.validator == "required":
             missing = [n for n in err.validator_value if n not in err.instance]
