@@ -35,7 +35,7 @@ from studysystem.db.tables import (
     topic,
 )
 from studysystem.errors import StudyError
-from studysystem.services import intake, values
+from studysystem.services import intake, topics, values
 from studysystem.services.ids import new_id, now
 from studysystem.services.units import write_unit
 
@@ -45,10 +45,6 @@ log = logging.getLogger(__name__)
 
 KINDS = ("note", "practice", "memory", "transcription", "timetable")
 BUILT = ("transcription",)  # the rest arrive with their tasks (D-47)
-
-# Topics a transcribed item may be tagged to: live ones, `proposed` included (1.10 accepts a
-# proposal). `superseded` and `declined` topics are retired and never offered.
-TAGGABLE = ("proposed", "active", "unexamined")
 
 # What 1.10 validates each submission against. The server fills in what the host must not get
 # wrong: origin = past-exam, past_exam_id, source_marker = from-material, answer_provenance.
@@ -284,17 +280,17 @@ def _transcription_task(conn: Connection, paper, task_id: str) -> Task:
 
     rows = conn.execute(
         select(topic.c.id, topic.c.name, topic.c.status)
-        .where(topic.c.course_id == course_id, topic.c.status.in_(TAGGABLE))
+        .where(topic.c.course_id == course_id, topic.c.status.in_(topics.TAGGABLE))
         .order_by(topic.c.id)
     )
-    topics = []
+    live = []
     for row in rows:
-        topics.append(dict(row._mapping))
+        live.append(dict(row._mapping))
     payload = {
         "task_id": task_id,
         "content": content,
         "schema": TRANSCRIPTION_SCHEMA,
-        "rules": {"steps": TRANSCRIPTION_STEPS, "topics": topics},
+        "rules": {"steps": TRANSCRIPTION_STEPS, "topics": live},
     }
     return Task(payload=payload, pictures=pictures)
 
@@ -339,9 +335,18 @@ def submit_generation(engine: Engine, user_id: str, task_id: str, payload: Any) 
         else:
             judged = _judge(conn, user_id, course_id, payload["items"], accepted_before)
 
+        landed = set()
         for item in judged.accepted:
-            topic_id = _topic_for(conn, user_id, course_id, item["topic"])
+            topic_id = topics.topic_for(conn, user_id, course_id, item["topic"])
             _write_item(conn, task, task.scope_id, item, topic_id)
+            landed.add(topic_id)
+        # an item on an already-active topic may bring a new slot, which only submit sees (D-60)
+        active = conn.execute(
+            select(topic.c.id).where(topic.c.id.in_(landed), topic.c.status == "active")
+        ).scalars()
+        for topic_id in active.all():
+            for assessment_id in topics.exam_assessments(conn, topic_id):
+                topics.edge_if_missing(conn, user_id, topic_id, assessment_id)
         ordinal = (
             conn.execute(
                 select(func.count()).select_from(submission).where(submission.c.task_id == task.id)
@@ -536,7 +541,7 @@ def _judge(
             )
         elif item["position"] in accepted_before:
             skipped.append(item["position"])
-        elif "id" in item["topic"] and not _is_live_topic(
+        elif "id" in item["topic"] and not topics.is_live_topic(
             conn, user_id, course_id, item["topic"]["id"]
         ):
             errors.append(
@@ -555,52 +560,6 @@ def _judge(
         key=lambda e: e["item_ordinal"]
     )  # loop A's errors came first; put them in item order
     return Judged(accepted, errors, skipped)
-
-
-def _is_live_topic(conn: Connection, user_id: str, course_id: str, topic_id: str) -> bool:
-    """Whether `topic_id` is a live topic (TAGGABLE) of this user's course."""
-    found = conn.execute(
-        select(topic.c.id).where(
-            topic.c.id == topic_id,
-            topic.c.user_id == user_id,
-            topic.c.course_id == course_id,
-            topic.c.status.in_(TAGGABLE),
-        )
-    ).scalar_one_or_none()
-    return found is not None
-
-
-def _topic_for(conn: Connection, user_id: str, course_id: str, ref: dict) -> str:
-    """The topic id an accepted item is tagged to (D-51)."""
-
-    if "id" in ref:
-        return ref["id"]
-    name = ref["proposed_name"].strip()
-    topic_id = conn.execute(
-        select(topic.c.id).where(
-            topic.c.user_id == user_id,
-            topic.c.course_id == course_id,
-            func.lower(topic.c.name) == func.lower(name),
-            topic.c.status.in_(TAGGABLE),
-        )
-    ).scalar_one_or_none()
-    if topic_id is not None:
-        return topic_id
-    topic_id = new_id()
-
-    conn.execute(
-        insert(topic).values(
-            id=topic_id,
-            user_id=user_id,
-            course_id=course_id,
-            name=name,
-            status="proposed",
-            proposed_by="profile",
-            status_changed_at=now(),
-            created_at=now(),
-        )
-    )
-    return topic_id
 
 
 def _write_item(conn: Connection, task, paper_id: str, item: dict, topic_id: str) -> None:
