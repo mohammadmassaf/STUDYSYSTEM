@@ -9,7 +9,7 @@ from sqlalchemy import Engine
 
 from studysystem.db.engine import db_path, make_engine, snapshot
 from studysystem.db.migrate import SchemaBehindHead, check_schema
-from studysystem.tools import course_setup, generation, past_exams, ping, topics
+from studysystem.tools import course_setup, generation, past_exams, ping, profiles, topics
 
 
 def create_server(engine: Engine) -> MCPServer:
@@ -21,6 +21,7 @@ def create_server(engine: Engine) -> MCPServer:
     past_exams.register(mcp, engine)
     generation.register(mcp, engine)
     topics.register(mcp, engine)
+    profiles.register(mcp, engine)
     return mcp
 
 
