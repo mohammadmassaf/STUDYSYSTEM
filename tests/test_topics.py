@@ -506,3 +506,17 @@ def test_a_refused_decision_reaches_the_host_as_an_error_result(call, user_id, w
 
     assert result.is_error
     assert json.loads(result.content[0].text)["code"] == "not_found"
+
+
+def test_declining_an_accepted_topic_is_refused(service_engine, user_id, paper2):
+    confirm_topic_proposal(service_engine, user_id, paper2, "accept")
+    retag = [
+        {"item_id": i, "topic": {"proposed_name": "PHP sessions"}}
+        for i in item_ids(service_engine, SESSIONS)
+    ]
+
+    err = refused(service_engine, user_id, paper2, "decline", retag)
+
+    assert err.code == "not_proposed"
+    assert status_of(service_engine, paper2) == "active"
+    assert len(item_ids(service_engine, SESSIONS)) == 5
