@@ -13,7 +13,7 @@ from studysystem.db import migrate
 from studysystem.db.engine import data_dir, db_path, make_engine, snapshot
 from studysystem.db.tables import course, metadata, user
 
-HEAD = "0002"
+HEAD = "0003"
 
 
 def stamp() -> str | None:

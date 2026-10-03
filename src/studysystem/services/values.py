@@ -128,3 +128,17 @@ def clock(field: str, value: object) -> str:
     if hour > 23 or minute > 59:
         raise invalid(field, f"{value} is not a real time", shape)
     return value
+
+
+def folder(field: str, value: object) -> str:
+    """A folder path relative to a root the server owns, stored with `/` separators. The server
+    writes files under it, so a path that could leave the root - absolute, or through `..` - is
+    refused here, before it is ever joined to the root."""
+    shape = "send a path relative to the vault root, e.g. uni/Semester 1 2026-2027/Web Development"
+    value = text(field, value).replace("\\", "/")
+    if re.match(r"[A-Za-z]:", value) or value.startswith("/"):
+        raise invalid(field, f"{value!r} is an absolute path", shape)
+    value = value.rstrip("/")
+    if any(part in ("", ".", "..") for part in value.split("/")):
+        raise invalid(field, f"{value!r} has an empty, '.' or '..' part", shape)
+    return value

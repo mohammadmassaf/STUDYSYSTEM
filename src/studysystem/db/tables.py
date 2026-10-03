@@ -156,6 +156,7 @@ course = Table(
     Column("semester_end", Text, nullable=True),
     CheckConstraint("semester_end > semester_start", name="semester_order"),
     bool_col("semester_end_approx"),
+    Column("vault_folder", Text, nullable=True),  # under the vault root; NULL = not declared (D-72)
     ts(),
 )
 Index(

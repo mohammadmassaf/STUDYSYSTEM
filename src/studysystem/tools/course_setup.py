@@ -32,9 +32,11 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         name="study_set_course_input",
         description=(
             "Set one known fact about a course, found by its code. field: 'credits' (a number "
-            "above 0), 'instructor' (text) or 'target_grade' (0-100, percent of the course "
-            "grade). Setting a value marks it declared; it cannot be set back to unknown. Pass "
-            "semester_name only when the code exists in more than one semester."
+            "above 0), 'instructor' (text), 'target_grade' (0-100, percent of the course "
+            "grade) or 'vault_folder' (the course's folder, relative to the vault root, where "
+            "its notes are exported - e.g. 'uni/Semester 1 2026-2027/Server-Side Web "
+            "Development'). Setting a value marks it declared; it cannot be set back to "
+            "unknown. Pass semester_name only when the code exists in more than one semester."
         ),
     )
     def study_set_course_input(

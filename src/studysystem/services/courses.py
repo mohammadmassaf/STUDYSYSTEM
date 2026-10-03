@@ -23,7 +23,11 @@ COURSE_FIELDS = {
     "credits": lambda v: values.number("credits", v, gt=0),
     "instructor": lambda v: values.text("instructor", v),
     "target_grade": lambda v: values.number("target_grade", v, ge=0, le=100),
+    "vault_folder": lambda v: values.folder("vault_folder", v),
 }
+
+# Inputs that can only ever be declared, so NULL already says "not known" - no tier column.
+NO_TIER = ("target_grade", "vault_folder")
 
 # Fields that sound like course inputs but have another home - the unknown_field fix names it.
 OTHER_HOMES = {
@@ -108,7 +112,7 @@ def set_course_input(
     nb = COURSE_FIELDS[field](value)
     changes = {field: nb}
     result = {"field": field, "value": nb}
-    if field != "target_grade":  # the one course input with no tier column
+    if field not in NO_TIER:
         changes[f"{field}_tier"] = "declared"
         result["tier"] = "declared"
 

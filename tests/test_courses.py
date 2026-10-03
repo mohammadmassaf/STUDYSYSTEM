@@ -116,6 +116,7 @@ def untouched(row) -> bool:
         (row["credits"], row["credits_tier"]) == (None, "unknown")
         and (row["instructor"], row["instructor_tier"]) == (None, "unknown")
         and row["target_grade"] is None
+        and row["vault_folder"] is None
     )
 
 
@@ -153,6 +154,23 @@ def test_target_grade_is_stored_and_has_no_tier(service_engine, user_id, web):
     assert course_row(service_engine, web["course_id"])["target_grade"] == 85
 
 
+FOLDER = "uni/Semester 1 2026-2027/Server-Side Web Development"
+
+
+@pytest.mark.parametrize(
+    "sent",
+    [FOLDER, FOLDER + "/", r"uni\Semester 1 2026-2027\Server-Side Web Development"],
+)
+def test_the_vault_folder_is_stored_with_slashes_and_has_no_tier(
+    service_engine, user_id, web, sent
+):
+    """D-72: the export target, relative to the vault root - however the host writes the path."""
+    result = set_course_input(service_engine, user_id, "I3302-E", "vault_folder", sent)
+
+    assert result == {"course_id": web["course_id"], "field": "vault_folder", "value": FOLDER}
+    assert course_row(service_engine, web["course_id"])["vault_folder"] == FOLDER
+
+
 def test_a_second_set_overwrites_the_first(service_engine, user_id, web):
     """D-37's accepted cost: a wrong declaration is fixed by another value, never withdrawn."""
     set_course_input(service_engine, user_id, "I3302-E", "credits", 3)
@@ -174,6 +192,13 @@ def test_a_second_set_overwrites_the_first(service_engine, user_id, web):
         ("target_grade", 101),
         ("target_grade", -1),
         ("target_grade", None),
+        # the export writes under this folder, so it may never leave the vault root (D-72)
+        ("vault_folder", "C:/Users/MsiPc/Desktop/myvault.obsd"),
+        ("vault_folder", "/home/vault/uni"),
+        ("vault_folder", "uni/../../Windows"),
+        ("vault_folder", "uni//Semester"),
+        ("vault_folder", "   "),
+        ("vault_folder", None),
     ],
 )
 def test_a_bad_value_is_invalid_and_changes_nothing(service_engine, user_id, web, field, value):
