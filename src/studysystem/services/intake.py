@@ -48,51 +48,52 @@ def papers_dir() -> Path:
     return data_dir() / "papers"
 
 
-def read(paths: object) -> Paper:
-    """Check the files and describe the paper. Raises `invalid_value` on `paths`; writes nothing."""
+def read(paths: object, field: str = "paths") -> Paper:
+    """Check the files and describe the paper. Raises `invalid_value` on `field` - the caller's
+    name for the input; writes nothing."""
     if isinstance(paths, str):
         paths = [paths]
     if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
-        raise invalid("paths", f"{paths!r} is not a list of file paths", SHAPES)
+        raise invalid(field, f"{paths!r} is not a list of file paths", SHAPES)
 
     files = [Path(p) for p in paths]
     for f in files:
         if not f.is_file():
-            raise invalid("paths", f"{f} is not a file", "check the path; " + SHAPES)
+            raise invalid(field, f"{f} is not a file", "check the path; " + SHAPES)
     kinds = [f.suffix.lower() for f in files]
 
     if kinds == [".pdf"]:
-        return _read_pdf(files[0])
+        return _read_pdf(files[0], field)
     if all(k in IMAGE_TYPES for k in kinds):
-        return _read_images(files, kinds)
+        return _read_images(files, kinds, field)
     if ".pdf" in kinds:
         problem = "a PDF cannot be combined with other files"
     else:
         problem = f"{', '.join(sorted(set(kinds) - IMAGE_TYPES))} is not a PDF or an image"
-    raise invalid("paths", problem, SHAPES)
+    raise invalid(field, problem, SHAPES)
 
 
-def _read_pdf(path: Path) -> Paper:
+def _read_pdf(path: Path, field: str) -> Paper:
     data = path.read_bytes()
     try:
         reader = PdfReader(path)
         # One page with real text is enough: a scan has none, a typed paper has it on every page.
         has_text = any((page.extract_text() or "").strip() for page in reader.pages)
     except (PyPdfError, ValueError, OSError):
-        raise invalid("paths", f"{path.name} is not a readable PDF", SHAPES) from None
+        raise invalid(field, f"{path.name} is not a readable PDF", SHAPES) from None
     sha = hashlib.sha256(data).hexdigest()
     return Paper(sha, f"{sha}.pdf", has_text, (path,))
 
 
-def _read_images(files: list[Path], kinds: list[str]) -> Paper:
+def _read_images(files: list[Path], kinds: list[str], field: str) -> Paper:
     page_shas = []
     for f, kind in zip(files, kinds, strict=True):
         data = f.read_bytes()
         if not data.startswith(MAGIC[kind]):
-            raise invalid("paths", f"{f.name} is not a {kind[1:]} image", SHAPES)
+            raise invalid(field, f"{f.name} is not a {kind[1:]} image", SHAPES)
         page_shas.append(hashlib.sha256(data).hexdigest())
     if len(set(page_shas)) != len(page_shas):
-        raise invalid("paths", "the same page is in the list twice", "send each page once")
+        raise invalid(field, "the same page is in the list twice", "send each page once")
     # Sorted: the same photos sent again in another order are still the same paper (D-44).
     sha = hashlib.sha256("".join(sorted(page_shas)).encode()).hexdigest()
     return Paper(sha, f"{sha}/", False, tuple(files))
