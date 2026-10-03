@@ -45,6 +45,7 @@ ENGINES = [
 def isolated_data_dir(tmp_path, monkeypatch):
     """Every test gets its own data dir; nothing touches the real one."""
     monkeypatch.setenv("STUDYSYSTEM_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("STUDYSYSTEM_VAULT_DIR", raising=False)  # and no real vault
     return tmp_path / "data"
 
 
