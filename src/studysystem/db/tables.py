@@ -678,6 +678,7 @@ note = Table(
     fk("exam_profile_id", "exam_profile", nullable=True),
     Column("body", Text, nullable=False),
     Column("exported_path", Text, nullable=True),
+    Column("pdf_path", Text, nullable=True),
     ts(),
     UniqueConstraint("task_id", "section_ordinal"),
 )
