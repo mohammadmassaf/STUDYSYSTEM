@@ -591,6 +591,7 @@ def submit_generation(engine: Engine, user_id: str, task_id: str, payload: Any) 
         # after the commit: a failed file write never rolls back a note (D-72)
         reply["exports"] = notes.export_notes(engine, user_id, task.id)
         event["exported"] = sum(1 for e in reply["exports"] if e["exported_path"] is not None)
+        event["pdf_exported"] = sum(1 for e in reply["exports"] if e["pdf_path"] is not None)
 
     log.info(json.dumps({"event": "submit_generation", "task_id": task.id, **event}))
     return reply

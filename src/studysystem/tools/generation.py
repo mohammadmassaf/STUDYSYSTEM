@@ -44,9 +44,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "submit again, sending only them or everything (items already accepted are "
             "skipped, never rewritten). missing lists positions no item has filled yet. "
             "A task takes at most 3 submissions; it closes when one has no errors and no "
-            "missing position. A note's reply adds exports: where each note's markdown copy "
-            "was written in the vault, or the problem and its fix - the note itself is saved "
-            "either way."
+            "missing position. A note's reply adds exports: where each note's markdown and "
+            "PDF copies were written in the vault, or the problem and its fix - the note "
+            "itself is saved either way, and study_export_notes writes what is missing once "
+            "the problem is fixed."
         ),
     )
     def study_submit_generation(task_id: str, payload: dict) -> CallToolResult:

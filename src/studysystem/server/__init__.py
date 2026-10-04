@@ -13,6 +13,7 @@ from studysystem.tools import (
     course_setup,
     generation,
     materials,
+    notes,
     past_exams,
     ping,
     profiles,
@@ -28,6 +29,7 @@ def create_server(engine: Engine) -> MCPServer:
     course_setup.register(mcp, engine)
     past_exams.register(mcp, engine)
     materials.register(mcp, engine)
+    notes.register(mcp, engine)
     generation.register(mcp, engine)
     topics.register(mcp, engine)
     profiles.register(mcp, engine)
