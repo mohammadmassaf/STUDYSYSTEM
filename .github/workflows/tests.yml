@@ -18,6 +18,10 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
+      # Chrome prints the note PDFs (D-81). Ubuntu 24.04's AppArmor blocks the user namespaces
+      # its sandbox needs; this lifts that limit for the runner instead of running Chrome with
+      # --no-sandbox.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: uv run ruff check src/ tests/
       - run: uv run pytest -q
 
@@ -42,6 +46,10 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
+      # Chrome prints the note PDFs (D-81). Ubuntu 24.04's AppArmor blocks the user namespaces
+      # its sandbox needs; this lifts that limit for the runner instead of running Chrome with
+      # --no-sandbox.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # With this set, the engine-parametrised tests run twice: once on SQLite, once here.
       # Unset - anyone's laptop - the Postgres half skips instead of failing.
       - run: uv run pytest -q

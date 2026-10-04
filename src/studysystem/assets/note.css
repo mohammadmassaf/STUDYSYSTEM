@@ -1,0 +1,146 @@
+/* The PDF look of a note (D-81): Arial, blue headings, blue table header rows, amber / blue /
+   orange callout boxes, plain gray code - the past Claude-made summaries. Chrome prints the
+   page with this sheet; restyle a note by editing it. */
+
+@page {
+  size: A4;
+  margin: 16mm 15mm;
+}
+
+/* pandoc's standalone page narrows and pads the body for screens - undone for print */
+html,
+body {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+}
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.4;
+  color: #1a1a1a;
+  hyphens: none;
+}
+
+h1 {
+  font-size: 20pt;
+  color: #1f4e79;
+  margin: 0 0 8pt;
+}
+
+h2 {
+  font-size: 14pt;
+  color: #2e74b5;
+  border-bottom: 1.5px solid #2e74b5;
+  padding-bottom: 2pt;
+  margin: 18pt 0 6pt;
+}
+
+h3 {
+  font-size: 12pt;
+  color: #1f4e79;
+  margin: 12pt 0 4pt;
+}
+
+h1,
+h2,
+h3 {
+  break-after: avoid;
+}
+
+p {
+  margin: 4pt 0;
+}
+
+ul,
+ol {
+  margin: 4pt 0;
+  padding-left: 20pt;
+}
+
+li {
+  margin: 2pt 0;
+}
+
+code {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 9.5pt;
+}
+
+pre {
+  background: #f2f2f2;
+  border: 1px solid #d9d9d9;
+  padding: 6pt 8pt;
+  margin: 6pt 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  break-inside: avoid;
+}
+
+pre code {
+  font-size: 9pt;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 6pt 0;
+  font-size: 9.5pt;
+}
+
+thead {
+  display: table-header-group;
+}
+
+th {
+  background: #2e75b6;
+  color: #fff;
+  text-align: left;
+}
+
+th,
+td {
+  border: 1px solid #bfbfbf;
+  padding: 3pt 5pt;
+  vertical-align: top;
+}
+
+tbody tr:nth-child(even) {
+  background: #f5f8fc;
+}
+
+tr {
+  break-inside: avoid;
+}
+
+.callout {
+  border: 1px solid;
+  border-left-width: 4pt;
+  padding: 4pt 8pt;
+  margin: 6pt 0;
+  break-inside: avoid;
+}
+
+.callout p {
+  margin: 3pt 0;
+}
+
+.callout.warning {
+  background: #fff2cc;
+  border-color: #bf9000;
+  color: #5c4700;
+}
+
+.callout.tip {
+  background: #deebf7;
+  border-color: #2e75b6;
+  color: #1f3864;
+}
+
+.callout.target {
+  background: #fbe4d5;
+  border-color: #c55a11;
+  color: #843c0c;
+}
