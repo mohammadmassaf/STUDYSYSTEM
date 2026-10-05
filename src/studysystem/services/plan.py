@@ -14,7 +14,7 @@ import time
 from collections import Counter
 from collections.abc import Iterable, Sequence
 
-from sqlalchemy import Connection, Engine, and_, func, insert, or_, select
+from sqlalchemy import Connection, Engine, Select, and_, exists, func, insert, or_, select, union
 
 from studysystem.db.tables import (
     assessment,
@@ -176,7 +176,8 @@ def _topic_exams(
     the same case then, so it reorders nothing.
     """
     # Pass 1: how many topics reach each exam - the equal split's n (D-89, D-90). Distinct
-    # pairs, since `coverage` has no unique key and a repeated edge would count a topic twice.
+    # pairs: `_study_rows`' UNION already returns a pair once, whichever path reached it (an
+    # exam edge, a chapter, or both); this keeps a repeated pair from counting a topic twice.
     pairs = {(row.assessment_id, row.topic_id) for row in rows}
     reaching = Counter(assessment_id for assessment_id, _ in pairs)
 
@@ -185,7 +186,7 @@ def _topic_exams(
     seen = set()
     for row in rows:
         if (row.assessment_id, row.topic_id) in seen:
-            continue  # the same edge twice must not score the exam twice
+            continue  # the same pair twice must not score the exam twice
         seen.add((row.assessment_id, row.topic_id))
 
         if row.credits is not None:
@@ -259,13 +260,20 @@ def _study_rows(conn: Connection, user_id: str, today: datetime.date) -> list:
     credits, the topic's share in that slot's **latest** profile (NULL when it has none) - and
     its `topic_state`, if any.
 
-    I3302 today -> 7 rows, one per topic, each reaching the Final (2027-01-18, approx) through
-    profile v2: MySQL 39.3, sessions 16.7, files 13.5, cookies 12.7, strings 6.5, forms 6.2,
-    regex 5.1. No `topic_state` on any.
+    A topic reaches an exam two ways, one SELECT each, joined by a UNION:
+    - **by an exam edge** `topic -> assessment` (D-60), whatever the exam's profile;
+    - **by a chapter** (D-90, D-102): the topic has an edge to a material of its course, and the
+      exam is one of that course's upcoming exams with **no profile** - "every chapter received
+      so far counts toward it" until its chapter list is declared (no tool declares one yet).
+    A pair reached both ways is one row: UNION drops identical rows.
+
+    I3302 today, Chapter 6 tagged to MySQL only -> 8 rows: 7 by exam edge, one per topic, each
+    to the Final (2027-01-18, approx) through profile v2 (MySQL 39.3, sessions 16.7, files 13.5,
+    cookies 12.7, strings 6.5, forms 6.2, regex 5.1); 1 by chapter, MySQL to the Partial
+    (2026-11-16), which has no profile. No `topic_state` on any.
 
     An exam counts while its slot is an exam, it is `upcoming`, and its date is NULL, today or
-    later, or approximate - only an exact date that has passed drops it (D-95). Reads coverage
-    edges to an assessment only; edges to a material are D-90's path, not this one.
+    later, or approximate - only an exact date that has passed drops it (D-95).
     """
     # A second copy of exam_profile, so the subquery reads its own rows instead of correlating
     # with the outer query's exam_profile (auto-correlation).
@@ -284,65 +292,102 @@ def _study_rows(conn: Connection, user_id: str, today: datetime.date) -> list:
         .where(weighted.c.exam_profile_id == exam_profile.c.id)
         .scalar_subquery()
     )
-    query = (
-        select(
-            topic.c.id.label("topic_id"),
-            topic.c.name.label("topic_name"),
-            course.c.id.label("course_id"),
-            course.c.code,
-            course.c.credits,
-            course.c.credits_tier,
-            assessment.c.id.label("assessment_id"),
-            assessment_slot.c.name.label("exam_name"),
-            assessment.c.weight.label("exam_weight"),
-            assessment.c.weight_tier.label("exam_weight_tier"),
-            assessment.c.date,
-            assessment.c.date_approx,
-            exam_profile.c.id.label("exam_profile_id"),
-            exam_profile.c.version.label("profile_version"),
-            profile_size.label("profile_size"),
-            topic_weight.c.weight.label("share"),
-            topic_state.c.stability,
-        )
-        .select_from(topic)
+    # What both SELECTs return, in the same order - a UNION lines its columns up by place.
+    columns = select(
+        topic.c.id.label("topic_id"),
+        topic.c.name.label("topic_name"),
+        course.c.id.label("course_id"),
+        course.c.code,
+        course.c.credits,
+        course.c.credits_tier,
+        assessment.c.id.label("assessment_id"),
+        assessment_slot.c.name.label("exam_name"),
+        assessment.c.weight.label("exam_weight"),
+        assessment.c.weight_tier.label("exam_weight_tier"),
+        assessment.c.date,
+        assessment.c.date_approx,
+        exam_profile.c.id.label("exam_profile_id"),
+        exam_profile.c.version.label("profile_version"),
+        profile_size.label("profile_size"),
+        topic_weight.c.weight.label("share"),
+        topic_state.c.stability,
+    )
+    edges = (
+        columns.select_from(topic)
         .join(course, course.c.id == topic.c.course_id)
         .join(coverage, coverage.c.topic_id == topic.c.id)
-        .join(assessment, assessment.c.id == coverage.c.assessment_id)
-        .join(assessment_slot, assessment_slot.c.id == assessment.c.slot_id)
-        # "latest" sits in the ON, not the WHERE: an exam with no profile keeps its row (NULLs).
-        .outerjoin(
-            exam_profile,
-            and_(
-                exam_profile.c.slot_id == assessment_slot.c.id,
-                exam_profile.c.version == latest_version,
-            ),
-        )
-        # Same topic AND that profile - else v1's row joins too and the topic doubles.
-        .outerjoin(
-            topic_weight,
-            and_(
-                topic_weight.c.exam_profile_id == exam_profile.c.id,
-                topic_weight.c.topic_id == topic.c.id,
-            ),
-        )
-        .outerjoin(
-            topic_state,
-            and_(topic_state.c.user_id == topic.c.user_id, topic_state.c.topic_id == topic.c.id),
-        )
-        .where(
-            topic.c.user_id == user_id,
-            topic.c.status == "active",
-            assessment_slot.c.kind == "exam",
-            assessment.c.status == "upcoming",
-            or_(
-                assessment.c.date.is_(None),
-                assessment.c.date >= today.isoformat(),  # YYYY-MM-DD text sorts as dates
-                assessment.c.date_approx == 1,
-            ),
-        )
-        .order_by(topic.c.id, assessment.c.id)
     )
+
+    # Path 1: the edge points at the exam itself.
+    by_exam = edges.join(assessment, assessment.c.id == coverage.c.assessment_id).join(
+        assessment_slot, assessment_slot.c.id == assessment.c.slot_id
+    )
+    # Path 2: the edge points at a material; the exam is any of its course's with no profile.
+    any_profile = exam_profile.alias("newer_profile")
+    by_chapter = (
+        edges.join(material, material.c.id == coverage.c.material_id)
+        .join(assessment_slot, assessment_slot.c.course_id == course.c.id)
+        .join(assessment, assessment.c.slot_id == assessment_slot.c.id)
+        .where(~exists().where(any_profile.c.slot_id == assessment_slot.c.id))
+    )
+
+    def upcoming(paths: Select) -> Select:
+        """The joins and filters both paths share, once they have reached an assessment."""
+        return (
+            # "latest" sits in the ON, not the WHERE: an exam with no profile keeps its row.
+            paths.outerjoin(
+                exam_profile,
+                and_(
+                    exam_profile.c.slot_id == assessment_slot.c.id,
+                    exam_profile.c.version == latest_version,
+                ),
+            )
+            # Same topic AND that profile - else v1's row joins too and the topic doubles.
+            .outerjoin(
+                topic_weight,
+                and_(
+                    topic_weight.c.exam_profile_id == exam_profile.c.id,
+                    topic_weight.c.topic_id == topic.c.id,
+                ),
+            )
+            .outerjoin(
+                topic_state,
+                and_(
+                    topic_state.c.user_id == topic.c.user_id,
+                    topic_state.c.topic_id == topic.c.id,
+                ),
+            )
+            .where(
+                topic.c.user_id == user_id,
+                topic.c.status == "active",
+                assessment_slot.c.kind == "exam",
+                assessment.c.status == "upcoming",
+                or_(
+                    assessment.c.date.is_(None),
+                    assessment.c.date >= today.isoformat(),  # YYYY-MM-DD text sorts as dates
+                    assessment.c.date_approx == 1,
+                ),
+            )
+        )
+
+    both = union(upcoming(by_exam), upcoming(by_chapter))
+    # ORDER BY sorts the whole union, by the columns' labels.
+    query = both.order_by(both.selected_columns.topic_id, both.selected_columns.assessment_id)
     return list(conn.execute(query).all())
+
+
+def _first_material(conn: Connection, user_id: str) -> dict[str, str]:
+    """D-91's "chapter entered first" key (D-102): per topic, the earliest `added_at` over the
+    materials it has an edge to. A topic with no material edge is absent - it sorts last.
+
+    I3302 today, Chapter 6 tagged -> {MySQL: "2026-10-03T19:36:33Z"}."""
+    rows = conn.execute(
+        select(coverage.c.topic_id, func.min(material.c.added_at))
+        .join_from(coverage, material, material.c.id == coverage.c.material_id)
+        .where(coverage.c.user_id == user_id)
+        .group_by(coverage.c.topic_id)
+    )
+    return dict(rows.tuples().all())
 
 
 def _setup_items(conn: Connection, user_id: str, today: datetime.date) -> dict:
@@ -568,9 +613,10 @@ def get_plan(engine: Engine, user_id: str, today: datetime.date, shown_n: int = 
     `stability` raises until 1.16 writes weakness from it (D-82, D-100) - the unit rolls back,
     so no half plan is ever saved.
 
-    Live data today, shown_n 5 -> study: MySQL (1.038), sessions, files, cookies, strings,
-    2 hidden · setup: first-material I3350 (500), I3301, I3303, I3304 (400 each, by code),
-    past-papers I3350 Final (350), 17 hidden · review: none.
+    Live data 2026-10-05, shown_n 5 -> study: MySQL (3.906 - the Final plus, through Chapter 6,
+    the Partial), sessions, files, cookies, strings, 2 hidden · setup: first-material I3350
+    (500), I3303, I3304 (400 each, by code), past-papers I3350 Final (350), first-material
+    DHR300 (300), 16 hidden · review: none.
     """
     started = time.perf_counter()
     if isinstance(shown_n, bool) or not isinstance(shown_n, int) or shown_n < 1:
@@ -611,6 +657,7 @@ def get_plan(engine: Engine, user_id: str, today: datetime.date, shown_n: int = 
         topics = _topic_exams(
             _study_rows(conn, user_id, today), today, average_credits, latest_exam_date
         )
+        first_material = _first_material(conn, user_id)
         study = []
         for entry in topics.values():
             if entry["stability"] is not None:
@@ -630,6 +677,7 @@ def get_plan(engine: Engine, user_id: str, today: datetime.date, shown_n: int = 
                     "code": entry["code"],
                     "credits": entry["credits"],
                     "nearest_days": min(exam["days"] for exam in entry["exams"]),
+                    "first_material": first_material.get(entry["topic_id"]),  # None: no chapter
                     "score": study_score(pairs, weakness, ESTIMATED_MINUTES),
                     "estimated_minutes": ESTIMATED_MINUTES,
                     "exam_profile_id": entry["exam_profile_id"],
@@ -670,6 +718,9 @@ def get_plan(engine: Engine, user_id: str, today: datetime.date, shown_n: int = 
                 key=lambda i: (
                     -i["score"],
                     -i["credits"],
+                    # the chapter entered first; a topic with no chapter after all (D-102)
+                    i["first_material"] is None,
+                    i["first_material"] or "",
                     i["nearest_days"],
                     i["code"],
                     i["topic_id"],

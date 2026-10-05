@@ -22,7 +22,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "exam paper into its questions - pass past_exam_id, the id study_add_past_exam "
             "returned. kind: 'note' turns one course material into an exam-ready study note - "
             "pass material_id, the id study_add_material returned; a material that already has "
-            "its note is refused. Other kinds are not available yet. Calling again while a "
+            "its note is refused. kind: 'tagging' links one course material to the course's "
+            "topics it teaches - pass material_id; it can be run again on the same material, "
+            "and a course with no active topic yet is refused. Other kinds are not available "
+            "yet. Calling again while a "
             "task is still open returns the same task, so a lost payload can be fetched again."
         ),
     )
@@ -44,10 +47,11 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "submit again, sending only them or everything (items already accepted are "
             "skipped, never rewritten). missing lists positions no item has filled yet. "
             "A task takes at most 3 submissions; it closes when one has no errors and no "
-            "missing position. A note's reply adds exports: where each note's markdown and "
-            "PDF copies were written in the vault, or the problem and its fix - the note "
-            "itself is saved either way, and study_export_notes writes what is missing once "
-            "the problem is fixed."
+            "missing position. A tagging's accepted and skipped list topic ids: accepted are "
+            "newly linked, skipped were already linked to this material. A note's reply adds "
+            "exports: where each note's markdown and PDF copies were written in the vault, or "
+            "the problem and its fix - the note itself is saved either way, and "
+            "study_export_notes writes what is missing once the problem is fixed."
         ),
     )
     def study_submit_generation(task_id: str, payload: dict) -> CallToolResult:

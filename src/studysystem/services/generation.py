@@ -3,11 +3,13 @@
 and never calls a model itself. `study_submit_generation` (1.10) checks what comes back against
 the same `schema`.
 
-Two kinds are built, each for a PDF with a text layer - each page leaves as its text, plus a
+Three kinds are built, each for a PDF with a text layer - each page leaves as its text, plus a
 picture when a figure sits on it (D-49); a scan or a set of photos waits for 2.6:
 - `transcription` (1.9 - 1.10, D-50 - D-55): a past paper becomes `practice_item` rows.
 - `note` (1.14, D-70 - D-74): a material becomes one `note`, aimed by the course's profile - its
   weights and the past-exam items behind them - then copied into the vault (`notes.py`, D-72).
+- `tagging` (1.15b, D-93, D-102, D-104): a material is linked to the course's `active` topics it
+  teaches, as `inferred` topic -> material coverage edges the scheduler reads (D-90, D-91).
 
 Start writes one row, the task (D-45); starting again while it is open hands back the same task
 and adds the resend to its `bytes_sent` (D-46). Submit checks the envelope once, then each item
@@ -48,8 +50,8 @@ from studysystem.services.units import write_unit
 # debugger (build plan: logs, not tables).
 log = logging.getLogger(__name__)
 
-KINDS = ("note", "practice", "memory", "transcription", "timetable")
-BUILT = ("transcription", "note")  # the rest arrive with their tasks (D-47)
+KINDS = ("note", "practice", "memory", "transcription", "timetable", "tagging")
+BUILT = ("transcription", "note", "tagging")  # the rest arrive with their tasks (D-47)
 
 # What 1.10 validates each submission against. The server fills in what the host must not get
 # wrong: origin = past-exam, past_exam_id, source_marker = from-material, answer_provenance.
@@ -216,6 +218,54 @@ NOTE_STEPS = [
 ]
 
 
+# A tagging task's answer (1.15b, D-93, D-102): the ids of the topics the material teaches. No
+# minItems - a material can teach none of them, and `[]` closes the task with no edge (D-102).
+TAGGING_SCHEMA = {
+    "type": "object",
+    "required": ["topics"],
+    "additionalProperties": False,
+    "properties": {
+        "topics": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id"],
+                "additionalProperties": False,
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "the id of a topic in rules.topics this material teaches",
+                    }
+                },
+            },
+        }
+    },
+}
+
+# Inbound, as for the other kinds (D-54): the envelope once, then each entry alone.
+TAGGING_ENTRY_SCHEMA = TAGGING_SCHEMA["properties"]["topics"]["items"]
+_TAGGING_ENTRY_CHECK = Draft202012Validator(TAGGING_ENTRY_SCHEMA)
+_TAGGING_ENVELOPE_CHECK = Draft202012Validator(
+    {**TAGGING_SCHEMA, "properties": {"topics": {"type": "array"}}}
+)
+
+# How to decide (D-104): a topic is its past-exam questions, not its name, and "teaches" means
+# he could implement a part of one of them after studying this material.
+TAGGING_STEPS = [
+    "Decide which topics in rules.topics this material teaches. Read every page first.",
+    "A topic is defined by its past-exam questions in rules.topics, not by its name alone: "
+    "compare the material with those questions.",
+    "The material teaches a topic when studying it would let the student implement at least one "
+    "part of one of that topic's questions. A topic the material only uses, without teaching "
+    "how, is not taught.",
+    "Use only ids from rules.topics. A topic the material teaches that is not in rules.topics "
+    "is left out - never invent one.",
+    "If the material teaches none of them, send an empty list.",
+    "Submit with study_submit_generation(task_id, payload): "
+    '{"topics": [{"id": an id from rules.topics}, ...]}.',
+]
+
+
 @dataclass(frozen=True)
 class Picture:
     """One page picture as it travels: an MCP image block's two fields."""
@@ -249,7 +299,7 @@ def start_generation(
 ) -> Task:
     """Hand the host a generation task: the payload {"task_id", "content", "schema", "rules"}
     and the page pictures that follow it. Each kind takes the parameter named for its subject
-    (D-47): `past_exam_id` for a transcription, `material_id` for a note."""
+    (D-47): `past_exam_id` for a transcription, `material_id` for a note or a tagging."""
 
     kind = values.choice("kind", kind, KINDS)
     if kind not in BUILT:
@@ -261,6 +311,8 @@ def start_generation(
         )
     if kind == "note":
         return _start_note(engine, user_id, material_id)
+    if kind == "tagging":
+        return _start_tagging(engine, user_id, material_id)
     return _start_transcription(engine, user_id, kind, past_exam_id)
 
 
@@ -386,23 +438,7 @@ def _start_note(engine: Engine, user_id: str, material_id: str | None) -> Task:
         )
 
     with write_unit(engine) as conn:
-        found = conn.execute(
-            select(material).where(material.c.id == material_id, material.c.user_id == user_id)
-        ).one_or_none()
-        if found is None:
-            raise StudyError(
-                code="not_found",
-                message=f"no material {material_id}",
-                fix="use a material_id that study_add_material returned",
-                field_errors=[{"field": "material_id", "problem": "no such material"}],
-            )
-        if found.has_text_layer == 0:
-            raise StudyError(
-                code="not_supported_yet",
-                message="this material is a scan with no text layer",
-                fix="scanned material is read from page images, which are not available yet",
-                field_errors=[{"field": "material_id", "problem": "no text layer"}],
-            )
+        found = _find_material(conn, user_id, material_id)
         noted = conn.execute(
             select(note.c.id).where(note.c.material_id == found.id).limit(1)
         ).first()
@@ -469,6 +505,29 @@ def _start_note(engine: Engine, user_id: str, material_id: str | None) -> Task:
         )
     )
     return task
+
+
+def _find_material(conn: Connection, user_id: str, material_id: str):
+    """The user's material a note or a tagging is about - refused when there is none, or when
+    it is a scan whose pages have no text yet."""
+    found = conn.execute(
+        select(material).where(material.c.id == material_id, material.c.user_id == user_id)
+    ).one_or_none()
+    if found is None:
+        raise StudyError(
+            code="not_found",
+            message=f"no material {material_id}",
+            fix="use a material_id that study_add_material returned",
+            field_errors=[{"field": "material_id", "problem": "no such material"}],
+        )
+    if found.has_text_layer == 0:
+        raise StudyError(
+            code="not_supported_yet",
+            message="this material is a scan with no text layer",
+            fix="scanned material is read from page images, which are not available yet",
+            field_errors=[{"field": "material_id", "problem": "no text layer"}],
+        )
+    return found
 
 
 def _current_profile(conn: Connection, user_id: str, course_id: str):
@@ -538,6 +597,132 @@ def _note_task(conn: Connection, found, task_id: str, profile) -> Task:
     return Task(payload=payload, pictures=pictures)
 
 
+def _start_tagging(engine: Engine, user_id: str, material_id: str | None) -> Task:
+    """One material's tagging task, written alone - or the same open task again (D-46, D-93).
+    A material tagged before is not refused: a re-run sends the course's topics as they are now,
+    and its submit links only the pairs still missing (D-102). A course with no `active` topic
+    is refused - there is nothing to link the material to."""
+    if material_id is None:
+        raise values.invalid(
+            "material_id", "is missing", "send the material_id that study_add_material returned"
+        )
+
+    with write_unit(engine) as conn:
+        found = _find_material(conn, user_id, material_id)
+        active = conn.execute(
+            select(func.count(topic.c.id)).where(
+                topic.c.course_id == found.course_id, topic.c.status == "active"
+            )
+        ).scalar_one()
+        if active == 0:
+            raise StudyError(
+                code="no_active_topics",
+                message=f"the course of {found.filename} has no active topic to link it to",
+                fix="transcribe the course's past papers (kind 'transcription') and accept "
+                "their topics first, then tag this material",
+                field_errors=[{"field": "material_id", "problem": "course has no active topic"}],
+            )
+        # At most one open tagging per material, as for notes: `one_or_none` raises on two.
+        open_task = conn.execute(
+            select(generation_task).where(
+                generation_task.c.user_id == user_id,
+                generation_task.c.kind == "tagging",
+                generation_task.c.scope_type == "material",
+                generation_task.c.scope_id == found.id,
+                generation_task.c.status == "open",
+            )
+        ).one_or_none()
+
+        task_id = open_task.id if open_task else new_id()
+        # Built before any write: a missing file copy fails here, with nothing written.
+        task = _tagging_task(conn, found, task_id)
+        size = measure(task.payload, task.pictures)
+        if open_task is not None:
+            conn.execute(
+                update(generation_task)
+                .where(generation_task.c.id == open_task.id)
+                .values(bytes_sent=generation_task.c.bytes_sent + size)
+            )
+        else:
+            conn.execute(
+                insert(generation_task).values(
+                    id=task_id,
+                    user_id=user_id,
+                    kind="tagging",
+                    scope_type="material",
+                    scope_id=found.id,
+                    exam_profile_id=None,  # a tagging reads no weights (D-104)
+                    route="host",
+                    bytes_sent=size,
+                    created_at=now(),
+                )
+            )
+
+    topics_sent = task.payload["rules"]["topics"]
+    log.info(
+        json.dumps(
+            {
+                "event": "start_generation",
+                "task_id": task_id,
+                "kind": "tagging",
+                "material_id": found.id,
+                "resend": open_task is not None,
+                "pages": len(task.payload["content"]),
+                "pictures": len(task.pictures),
+                "topics": len(topics_sent),
+                "questions": sum(len(t["past_exam_questions"]) for t in topics_sent),
+                "bytes": size,
+            }
+        )
+    )
+    return task
+
+
+def _tagging_task(conn: Connection, found, task_id: str) -> Task:
+    """The task for one material: its pages, the schema, and the rules - how to decide, and each
+    `active` topic of its course with every past-exam question tagged to it, which is what
+    defines the topic (D-104). No weight: tagging is a yes or no per topic, not a ranking."""
+    content, pictures = _pages(found.file_ref)
+
+    rows = conn.execute(
+        select(topic.c.id, topic.c.name)
+        .where(topic.c.course_id == found.course_id, topic.c.status == "active")
+        .order_by(topic.c.id)
+    )
+    # One entry per topic, filled with its questions below; a topic with none keeps [].
+    entries = {r.id: {"id": r.id, "name": r.name, "past_exam_questions": []} for r in rows}
+    questions = conn.execute(
+        select(
+            practice_item.c.topic_id,
+            assessment_slot.c.name.label("slot"),
+            past_exam.c.session_date,
+            past_exam.c.session_type,
+            practice_item.c.position,
+            practice_item.c.question,
+        )
+        .join_from(practice_item, past_exam, practice_item.c.past_exam_id == past_exam.c.id)
+        .join(assessment_slot, assessment_slot.c.id == past_exam.c.slot_id)
+        .where(practice_item.c.topic_id.in_(list(entries)))
+        .order_by(past_exam.c.session_date, practice_item.c.position)
+    )
+    for q in questions:
+        entries[q.topic_id]["past_exam_questions"].append(
+            {
+                "paper": f"{q.slot} {q.session_date} ({q.session_type})",
+                "position": q.position,
+                "question": q.question,
+            }
+        )
+
+    payload = {
+        "task_id": task_id,
+        "content": content,
+        "schema": TAGGING_SCHEMA,
+        "rules": {"steps": TAGGING_STEPS, "topics": list(entries.values())},
+    }
+    return Task(payload=payload, pictures=pictures)
+
+
 def _pages(file_ref: str) -> tuple[list[dict], list[Picture]]:
     """A kept file as `content` travels: each page's number and text, and `"image": n` when
     picture n (from 1, in `pictures`) shows that page whole (D-49). Shared by every kind that
@@ -584,6 +769,8 @@ def submit_generation(engine: Engine, user_id: str, task_id: str, payload: Any) 
         task = _open_task(conn, user_id, task_id)
         if task.kind == "note":
             reply, event = _submit_note(conn, user_id, task, payload)
+        elif task.kind == "tagging":
+            reply, event = _submit_tagging(conn, user_id, task, payload)
         else:
             reply, event = _submit_transcription(conn, user_id, task, payload)
 
@@ -785,6 +972,96 @@ def _submit_note(conn: Connection, user_id: str, task, payload: Any) -> tuple[di
     return reply, event
 
 
+def _submit_tagging(conn: Connection, user_id: str, task, payload: Any) -> tuple[dict, dict]:
+    """One submission for a tagging task, inside the caller's write unit (D-93, D-102). The
+    envelope is checked once - `[]` is a valid answer - then each entry alone: schema -> an
+    `active` topic of the material's course -> a second copy of an id in this payload is an
+    error, the first is kept (D-105). A valid id whose pair (topic, this material) is already
+    linked is `skipped`; otherwise its edge is written and it is `accepted`. Never a topic, never
+    an edge removed. Returns the reply - topic ids in place of positions; `missing` is always empty,
+    since the server has no list of topics it expects - and its log line's fields."""
+    course_id = conn.execute(
+        select(material.c.course_id).where(material.c.id == task.scope_id)
+    ).scalar_one()
+
+    accepted: list[str] = []
+    skipped: list[str] = []
+    errors: list[dict] = []
+    env_error = _envelope_error(payload, _TAGGING_ENVELOPE_CHECK, "topics")
+    if env_error is not None:
+        errors.append(env_error)
+    else:
+        seen: set[str] = set()
+        for place, entry in enumerate(payload["topics"], start=1):
+            invalid = _schema_errors(place, entry, _TAGGING_ENTRY_CHECK, TAGGING_ENTRY_SCHEMA)
+            if invalid:
+                errors.extend(invalid)
+            elif not topics.is_live_topic(conn, user_id, course_id, entry["id"], ("active",)):
+                errors.append(
+                    _item_error(
+                        place,
+                        "unknown_topic",
+                        "id",
+                        f"{entry['id']} is not an active topic of this course - use an id from "
+                        "rules.topics",
+                    )
+                )
+            elif entry["id"] in seen:
+                errors.append(
+                    _item_error(
+                        place,
+                        "duplicate_topic",
+                        "id",
+                        f"{entry['id']} is already in this payload - the first copy was kept",
+                    )
+                )
+            else:
+                seen.add(entry["id"])
+                if topics.material_edge_if_missing(conn, user_id, entry["id"], task.scope_id):
+                    accepted.append(entry["id"])
+                else:
+                    skipped.append(entry["id"])
+
+    ordinal = _next_ordinal(conn, task.id)
+    if not errors:
+        status = "closed"
+    elif ordinal == MAX_SUBMISSIONS:
+        status = "partial"
+    else:
+        status = "open"
+    if status != "open":
+        conn.execute(
+            update(generation_task)
+            .where(generation_task.c.id == task.id)
+            .values(status=status, closed_at=now())
+        )
+
+    reply = {
+        "task_id": task.id,
+        "submission": ordinal,
+        "status": status,
+        "accepted": accepted,
+        "skipped": skipped,
+        "missing": [],
+        "item_errors": errors,
+        "submissions_left": MAX_SUBMISSIONS - ordinal if status == "open" else 0,
+    }
+    # an envelope error names no entry, so it rejects none (D-52)
+    rejected = len({e["item_ordinal"] for e in errors} - {None})
+    received = _record_submission(
+        conn, user_id, task, ordinal, payload, reply, len(accepted), rejected
+    )
+    event = {
+        "submission": ordinal,
+        "status": status,
+        "accepted": len(accepted),
+        "rejected": rejected,
+        "skipped": len(skipped),
+        "bytes": received,
+    }
+    return reply, event
+
+
 def _next_ordinal(conn: Connection, task_id: str) -> int:
     """This submission's number on its task: 1, 2 or 3."""
     return (
@@ -874,7 +1151,8 @@ def _item_error(ordinal: int | None, code: str, field: str, message: str) -> dic
 def _envelope_error(
     payload: Any, check: Draft202012Validator = _ENVELOPE_CHECK, key: str = "items"
 ) -> dict | None:
-    """The payload's one envelope error - it is not {key: [a non-empty list]} - or None."""
+    """The payload's one envelope error - it is not {key: [a list]}, non-empty for a
+    transcription or a note (a tagging may send []) - or None."""
     err = best_match(check.iter_errors(payload))
     if err is None:
         return None
@@ -891,7 +1169,8 @@ def _schema_errors(
     check: Draft202012Validator = _ITEM_CHECK,
     schema: dict = ITEM_SCHEMA,
 ) -> list[dict]:
-    """Every way one item breaks its schema - a transcription item, or a note entry - as item
+    """Every way one item breaks its schema - a transcription item, a note or a tagging entry -
+    as item
     errors: code = the failing keyword, field = the item field it is about (D-54)."""
     errors = []
     for err in check.iter_errors(item):

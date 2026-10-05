@@ -981,3 +981,144 @@ def test_with_no_credits_declared_anywhere_the_reason_says_so():
     reason = study_reason(_exams(rows, average_credits=None)["mysql"], 1.0, 60)
 
     assert "x 1 credits (no course declares credits yet - 1 used, D-98)" in reason
+
+
+# --- chapters: D-90's chapters-so-far rule and D-91's chapter key (1.15b; D-102) ------------
+
+
+def _chapter(conn, uid, course_id, added_at="2026-10-03T19:36:33Z"):
+    """A material of `course_id` entered at `added_at`. Returns its id."""
+    material_id = new_id()
+    conn.execute(
+        insert(material).values(
+            id=material_id,
+            user_id=uid,
+            course_id=course_id,
+            filename=f"Chapter {material_id[-4:]}.pdf",
+            file_ref="files/x",
+            content_sha256=_sha(),
+            media_type="application/pdf",
+            kind="chapter",
+            added_at=added_at,
+        )
+    )
+    return material_id
+
+
+def _taught(conn, uid, topic_id, material_id):
+    """A tagging's edge: `topic_id` is taught in `material_id`."""
+    conn.execute(
+        insert(coverage).values(
+            id=new_id(),
+            user_id=uid,
+            topic_id=topic_id,
+            material_id=material_id,
+            tier="inferred",
+            created_at=now(),
+        )
+    )
+
+
+def _i3302_with_chapter_6(conn, uid):
+    """I3302 in small: MySQL, forms, sessions on a profiled Final; a Partial with no profile and
+    no edge of its own; Chapter 6 tagged to MySQL and forms. Returns the topic ids by name."""
+    course_id = _course(conn, uid)
+    slot_id, final = _exam(conn, uid, course_id)
+    _exam(conn, uid, course_id, name="Partial exam", weight=30.0, date="2026-11-16")
+    ids = {name: _topic(conn, uid, course_id, name) for name in ("MySQL", "forms", "sessions")}
+    for topic_id in ids.values():
+        _edge(conn, uid, topic_id, final)
+    _profile(conn, uid, slot_id, 1, {ids["MySQL"]: 40.0, ids["forms"]: 20.0, ids["sessions"]: 40.0})
+    chapter = _chapter(conn, uid, course_id)
+    _taught(conn, uid, ids["MySQL"], chapter)
+    _taught(conn, uid, ids["forms"], chapter)
+    return ids
+
+
+def test_a_no_profile_exam_reaches_the_topics_of_every_chapter_so_far(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        _i3302_with_chapter_6(conn, user_id)
+
+    rows = _by_topic(_rows(service_engine, user_id))
+
+    exams = {name: sorted(r.exam_name for r in found) for name, found in rows.items()}
+    assert exams == {
+        "MySQL": ["Final exam", "Partial exam"],
+        "forms": ["Final exam", "Partial exam"],
+        "sessions": ["Final exam"],  # no chapter teaches it yet
+    }
+    forms = next(
+        e for e in _exams(_rows(service_engine, user_id)).values() if e["topic_name"] == "forms"
+    )
+    shares = {exam["exam_name"]: (exam["share"], exam["share_source"]) for exam in forms["exams"]}
+    assert shares["Partial exam"] == (50.0, "equal split")  # two topics reach it
+
+
+def test_chapter_6_lifts_forms_over_sessions(service_engine, user_id):
+    # The live effect, in small: the Partial's 30 marks split over MySQL and forms.
+    with write_unit(service_engine) as conn:
+        _i3302_with_chapter_6(conn, user_id)
+
+    items = get_plan(service_engine, user_id, TODAY)["lanes"]["study"]["items"]
+
+    # Final 106 days, Partial 43: MySQL 112/106 + 60/43, forms 56/106 + 60/43, sessions 112/106.
+    assert [(i["topic_name"], round(i["score"], 3)) for i in items] == [
+        ("MySQL", 2.452),
+        ("forms", 1.924),
+        ("sessions", 1.057),
+    ]
+
+
+def test_a_profiled_exam_ignores_chapter_edges(service_engine, user_id):
+    # Only a no-profile exam reads chapters (D-90): a topic taught in a chapter but never asked
+    # on the profiled Final does not reach it.
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        slot_id, final = _exam(conn, user_id, course_id)
+        mysql = _topic(conn, user_id, course_id, "MySQL")
+        unasked = _topic(conn, user_id, course_id, "unasked")
+        _edge(conn, user_id, mysql, final)
+        _profile(conn, user_id, slot_id, 1, {mysql: 100.0})
+        chapter = _chapter(conn, user_id, course_id)
+        _taught(conn, user_id, mysql, chapter)
+        _taught(conn, user_id, unasked, chapter)
+
+    rows = _by_topic(_rows(service_engine, user_id))
+
+    assert list(rows) == ["MySQL"] and len(rows["MySQL"]) == 1
+
+
+def test_a_pair_reached_both_ways_is_one_row(service_engine, user_id):
+    # C4: the no-profile Partial reaches MySQL by its own edge and by Chapter 6 - one row.
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        _, partial = _exam(conn, user_id, course_id, name="Partial exam", weight=30.0)
+        mysql = _topic(conn, user_id, course_id, "MySQL")
+        _edge(conn, user_id, mysql, partial)
+        chapter = _chapter(conn, user_id, course_id)
+        _taught(conn, user_id, mysql, chapter)
+        _taught(conn, user_id, mysql, _chapter(conn, user_id, course_id))  # and Chapter 7
+
+    rows = _rows(service_engine, user_id)
+
+    assert [(r.topic_name, r.exam_name) for r in rows] == [("MySQL", "Partial exam")]
+
+
+def test_on_a_tie_the_chapter_entered_first_wins_and_no_chapter_is_last(service_engine, user_id):
+    # Equal scores and credits: the chapter key comes before the id (D-91, D-102). The ids are
+    # wired so the expected order is the reverse of id order.
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        slot_id, final = _exam(conn, user_id, course_id)
+        ids = sorted(_topic(conn, user_id, course_id, name) for name in ("a", "b", "c"))
+        for topic_id in ids:
+            _edge(conn, user_id, topic_id, final)
+        _profile(conn, user_id, slot_id, 1, dict.fromkeys(ids, 100 / 3))
+        early = _chapter(conn, user_id, course_id, added_at="2026-09-01T10:00:00Z")
+        late = _chapter(conn, user_id, course_id, added_at="2026-09-10T10:00:00Z")
+        _taught(conn, user_id, ids[2], early)
+        _taught(conn, user_id, ids[1], late)
+
+    items = get_plan(service_engine, user_id, TODAY)["lanes"]["study"]["items"]
+
+    assert [item["topic_id"] for item in items] == [ids[2], ids[1], ids[0]]

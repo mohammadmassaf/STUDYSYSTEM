@@ -1,7 +1,8 @@
 """Topics and coverage (1.12; D-13, D-22, D-51, D-60 - D-64): a transcription proposes topics, and
 he accepts or declines each one. A decline maps every item of the topic to a target (D-61 -
 D-63). A coverage edge `topic -> assessment` exists only for a non-proposed topic, and is only
-ever inserted when missing - never moved (D-60).
+ever inserted when missing - never moved (D-60). A `topic -> material` edge comes only from a
+tagging task, onto an `active` topic (D-93, D-102).
 
 `study_confirm_topic_proposal` is one write unit per topic (physical-schema.md, *Write units*).
 `study_get_topics` only reads (D-64).
@@ -23,14 +24,21 @@ from studysystem.services.units import write_unit
 TAGGABLE = ("proposed", "active", "unexamined")
 
 
-def is_live_topic(conn: Connection, user_id: str, course_id: str, topic_id: str) -> bool:
-    """Whether `topic_id` is a live topic (TAGGABLE) of this user's course."""
+def is_live_topic(
+    conn: Connection,
+    user_id: str,
+    course_id: str,
+    topic_id: str,
+    statuses: tuple[str, ...] = TAGGABLE,
+) -> bool:
+    """Whether `topic_id` is a topic of this user's course in one of `statuses` - live ones
+    (TAGGABLE) by default; a tagging asks for `("active",)` only (D-93)."""
     found = conn.execute(
         select(topic.c.id).where(
             topic.c.id == topic_id,
             topic.c.user_id == user_id,
             topic.c.course_id == course_id,
-            topic.c.status.in_(TAGGABLE),
+            topic.c.status.in_(statuses),
         )
     ).scalar_one_or_none()
     return found is not None
@@ -90,6 +98,33 @@ def edge_if_missing(conn: Connection, user_id: str, topic_id: str, assessment_id
             created_at=now(),
         )
     )
+
+
+def material_edge_if_missing(
+    conn: Connection, user_id: str, topic_id: str, material_id: str
+) -> bool:
+    """Insert one `inferred`, unconfirmed coverage edge `topic_id -> material_id` unless that
+    exact pair has one - an edge to an exam, or to another material, does not count (D-102).
+    Look first, as `edge_if_missing` does. Returns True when it wrote the edge, False when the
+    pair was already linked - a tagging's accepted vs skipped."""
+    found = conn.execute(
+        select(coverage.c.id).where(
+            coverage.c.topic_id == topic_id, coverage.c.material_id == material_id
+        )
+    ).scalar_one_or_none()
+    if found is not None:
+        return False
+    conn.execute(
+        insert(coverage).values(
+            id=new_id(),
+            user_id=user_id,
+            topic_id=topic_id,
+            material_id=material_id,
+            tier="inferred",
+            created_at=now(),
+        )
+    )
+    return True
 
 
 def exam_assessments(conn: Connection, topic_id: str) -> list[str]:
