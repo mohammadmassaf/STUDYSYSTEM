@@ -16,6 +16,7 @@ from studysystem.tools import (
     notes,
     past_exams,
     ping,
+    plan,
     profiles,
     topics,
 )
@@ -33,6 +34,7 @@ def create_server(engine: Engine) -> MCPServer:
     generation.register(mcp, engine)
     topics.register(mcp, engine)
     profiles.register(mcp, engine)
+    plan.register(mcp, engine)
     return mcp
 
 
