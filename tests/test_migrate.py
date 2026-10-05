@@ -4,16 +4,17 @@ import subprocess
 import sys
 
 import pytest
+from alembic import command
 from click.testing import CliRunner
-from sqlalchemy import CheckConstraint, insert, inspect
+from sqlalchemy import CheckConstraint, func, insert, inspect, select
 from sqlalchemy.exc import IntegrityError
 
 from studysystem.cli import study
 from studysystem.db import migrate
 from studysystem.db.engine import data_dir, db_path, make_engine, snapshot
-from studysystem.db.tables import course, metadata, user
+from studysystem.db.tables import course, generation_task, metadata, submission, user
 
-HEAD = "0004"
+HEAD = "0005"
 
 
 def stamp() -> str | None:
@@ -178,3 +179,55 @@ def test_the_migrated_index_refuses_a_semester_in_another_case(empty_engine):
 
     with pytest.raises(IntegrityError), empty_engine.begin() as conn:
         conn.execute(insert(course).values(id="2" * 26, semester_name="SEMESTER 1", **row))
+
+
+# --- 0005: the first rebuild of a parent table (D-103) ----------------------
+
+
+def test_0005_rebuilds_generation_task_under_its_children(empty_engine):
+    """A task with a submission pointing at it survives the rebuild that widens `kind`, and the
+    widened CHECK takes a tagging task. On SQLite the drop fails without D-103's switch."""
+    command.upgrade(migrate.alembic_config(empty_engine), "0004")
+    at = "2026-10-05T00:00:00Z"
+    task = {
+        "user_id": "0" * 26,
+        "scope_type": "material",
+        "scope_id": "9" * 26,
+        "route": "host",
+        "created_at": at,
+    }
+    with empty_engine.begin() as conn:
+        conn.execute(insert(user).values(id="0" * 26, created_at=at))
+        conn.execute(insert(generation_task).values(id="1" * 26, kind="note", **task))
+        conn.execute(
+            insert(submission).values(
+                id="2" * 26,
+                user_id="0" * 26,
+                task_id="1" * 26,
+                ordinal=1,
+                payload="{}",
+                validation_result="{}",
+                accepted_count=0,
+                rejected_count=0,
+                bytes_sent=0,
+                bytes_returned=0,
+                created_at=at,
+            )
+        )
+
+    migrate.upgrade(empty_engine)
+
+    with empty_engine.begin() as conn:
+        assert conn.execute(select(func.count()).select_from(submission)).scalar_one() == 1
+        conn.execute(insert(generation_task).values(id="3" * 26, kind="tagging", **task))
+    with pytest.raises(IntegrityError), empty_engine.begin() as conn:
+        conn.execute(insert(generation_task).values(id="4" * 26, kind="bogus", **task))
+
+
+def test_migrate_leaves_foreign_keys_on():
+    """D-103 switches them off for the run only: the pooled connection enforces them again."""
+    engine = make_engine(db_path())
+    migrate.upgrade(engine)
+    with engine.connect() as conn:
+        assert conn.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
+    engine.dispose()
