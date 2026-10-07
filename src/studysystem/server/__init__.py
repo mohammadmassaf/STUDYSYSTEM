@@ -18,6 +18,7 @@ from studysystem.tools import (
     ping,
     plan,
     profiles,
+    study_loop,
     topics,
 )
 
@@ -35,6 +36,7 @@ def create_server(engine: Engine) -> MCPServer:
     topics.register(mcp, engine)
     profiles.register(mcp, engine)
     plan.register(mcp, engine)
+    study_loop.register(mcp, engine)
     return mcp
 
 

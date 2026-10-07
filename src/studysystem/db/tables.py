@@ -786,7 +786,7 @@ study_session = Table(
     ulid_pk(),
     owner(),
     fk("course_id", "course"),
-    enum_col("mode", ["explain-chapter", "exam-walkthrough", "mock", "review-quiz"]),
+    enum_col("mode", ["explain-chapter", "exam-walkthrough", "mock", "review-quiz", "practice"]),
     # documented discriminator exception: target existence is checked by the service
     enum_col("subject_type", ["topic", "material", "past-exam"], nullable=True),
     Column("subject_id", Text, nullable=True),

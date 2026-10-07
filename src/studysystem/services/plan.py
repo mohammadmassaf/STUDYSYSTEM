@@ -31,9 +31,9 @@ from studysystem.db.tables import (
     topic_state,
     topic_weight,
 )
-from studysystem.errors import StudyError
 from studysystem.services.ids import new_id, now
 from studysystem.services.profiles import MIN_PAPERS
+from studysystem.services.study_loop import retrievability
 from studysystem.services.units import write_unit
 from studysystem.services.values import invalid
 
@@ -105,7 +105,7 @@ def study_reason(entry: dict, weakness: float, minutes: int) -> str:
     if entry["stability"] is None:
         state = f"no attempts yet (weakness {weakness:g}, inferred)"
     else:
-        state = f"weakness {weakness:.2f}"
+        state = f"weakness {weakness:.2f} (FSRS: {1 - weakness:.0%} recall today)"
     what = f"{entry['code']} {entry['topic_name']}"  # named like a setup reason: course first
     exams = " + ".join(parts)
     return f"{what}: " + " · ".join([exams, credits, state, f"{minutes} min estimate (inferred)"])
@@ -206,6 +206,7 @@ def _topic_exams(
                 "credits": credits,
                 "credits_tier": credits_tier,
                 "stability": row.stability,
+                "last_reviewed_at": row.last_reviewed_at,
                 "exams": [],
             },
         )
@@ -311,6 +312,7 @@ def _study_rows(conn: Connection, user_id: str, today: datetime.date) -> list:
         profile_size.label("profile_size"),
         topic_weight.c.weight.label("share"),
         topic_state.c.stability,
+        topic_state.c.last_reviewed_at,
     )
     edges = (
         columns.select_from(topic)
@@ -598,7 +600,13 @@ def _due_reviews(conn: Connection, user_id: str, today: datetime.date) -> list:
     )
 
 
-def get_plan(engine: Engine, user_id: str, today: datetime.date, shown_n: int = SHOWN_N) -> dict:
+def get_plan(
+    engine: Engine,
+    user_id: str,
+    today: datetime.date,
+    shown_n: int = SHOWN_N,
+    tz: datetime.tzinfo | None = None,
+) -> dict:
     """Rank every course's work into three lanes and record it, as one write unit (D-12).
 
     Writes one `plan` (scope `all-courses`, `shown_n`, `strategy_snapshot` with one key per
@@ -609,9 +617,9 @@ def get_plan(engine: Engine, user_id: str, today: datetime.date, shown_n: int = 
     Returns {"plan_id", "lanes": {"review" | "study" | "setup": {"items": [the shown items, in
     full], "hidden": count}}} - only what is returned is marked shown (D-92).
 
-    Refuses `shown_n` below 1 before anything is read. A topic that already has a review
-    `stability` raises until 1.16 writes weakness from it (D-82, D-100) - the unit rolls back,
-    so no half plan is ever saved.
+    Refuses `shown_n` below 1 before anything is read. Weakness is 1.0 for a topic never
+    practised, else 1 - its FSRS recall chance on `today`, days since its review counted in `tz`
+    (None: this machine's zone, the one `today` is taken in) (D-82).
 
     Live data 2026-10-05, shown_n 5 -> study: MySQL (3.906 - the Final plus, through Chapter 6,
     the Partial), sessions, files, cookies, strings, 2 hidden · setup: first-material I3350
@@ -660,14 +668,11 @@ def get_plan(engine: Engine, user_id: str, today: datetime.date, shown_n: int = 
         first_material = _first_material(conn, user_id)
         study = []
         for entry in topics.values():
-            if entry["stability"] is not None:
-                raise StudyError(
-                    code="weakness_not_built",
-                    message=f"topic {entry['topic_name']!r} has a review state; the scheduler "
-                    "cannot turn it into a weakness yet",
-                    fix="task 1.16 adds weakness from review state (D-82, D-100)",
-                )
-            weakness = COLD_WEAKNESS
+            if entry["stability"] is None:
+                weakness = COLD_WEAKNESS  # never practised (D-82)
+            else:
+                recall = retrievability(entry["stability"], entry["last_reviewed_at"], today, tz)
+                weakness = 1 - recall
             pairs = [(exam["marks"], exam["days"]) for exam in entry["exams"]]
             study.append(
                 {

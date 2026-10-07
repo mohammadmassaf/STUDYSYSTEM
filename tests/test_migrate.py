@@ -12,9 +12,17 @@ from sqlalchemy.exc import IntegrityError
 from studysystem.cli import study
 from studysystem.db import migrate
 from studysystem.db.engine import data_dir, db_path, make_engine, snapshot
-from studysystem.db.tables import course, generation_task, metadata, submission, user
+from studysystem.db.tables import (
+    course,
+    generation_task,
+    hours_entry,
+    metadata,
+    study_session,
+    submission,
+    user,
+)
 
-HEAD = "0005"
+HEAD = "0006"
 
 
 def stamp() -> str | None:
@@ -222,6 +230,56 @@ def test_0005_rebuilds_generation_task_under_its_children(empty_engine):
         conn.execute(insert(generation_task).values(id="3" * 26, kind="tagging", **task))
     with pytest.raises(IntegrityError), empty_engine.begin() as conn:
         conn.execute(insert(generation_task).values(id="4" * 26, kind="bogus", **task))
+
+
+def test_0006_rebuilds_study_session_under_its_children(empty_engine):
+    """A session with an hours entry pointing at it survives the rebuild that adds `practice`,
+    and the widened CHECK takes a practice session."""
+    command.upgrade(migrate.alembic_config(empty_engine), "0005")
+    at = "2026-10-07T00:00:00Z"
+    uid = "0" * 26
+    session = {
+        "user_id": uid,
+        "course_id": "1" * 26,
+        "source": "system",
+        "started_at": at,
+        "expires_at": "2026-10-07T04:00:00Z",
+    }
+    with empty_engine.begin() as conn:
+        conn.execute(insert(user).values(id=uid, created_at=at))
+        conn.execute(
+            insert(course).values(
+                id="1" * 26,
+                user_id=uid,
+                code="I3302",
+                name="Server-Side Web Development",
+                semester_name="Semester 1",
+                instructor_tier="unknown",
+                credits_tier="unknown",
+                created_at=at,
+            )
+        )
+        conn.execute(insert(study_session).values(id="2" * 26, mode="mock", **session))
+        conn.execute(
+            insert(hours_entry).values(
+                id="3" * 26,
+                user_id=uid,
+                course_id="1" * 26,
+                session_id="2" * 26,
+                minutes=40,
+                occurred_at=at,
+                source="tool",
+                created_at=at,
+            )
+        )
+
+    migrate.upgrade(empty_engine)
+
+    with empty_engine.begin() as conn:
+        assert conn.execute(select(func.count()).select_from(hours_entry)).scalar_one() == 1
+        conn.execute(insert(study_session).values(id="4" * 26, mode="practice", **session))
+    with pytest.raises(IntegrityError), empty_engine.begin() as conn:
+        conn.execute(insert(study_session).values(id="5" * 26, mode="bogus", **session))
 
 
 def test_migrate_leaves_foreign_keys_on():

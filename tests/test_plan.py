@@ -38,6 +38,7 @@ from studysystem.services.plan import (
     study_reason,
     study_score,
 )
+from studysystem.services.study_loop import retrievability
 from studysystem.services.units import write_unit
 
 TODAY = datetime.date(2026, 10, 4)
@@ -91,6 +92,7 @@ def _row(**changes):
         "profile_size": 7,
         "share": 39.34,
         "stability": None,
+        "last_reviewed_at": None,
     }
     row.update(changes)
     return SimpleNamespace(**row)
@@ -908,18 +910,26 @@ def test_shown_n_below_one_is_refused_before_anything_is_written(service_engine,
         assert conn.execute(select(func.count()).select_from(plan)).scalar_one() == 0
 
 
-def test_a_topic_with_review_state_fails_loudly_and_saves_nothing(service_engine, user_id):
-    # Until 1.16 writes weakness from it (D-82, D-100): never a silent 1.0.
+def test_a_practised_topic_is_weighed_by_what_it_has_forgotten(service_engine, user_id):
+    # D-82: weakness = 1 - FSRS recall today. MySQL, stability 2, reviewed Sep 30: 4 days later
+    # it keeps 85% -> weakness 0.15, and its 60% share falls below regex's 10%.
     with write_unit(service_engine) as conn:
         ids = _i3302_and_a_cold_course(conn, user_id)
+    cold = _study_items(get_plan(service_engine, user_id, TODAY, tz=datetime.UTC))
+    with write_unit(service_engine) as conn:
         _state(conn, user_id, ids["MySQL"], "2026-10-10T08:00:00Z")
 
-    with pytest.raises(StudyError) as err:
-        get_plan(service_engine, user_id, TODAY)
+    practised = _study_items(get_plan(service_engine, user_id, TODAY, tz=datetime.UTC))
 
-    assert err.value.code == "weakness_not_built"
-    with service_engine.connect() as conn:
-        assert conn.execute(select(func.count()).select_from(plan)).scalar_one() == 0
+    weakness = 1 - retrievability(2.0, "2026-09-30T18:00:00Z", TODAY, datetime.UTC)
+    assert weakness == pytest.approx(0.154, abs=0.001)
+    assert practised["MySQL"]["score"] == pytest.approx(cold["MySQL"]["score"] * weakness)
+    assert "weakness 0.15 (FSRS: 85% recall today)" in practised["MySQL"]["reason"]
+    assert list(practised) == ["sessions", "regex", "MySQL"]
+
+
+def _study_items(result):
+    return {item["topic_name"]: item for item in result["lanes"]["study"]["items"]}
 
 
 def test_the_log_line_counts_what_the_plan_left_out(service_engine, user_id, caplog):
