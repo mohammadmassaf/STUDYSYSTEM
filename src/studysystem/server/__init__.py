@@ -11,6 +11,7 @@ from studysystem.db.engine import db_path, make_engine, snapshot
 from studysystem.db.migrate import SchemaBehindHead, check_schema
 from studysystem.tools import (
     course_setup,
+    gate,
     generation,
     materials,
     notes,
@@ -37,6 +38,7 @@ def create_server(engine: Engine) -> MCPServer:
     profiles.register(mcp, engine)
     plan.register(mcp, engine)
     study_loop.register(mcp, engine)
+    gate.register(mcp, engine)
     return mcp
 
 
