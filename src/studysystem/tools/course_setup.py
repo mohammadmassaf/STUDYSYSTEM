@@ -75,10 +75,13 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         description=(
             "Set one known fact about a course's assessment, found by course code and "
             "assessment name (e.g. 'Final exam'). field: 'weight' (0-100), 'date', 'time' "
-            "(HH:MM, 24-hour) or 'room'. date is YYYY-MM-DD for a confirmed day; ~YYYY-MM-DD for "
-            "the earliest possible day when only an exam window is known (e.g. '~2027-01-18' "
-            "for finals from 18 January); YYYY-MM when only the month is known. The ~ and month "
-            "forms are marked approximate until a confirmed day replaces them. "
+            "(HH:MM, 24-hour), 'room' or 'prep_from'. prep_from (YYYY-MM-DD) is the day exam "
+            "prep starts: from then every topic on that exam is planned, taught or not; until "
+            "then the plan holds to the chapters taught so far. date is YYYY-MM-DD for a "
+            "confirmed day; ~YYYY-MM-DD for the earliest possible day when only an exam window "
+            "is known (e.g. '~2027-01-18' for finals from 18 January); YYYY-MM when only the "
+            "month is known. The ~ and month forms are marked approximate until a confirmed day "
+            "replaces them. "
             "Setting a value marks it declared; it cannot be set back to unknown."
         ),
     )

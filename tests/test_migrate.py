@@ -22,7 +22,7 @@ from studysystem.db.tables import (
     user,
 )
 
-HEAD = "0006"
+HEAD = "0007"
 
 
 def stamp() -> str | None:

@@ -194,6 +194,7 @@ assessment = Table(
     Column("date", Text, nullable=True),
     bool_col("date_approx"),
     implies("approx_needs_date", "date_approx = 1", "date IS NOT NULL"),
+    Column("prep_from", Text, nullable=True),  # exam prep from this day; NULL = term (D-119)
     Column("time", Text, nullable=True),
     Column("room", Text, nullable=True),
     enum_col("session_type", ["first", "second"], nullable=True),

@@ -16,11 +16,14 @@ from studysystem.db.tables import (
     course,
     coverage,
     exam_profile,
+    generation_task,
     hours_entry,
     material,
+    note,
     past_exam,
     plan,
     plan_item,
+    study_session,
     topic,
     topic_state,
     topic_weight,
@@ -231,8 +234,12 @@ def _exam(
     status="upcoming",
     kind="exam",
     weight_tier=None,
+    prep_from="2026-10-01",
 ):
-    """One slot and its one assessment. Returns (slot_id, assessment_id)."""
+    """One slot and its one assessment. Returns (slot_id, assessment_id).
+
+    In exam prep by default: 1.15's tests rank every topic by marks alone, which is the exam-prep
+    case (D-119). The taught-so-far tests pass `prep_from=None` for an exam still in term."""
     if weight_tier is None:
         weight_tier = "declared" if weight is not None else "unknown"
     slot_id, assessment_id = new_id(), new_id()
@@ -257,6 +264,7 @@ def _exam(
             date_approx=approx,
             session_type="first" if kind == "exam" else None,
             status=status,
+            prep_from=prep_from,
             created_at=now(),
         )
     )
@@ -491,22 +499,6 @@ def _sha():
     return (new_id() * 3)[:64]
 
 
-def _material(conn, uid, course_id):
-    conn.execute(
-        insert(material).values(
-            id=new_id(),
-            user_id=uid,
-            course_id=course_id,
-            filename="Chapter1.pdf",
-            file_ref="files/x",
-            content_sha256=_sha(),
-            media_type="application/pdf",
-            kind="chapter",
-            added_at=now(),
-        )
-    )
-
-
 def _papers(conn, uid, slot_id, n):
     for year in range(2010, 2010 + n):
         conn.execute(
@@ -595,19 +587,38 @@ def test_an_upcoming_exam_with_no_date_raises_its_own_item(service_engine, user_
     assert dates[f"exam-date:{undated}"]["marks_unlocked_estimate"] == 70 * 4
 
 
-def test_first_material_waits_for_a_material_or_a_live_topic(service_engine, user_id):
+def test_first_material_stays_up_until_a_chapter_is_taught(service_engine, user_id):
+    # D-121: raised while the course has no taught chapter (D-120), not only at cold start.
     with write_unit(service_engine) as conn:
-        cold = _course(conn, user_id, "I3350")
-        fed = _course(conn, user_id, "I3301")
-        _material(conn, user_id, fed)
-        topical = _course(conn, user_id, "I3302")
-        _topic(conn, user_id, topical, "MySQL")
-        declined_only = _course(conn, user_id, "I3303")
-        _topic(conn, user_id, declined_only, "gone", status="declined")
+        cold = _course(conn, user_id, "I3350")  # nothing at all
+        fed = _course(conn, user_id, "I3301")  # chapter 0 fed, no notes
+        _chapter(conn, user_id, fed)
+        topical = _course(conn, user_id, "I3304")  # 08:00 on Oct 9: papers' topics, no chapter
+        _, final = _exam(conn, user_id, topical)
+        _exam(conn, user_id, topical, "Partial exam", 30.0, "2026-11-16")
+        _edge(conn, user_id, _topic(conn, user_id, topical, "NAT"), final)
+        noted = _course(conn, user_id, "I3302")  # Chapter 6 with its notes
+        _noted(conn, user_id, _chapter(conn, user_id, noted))
+        studied = _course(conn, user_id, "I3303")  # a chapter explained in a session, no notes
+        _studied(conn, user_id, studied, _chapter(conn, user_id, studied))
 
-    keys = set(_of(_setup(service_engine, user_id), "first-material"))
+    items = _of(_setup(service_engine, user_id), "first-material")
 
-    assert keys == {f"first-material:{cold}", f"first-material:{declined_only}"}
+    assert set(items) == {f"first-material:{c}" for c in (cold, fed, topical)}
+    assert items[f"first-material:{topical}"]["marks_unlocked_estimate"] == (70 + 30) * 4
+
+
+def test_a_taught_chapter_of_another_course_clears_nothing(service_engine, user_id):
+    # The notes are I3302's: I3304, fed but unnoted, still asks for its first taught chapter.
+    with write_unit(service_engine) as conn:
+        i3302 = _course(conn, user_id, "I3302")
+        _noted(conn, user_id, _chapter(conn, user_id, i3302))
+        i3304 = _course(conn, user_id, "I3304")
+        _chapter(conn, user_id, i3304)
+
+    assert set(_of(_setup(service_engine, user_id), "first-material")) == {
+        f"first-material:{i3304}"
+    }
 
 
 def test_past_papers_are_worth_the_weight_until_the_third_and_stop_at_the_fifth(
@@ -798,7 +809,7 @@ def _item(**changes):
 
 def test_setup_reasons_say_what_to_get_and_what_it_could_move():
     assert setup_reason(_item()) == (
-        "I3350: add the first material - nothing to study from yet · could move 500 (marks x"
+        "I3350: feed a chapter and get its notes - nothing taught yet · could move 500 (marks x"
         " credits)"
     )
     papers = setup_reason(
@@ -821,7 +832,8 @@ def test_a_review_reason_says_since_when():
 
 
 def _i3302_and_a_cold_course(conn, uid):
-    """I3302 with a profiled Final over three topics, and I3350 with nothing yet."""
+    """I3302 with a profiled Final over three topics and one noted chapter, and I3350 with
+    nothing yet. Both exams in prep, so the chapter tags nothing and every topic is planned."""
     i3302 = _course(conn, uid, "I3302")
     slot_id, final = _exam(conn, uid, i3302)
     _exam(conn, uid, i3302, "Partial exam", 30.0, "2026-11-16")
@@ -830,6 +842,7 @@ def _i3302_and_a_cold_course(conn, uid):
         _edge(conn, uid, topic_id, final)
     _profile(conn, uid, slot_id, 1, {ids["MySQL"]: 60.0, ids["sessions"]: 30.0, ids["regex"]: 10.0})
     _papers(conn, uid, slot_id, 5)
+    _noted(conn, uid, _chapter(conn, uid, i3302))  # a taught chapter: no first-material (D-121)
     i3350 = _course(conn, uid, "I3350", credits=5.0)
     _exam(conn, uid, i3350)
     return ids
@@ -948,6 +961,7 @@ def test_the_log_line_counts_what_the_plan_left_out(service_engine, user_id, cap
     [line] = [json.loads(r.message) for r in caplog.records if "get_plan" in r.message]
     assert line["plan_id"] == result["plan_id"]
     assert line["filtered"] == 2  # the snoozed key + the topic with no exam left
+    assert line["untaught"] == 0  # every exam is in prep
     assert line["lanes"] == {"review": 0, "study": 3, "setup": 2}
     assert line["candidates"] == 3 + 2 + 2
     assert isinstance(line["ms"], int)
@@ -1015,8 +1029,9 @@ def _chapter(conn, uid, course_id, added_at="2026-10-03T19:36:33Z"):
     return material_id
 
 
-def _taught(conn, uid, topic_id, material_id):
-    """A tagging's edge: `topic_id` is taught in `material_id`."""
+def _tagged(conn, uid, topic_id, material_id):
+    """A tagging's edge: `topic_id` is in `material_id` (D-93). Not "taught" in D-120's sense -
+    that needs a note or a session on the chapter (`_noted`, `_studied`)."""
     conn.execute(
         insert(coverage).values(
             id=new_id(),
@@ -1040,8 +1055,8 @@ def _i3302_with_chapter_6(conn, uid):
         _edge(conn, uid, topic_id, final)
     _profile(conn, uid, slot_id, 1, {ids["MySQL"]: 40.0, ids["forms"]: 20.0, ids["sessions"]: 40.0})
     chapter = _chapter(conn, uid, course_id)
-    _taught(conn, uid, ids["MySQL"], chapter)
-    _taught(conn, uid, ids["forms"], chapter)
+    _tagged(conn, uid, ids["MySQL"], chapter)
+    _tagged(conn, uid, ids["forms"], chapter)
     return ids
 
 
@@ -1090,8 +1105,8 @@ def test_a_profiled_exam_ignores_chapter_edges(service_engine, user_id):
         _edge(conn, user_id, mysql, final)
         _profile(conn, user_id, slot_id, 1, {mysql: 100.0})
         chapter = _chapter(conn, user_id, course_id)
-        _taught(conn, user_id, mysql, chapter)
-        _taught(conn, user_id, unasked, chapter)
+        _tagged(conn, user_id, mysql, chapter)
+        _tagged(conn, user_id, unasked, chapter)
 
     rows = _by_topic(_rows(service_engine, user_id))
 
@@ -1106,8 +1121,8 @@ def test_a_pair_reached_both_ways_is_one_row(service_engine, user_id):
         mysql = _topic(conn, user_id, course_id, "MySQL")
         _edge(conn, user_id, mysql, partial)
         chapter = _chapter(conn, user_id, course_id)
-        _taught(conn, user_id, mysql, chapter)
-        _taught(conn, user_id, mysql, _chapter(conn, user_id, course_id))  # and Chapter 7
+        _tagged(conn, user_id, mysql, chapter)
+        _tagged(conn, user_id, mysql, _chapter(conn, user_id, course_id))  # and Chapter 7
 
     rows = _rows(service_engine, user_id)
 
@@ -1126,9 +1141,218 @@ def test_on_a_tie_the_chapter_entered_first_wins_and_no_chapter_is_last(service_
         _profile(conn, user_id, slot_id, 1, dict.fromkeys(ids, 100 / 3))
         early = _chapter(conn, user_id, course_id, added_at="2026-09-01T10:00:00Z")
         late = _chapter(conn, user_id, course_id, added_at="2026-09-10T10:00:00Z")
-        _taught(conn, user_id, ids[2], early)
-        _taught(conn, user_id, ids[1], late)
+        _tagged(conn, user_id, ids[2], early)
+        _tagged(conn, user_id, ids[1], late)
 
     items = get_plan(service_engine, user_id, TODAY)["lanes"]["study"]["items"]
 
     assert [item["topic_id"] for item in items] == [ids[2], ids[1], ids[0]]
+
+
+# --- taught so far (1.19; D-118 - D-121) ------------------------------------------------------
+
+
+def _noted(conn, uid, material_id):
+    """Notes generated for `material_id`: the first way a chapter is taught (D-120)."""
+    task_id = new_id()
+    conn.execute(
+        insert(generation_task).values(
+            id=task_id,
+            user_id=uid,
+            kind="note",
+            scope_type="material",
+            scope_id=material_id,
+            route="host",
+            status="closed",
+            created_at=now(),
+            closed_at=now(),
+        )
+    )
+    conn.execute(
+        insert(note).values(
+            id=new_id(),
+            user_id=uid,
+            material_id=material_id,
+            task_id=task_id,
+            section_ordinal=1,
+            body="# Chapter notes",
+            created_at=now(),
+        )
+    )
+
+
+def _studied(conn, uid, course_id, material_id):
+    """An explain-chapter session on `material_id`: the second way (D-120)."""
+    conn.execute(
+        insert(study_session).values(
+            id=new_id(),
+            user_id=uid,
+            course_id=course_id,
+            mode="explain-chapter",
+            subject_type="material",
+            subject_id=material_id,
+            source="manual",
+            started_at="2026-10-03T18:00:00Z",
+            expires_at="2026-10-03T22:00:00Z",
+        )
+    )
+
+
+def _i3304_on_chapter_1(conn, uid):
+    """I3304 in small on 2026-10-09, both exams profiled and in term: chapter 1 noted and tagged
+    to Protocol layers; chapter 2 fed ahead of its lecture (no notes) and tagged to TCP
+    congestion; NAT on no chapter yet. Every topic on both exams.
+    Returns ({topic name: id}, {exam name: assessment id}, {chapter: material id}, course id)."""
+    course_id = _course(conn, uid, "I3304")
+    final_slot, final = _exam(conn, uid, course_id, prep_from=None)
+    partial_slot, partial = _exam(
+        conn, uid, course_id, "Partial exam", 30.0, "2026-11-16", prep_from=None
+    )
+    names = ("Protocol layers", "TCP congestion", "NAT")
+    ids = {name: _topic(conn, uid, course_id, name) for name in names}
+    for topic_id in ids.values():
+        _edge(conn, uid, topic_id, final)
+        _edge(conn, uid, topic_id, partial)
+    _profile(conn, uid, final_slot, 1, dict.fromkeys(ids.values(), 100 / 3))
+    _profile(conn, uid, partial_slot, 1, dict.fromkeys(ids.values(), 100 / 3))
+    chapters = {
+        "chapter 1": _chapter(conn, uid, course_id, added_at="2026-10-09T08:20:47Z"),
+        "chapter 2": _chapter(conn, uid, course_id, added_at="2026-10-09T08:30:00Z"),
+    }
+    _noted(conn, uid, chapters["chapter 1"])
+    _tagged(conn, uid, ids["Protocol layers"], chapters["chapter 1"])
+    _tagged(conn, uid, ids["TCP congestion"], chapters["chapter 2"])
+    return ids, {"Final exam": final, "Partial exam": partial}, chapters, course_id
+
+
+def _pairs(engine, uid):
+    return sorted((row.topic_name, row.exam_name) for row in _rows(engine, uid))
+
+
+def test_in_term_only_a_taught_chapters_topics_reach_an_exam(service_engine, user_id):
+    # Done when, on fixture rows: chapter 1's topic on both exams; chapter 2 was fed but has no
+    # notes, and NAT has no chapter - neither is planned yet.
+    with write_unit(service_engine) as conn:
+        _i3304_on_chapter_1(conn, user_id)
+
+    assert _pairs(service_engine, user_id) == [
+        ("Protocol layers", "Final exam"),
+        ("Protocol layers", "Partial exam"),
+    ]
+
+
+def test_a_session_on_a_chapter_teaches_it_too(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        _, _, chapters, course_id = _i3304_on_chapter_1(conn, user_id)
+        _studied(conn, user_id, course_id, chapters["chapter 2"])
+
+    assert {name for name, _ in _pairs(service_engine, user_id)} == {
+        "Protocol layers",
+        "TCP congestion",
+    }
+
+
+def test_hours_on_a_topic_do_not_teach_its_chapter(service_engine, user_id):
+    # D-120: one topic can sit on two chapters - an hour on it must not mark both taught.
+    with write_unit(service_engine) as conn:
+        ids, _, _, course_id = _i3304_on_chapter_1(conn, user_id)
+        conn.execute(
+            insert(hours_entry).values(
+                id=new_id(),
+                user_id=user_id,
+                course_id=course_id,
+                topic_id=ids["TCP congestion"],
+                minutes=40,
+                occurred_at="2026-10-03T18:00:00Z",
+                source="tool",
+                created_at=now(),
+            )
+        )
+
+    assert {name for name, _ in _pairs(service_engine, user_id)} == {"Protocol layers"}
+
+
+@pytest.mark.parametrize(
+    ("prep_from", "in_prep"),
+    [("2026-09-20", True), ("2026-10-04", True), ("2026-10-05", False)],
+)
+def test_exam_prep_brings_back_every_topic_of_that_exam_only(
+    service_engine, user_id, prep_from, in_prep
+):
+    # D-119: the Partial's prep from `prep_from`, today 2026-10-04. In prep, its untaught topics
+    # come back on the Partial; the Final is still in term and keeps only the taught one.
+    with write_unit(service_engine) as conn:
+        _, exams, _, _ = _i3304_on_chapter_1(conn, user_id)
+        conn.execute(
+            update(assessment)
+            .where(assessment.c.id == exams["Partial exam"])
+            .values(prep_from=prep_from)
+        )
+
+    pairs = _pairs(service_engine, user_id)
+
+    taught = [("Protocol layers", "Final exam"), ("Protocol layers", "Partial exam")]
+    untaught_on_partial = [("NAT", "Partial exam"), ("TCP congestion", "Partial exam")]
+    assert pairs == (sorted(taught + untaught_on_partial) if in_prep else taught)
+
+
+def test_the_plan_holds_to_chapter_1_and_counts_the_rest_as_filtered(
+    service_engine, user_id, caplog
+):
+    # The live case in small: the plan sends him to chapter 1, not to TCP congestion or NAT.
+    with write_unit(service_engine) as conn:
+        _i3304_on_chapter_1(conn, user_id)
+
+    with caplog.at_level(logging.INFO, logger="studysystem.services.plan"):
+        study = get_plan(service_engine, user_id, TODAY)["lanes"]["study"]
+
+    assert [item["topic_name"] for item in study["items"]] == ["Protocol layers"]
+    assert study["hidden"] == 0
+    [line] = [json.loads(r.message) for r in caplog.records if "get_plan" in r.message]
+    assert line["filtered"] == 2  # TCP congestion and NAT: active, not taught, exams in term
+    assert line["untaught"] == 2  # told apart from "no exam left" (D-94)
+
+
+def test_in_term_a_no_profile_exam_reads_only_taught_chapters(service_engine, user_id):
+    # Path 2 (by chapter, D-90) in term: Chapter 6 fed and tagged reaches the Partial only once
+    # it is noted - the same filter as path 1.
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        _exam(conn, user_id, course_id, "Partial exam", 30.0, "2026-11-16", prep_from=None)
+        mysql = _topic(conn, user_id, course_id, "MySQL")
+        chapter = _chapter(conn, user_id, course_id)
+        _tagged(conn, user_id, mysql, chapter)
+    assert _pairs(service_engine, user_id) == []
+
+    with write_unit(service_engine) as conn:
+        _noted(conn, user_id, chapter)
+
+    assert _pairs(service_engine, user_id) == [("MySQL", "Partial exam")]
+
+
+def test_the_log_tells_untaught_from_no_exam_left_with_an_exam_in_prep(
+    service_engine, user_id, caplog
+):
+    # D-123, all three cases in one plan: the Partial is in prep, so NAT and TCP congestion are
+    # planned on it (not untaught); HTTP is only on the Final, in term (untaught); "agile" has
+    # no exam at all (no exam left).
+    with write_unit(service_engine) as conn:
+        _, exams, _, course_id = _i3304_on_chapter_1(conn, user_id)
+        conn.execute(
+            update(assessment)
+            .where(assessment.c.id == exams["Partial exam"])
+            .values(prep_from="2026-10-04")
+        )
+        _edge(conn, user_id, _topic(conn, user_id, course_id, "HTTP"), exams["Final exam"])
+        _topic(conn, user_id, course_id, "agile")
+
+    with caplog.at_level(logging.INFO, logger="studysystem.services.plan"):
+        study = get_plan(service_engine, user_id, TODAY)["lanes"]["study"]
+
+    assert {item["topic_name"] for item in study["items"]} == {
+        "Protocol layers",
+        "TCP congestion",
+        "NAT",
+    }
+    [line] = [json.loads(r.message) for r in caplog.records if "get_plan" in r.message]
+    assert (line["filtered"], line["untaught"]) == (2, 1)  # HTTP untaught + agile no exam

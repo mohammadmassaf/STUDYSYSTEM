@@ -14,7 +14,20 @@ import time
 from collections import Counter
 from collections.abc import Iterable, Sequence
 
-from sqlalchemy import Connection, Engine, Select, and_, exists, func, insert, or_, select, union
+from sqlalchemy import (
+    CompoundSelect,
+    Connection,
+    Engine,
+    Select,
+    and_,
+    exists,
+    func,
+    insert,
+    or_,
+    select,
+    true,
+    union,
+)
 
 from studysystem.db.tables import (
     assessment,
@@ -24,9 +37,11 @@ from studysystem.db.tables import (
     exam_profile,
     hours_entry,
     material,
+    note,
     past_exam,
     plan,
     plan_item,
+    study_session,
     topic,
     topic_state,
     topic_weight,
@@ -116,7 +131,7 @@ SETUP_ASKS = {
     "credits": "declare the course credits - every mark of the course is weighted by them",
     "exam-date": "enter the exam date - its topics rank on a guessed one",
     "target-grade": "set a target grade - the shortfall check needs it",
-    "first-material": "add the first material - nothing to study from yet",
+    "first-material": "feed a chapter and get its notes - nothing taught yet",
     "past-papers": "get more past papers",
 }
 
@@ -124,7 +139,7 @@ SETUP_ASKS = {
 def setup_reason(item: dict) -> str:
     """The stored `reason` for one setup item from `_setup_items`. Pure.
 
-    I3350 today -> "I3350: add the first material - nothing to study from yet · could move 500
+    I3350 today -> "I3350: feed a chapter and get its notes - nothing taught yet · could move 500
     (marks x credits)"
     """
     where = item["code"] if item["target_name"] is None else f"{item['code']} {item['target_name']}"
@@ -255,7 +270,23 @@ def _topic_exams(
     return topics
 
 
-def _study_rows(conn: Connection, user_id: str, today: datetime.date) -> list:
+def _taught_materials(user_id: str) -> CompoundSelect:
+    """The ids of the user's taught materials (D-120), as a subquery to put inside IN: a chapter
+    is taught once it has a note, or a study session whose subject is that chapter. Hours logged
+    on a topic do not count - one topic on two chapters would mark both taught.
+
+    I3304 on 2026-10-09 -> chapter 1 (its notes landed at 08:24, four minutes after the feed).
+    """
+    noted = select(note.c.material_id).where(note.c.user_id == user_id)
+    studied = select(study_session.c.subject_id).where(
+        study_session.c.user_id == user_id, study_session.c.subject_type == "material"
+    )
+    return union(noted, studied)
+
+
+def _study_rows(
+    conn: Connection, user_id: str, today: datetime.date, taught_only: bool = True
+) -> list:
     """The hand-written SQL behind the study lane (D-08, D-88): every `active` topic of the user
     with each upcoming exam it reaches - the assessment's weight, date and status, the course's
     credits, the topic's share in that slot's **latest** profile (NULL when it has none) - and
@@ -268,10 +299,19 @@ def _study_rows(conn: Connection, user_id: str, today: datetime.date) -> list:
       so far counts toward it" until its chapter list is declared (no tool declares one yet).
     A pair reached both ways is one row: UNION drops identical rows.
 
-    I3302 today, Chapter 6 tagged to MySQL only -> 8 rows: 7 by exam edge, one per topic, each
-    to the Final (2027-01-18, approx) through profile v2 (MySQL 39.3, sessions 16.7, files 13.5,
-    cookies 12.7, strings 6.5, forms 6.2, regex 5.1); 1 by chapter, MySQL to the Partial
-    (2026-11-16), which has no profile. No `topic_state` on any.
+    **Taught so far** (D-118 - D-120): a row is kept only if its topic has an edge to a taught
+    chapter (`_taught_materials`), or its exam is in prep - `prep_from` is today or earlier. In
+    prep an untaught topic comes back on that exam only; an exam still in term mode adds nothing.
+    `taught_only=False` drops this filter - only for the log's `untaught` count.
+
+    I3304 on 2026-10-09, chapter 1 noted and tagged, no exam in prep -> 4 rows: frame hex
+    decoding on both profiled exams, IP addressing and protocol layers on the Final (their only
+    exam edges); its 15 other topics none.
+
+    I3302 on 2026-10-05, Chapter 6 tagged to MySQL only, both exams in prep -> 8 rows: 7 by exam
+    edge, one per topic, each to the Final (2027-01-18, approx) through profile v2 (MySQL 39.3,
+    sessions 16.7, files 13.5, cookies 12.7, strings 6.5, forms 6.2, regex 5.1); 1 by chapter,
+    MySQL to the Partial (2026-11-16), which has no profile. No `topic_state` on any.
 
     An exam counts while its slot is an exam, it is `upcoming`, and its date is NULL, today or
     later, or approximate - only an exact date that has passed drops it (D-95).
@@ -333,6 +373,17 @@ def _study_rows(conn: Connection, user_id: str, today: datetime.date) -> list:
         .where(~exists().where(any_profile.c.slot_id == assessment_slot.c.id))
     )
 
+    # Taught so far (D-118): the topic has an edge to a taught chapter. Its own copy of
+    # coverage - the outer query's coverage row is the edge this row came by, an exam edge on
+    # path 1, and auto-correlation would test only that one edge.
+    chapter_edge = coverage.alias("chapter_edge")
+    taught = exists().where(
+        chapter_edge.c.topic_id == topic.c.id,
+        chapter_edge.c.material_id.in_(_taught_materials(user_id)),
+    )
+    # Exam prep (D-119): declared, and the day has come.
+    in_prep = and_(assessment.c.prep_from.is_not(None), assessment.c.prep_from <= today.isoformat())
+
     def upcoming(paths: Select) -> Select:
         """The joins and filters both paths share, once they have reached an assessment."""
         return (
@@ -369,6 +420,7 @@ def _study_rows(conn: Connection, user_id: str, today: datetime.date) -> list:
                     assessment.c.date >= today.isoformat(),  # YYYY-MM-DD text sorts as dates
                     assessment.c.date_approx == 1,
                 ),
+                or_(taught, in_prep) if taught_only else true(),
             )
         )
 
@@ -406,9 +458,9 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date) -> dict:
     Snooze: an item with study time logged against its key in the last SNOOZE_DAYS days (not
     voided) is left out - e.g. the student emailed the lecturer and is waiting for the reply.
 
-    Live data today -> 22 items:
-    - 7 x `first-material`, one per course with no material yet - I3350: 100 x 5 credits = 500
-    - 15 x `past-papers`, one per exam slot with under 5 papers - I3350 Final: 70 x 5 = 350
+    Live data 2026-10-09 -> 20 items:
+    - 6 x `first-material`, one per course with no taught chapter (D-121) - I3350: 100 x 5 = 500
+    - 14 x `past-papers`, one per exam slot with under 5 papers - I3350 Final: 70 x 5 = 350
     """
     cutoff = today - datetime.timedelta(days=SNOOZE_DAYS)
     snoozed = set(
@@ -527,21 +579,19 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date) -> dict:
         if r.date is None:
             add("exam-date", r.id, r.course_id, weight_of(r), r.slot_name)
 
-    # first-material: a course with no material and no topic (cold start), worth its upcoming
-    # exams' weight. A declined or superseded topic is not a topic to study from.
-    with_material = set(
-        conn.execute(select(material.c.course_id).where(material.c.user_id == user_id)).scalars()
-    )
-    with_topics = set(
+    # first-material: a course with no taught chapter (D-121) - nothing in the study lane until
+    # one is, so the plan asks for it. Covers the cold start too: no material, nothing taught.
+    # Worth its upcoming exams' weight.
+    taught_courses = set(
         conn.execute(
-            select(topic.c.course_id).where(
-                topic.c.user_id == user_id,
-                topic.c.status.in_(["proposed", "active", "unexamined"]),
+            select(material.c.course_id).where(
+                material.c.user_id == user_id,
+                material.c.id.in_(_taught_materials(user_id)),
             )
         ).scalars()
     )
     for course_id in courses:
-        if course_id not in with_material and course_id not in with_topics:
+        if course_id not in taught_courses:
             marks = sum(w for c, w, _ in slot_weight.values() if c == course_id)
             add("first-material", course_id, course_id, marks)
 
@@ -612,7 +662,8 @@ def get_plan(
     Writes one `plan` (scope `all-courses`, `shown_n`, `strategy_snapshot` with one key per
     course) and one `plan_item` per item in every lane, ranks 1..n per lane, ties broken by
     D-91 and then the topic id or setup key (D-100); the top `shown_n` of each lane get
-    `shown = 1`. Logs one line after the commit: candidates, filtered, lane counts, run time.
+    `shown = 1`. Logs one line after the commit: candidates, filtered (and how many of
+    them are untaught, D-123), lane counts, run time.
 
     Returns {"plan_id", "lanes": {"review" | "study" | "setup": {"items": [the shown items, in
     full], "hidden": count}}} - only what is returned is marked shown (D-92).
@@ -621,10 +672,10 @@ def get_plan(
     practised, else 1 - its FSRS recall chance on `today`, days since its review counted in `tz`
     (None: this machine's zone, the one `today` is taken in) (D-82).
 
-    Live data 2026-10-05, shown_n 5 -> study: MySQL (3.906 - the Final plus, through Chapter 6,
-    the Partial), sessions, files, cookies, strings, 2 hidden · setup: first-material I3350
-    (500), I3303, I3304 (400 each, by code), past-papers I3350 Final (350), first-material
-    DHR300 (300), 16 hidden · review: none.
+    Live data 2026-10-09 (a copy, D-122), shown_n 5 -> study: MySQL (4.249), frame hex decoding
+    (0.652), IP addressing (0.367), protocol layers (0.029) - the taught chapters' topics only,
+    21 filtered · setup: first-material I3350 (500), I3301, I3303 (400 each), past-papers I3350
+    Final (350), first-material DHR300 (300), 15 hidden · review: none.
     """
     started = time.perf_counter()
     if isinstance(shown_n, bool) or not isinstance(shown_n, int) or shown_n < 1:
@@ -694,7 +745,14 @@ def get_plan(
                 topic.c.user_id == user_id, topic.c.status == "active"
             )
         ).scalar_one()
-        no_exam_left = active - len(study)  # D-94: active, but no upcoming exam
+        # The two reasons an active topic is left out, counted apart for the log (D-123):
+        # no upcoming exam (D-94), or not taught yet with its exams in term (D-118). The rows
+        # without the taught filter hold every topic that has an upcoming exam.
+        reachable = len(
+            {row.topic_id for row in _study_rows(conn, user_id, today, taught_only=False)}
+        )
+        untaught = reachable - len(study)
+        no_exam_left = active - reachable
 
         # Setup lane.
         setup = _setup_items(conn, user_id, today)
@@ -785,7 +843,7 @@ def get_plan(
             conn.execute(insert(plan_item), rows)
 
     # Report: after the commit, so only a saved plan is logged.
-    filtered = setup["filtered"] + no_exam_left
+    filtered = setup["filtered"] + no_exam_left + untaught
     log.info(
         json.dumps(
             {
@@ -793,6 +851,7 @@ def get_plan(
                 "plan_id": plan_id,
                 "candidates": len(rows) + filtered,
                 "filtered": filtered,
+                "untaught": untaught,  # of `filtered`: topics not taught yet, exams in term
                 "lanes": {lane: len(items) for lane, items in lanes.items()},
                 "ms": round((time.perf_counter() - started) * 1000),
             }

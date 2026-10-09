@@ -2,7 +2,8 @@
 inputs set one at a time.
 
 The slot is the recurring component ("Final exam") and owns the past-paper pool; the
-`assessment` row is this term's sitting - weight, date, time, room (ticket 21).
+`assessment` row is this term's sitting - weight, date, time, room, and the day its exam prep
+starts (ticket 21, D-119).
 """
 
 from sqlalchemy import Connection, Engine, func, insert, select, update
@@ -25,6 +26,7 @@ ASSESSMENT_FIELDS = {
     "date": lambda v: values.day_or_month("date", v),
     "time": lambda v: values.clock("time", v),
     "room": lambda v: values.text("room", v),
+    "prep_from": lambda v: values.day("prep_from", v),  # exam prep starts this day (D-119)
 }
 
 # Fields that sound like assessment inputs but belong to the course - the unknown_field fix names
@@ -106,7 +108,8 @@ def add_assessment(
             raise StudyError(
                 code="slot_exists",
                 message=f"this course already has an assessment called {name}",
-                fix="change its weight, date, time or room with study_set_assessment_input",
+                fix="change its weight, date, time, room or prep_from with "
+                "study_set_assessment_input",
                 field_errors=[{"field": "name", "problem": "already used in this course"}],
             )
         ids = insert_slot_and_assessment(

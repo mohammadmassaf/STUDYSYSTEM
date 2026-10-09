@@ -122,6 +122,17 @@ def test_setting_the_time_and_room(service_engine, user_id, web):
     assert (a["weight"], a["weight_tier"]) == (100, "inferred")  # one field, its own columns
 
 
+def test_exam_prep_is_a_day_declared_per_exam(service_engine, user_id, web):
+    """D-119: the Final's prep starts on the day he names; the Midterm stays in term."""
+    assert set_final(service_engine, user_id, "prep_from", "2027-01-02")["value"] == "2027-01-02"
+
+    assert sitting(service_engine, web["assessment_id"])["prep_from"] == "2027-01-02"
+    assert sitting(service_engine, web["midterm_id"])["prep_from"] is None
+    with pytest.raises(StudyError) as err:
+        set_final(service_engine, user_id, "prep_from", "2027-01")  # a day, not a month
+    assert err.value.field_errors[0]["field"] == "prep_from"
+
+
 def test_the_assessment_name_matches_in_any_case(service_engine, user_id, web):
     set_assessment_input(service_engine, user_id, "i3302-e", "MIDTERM", "weight", 25)
 
