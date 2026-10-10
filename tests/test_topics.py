@@ -6,7 +6,7 @@ import json
 import pytest
 from sqlalchemy import insert, select, update
 
-from studysystem.db.tables import assessment, coverage, practice_item, topic
+from studysystem.db.tables import assessment, attempt, coverage, practice_item, topic
 from studysystem.errors import StudyError
 from studysystem.services.assessments import add_assessment
 from studysystem.services.courses import add_course
@@ -520,3 +520,113 @@ def test_declining_an_accepted_topic_is_refused(service_engine, user_id, paper2)
     assert err.code == "not_proposed"
     assert status_of(service_engine, paper2) == "active"
     assert len(item_ids(service_engine, SESSIONS)) == 5
+
+
+# --- best score and what is offered (1.18; D-99, D-126) ----------------------------------
+
+
+def tried(engine, uid, item_id, score=None, correct=None, assisted=0, voided=0) -> None:
+    """One attempt on an item, written straight to the table: offline, so no session needed."""
+    with engine.connect() as conn:
+        topic_of = conn.execute(
+            select(practice_item.c.topic_id).where(practice_item.c.id == item_id)
+        ).scalar_one()
+    with write_unit(engine) as conn:
+        conn.execute(
+            insert(attempt).values(
+                id=new_id(),
+                user_id=uid,
+                practice_item_id=item_id,
+                topic_id=topic_of,
+                source="self-reported",
+                assisted=assisted,
+                correct=correct,
+                score=score,
+                correctness_voided=voided,
+                created_at=now(),
+            )
+        )
+
+
+@pytest.fixture
+def regex_items(service_engine, user_id, web, tmp_path) -> list[str]:
+    """Four Regex parts on one paper, positions 1-4."""
+    transcribe(service_engine, user_id, tmp_path, "first", "2020-02-17", [REGEX] * 4)
+    return item_ids(service_engine, REGEX)
+
+
+def offered(engine, uid) -> tuple[dict, int]:
+    """Regex's offered items as {position: best_score}, and its hidden count."""
+    regex = listing(engine, uid)[REGEX]
+    return {i["position"]: i["best_score"] for i in regex["items"]}, regex["hidden"]
+
+
+def test_above_half_is_hidden_while_0_4_is_offered(service_engine, user_id, regex_items):
+    """The Done-when: a question answered above 0.5 is not offered again; a 0.4 one is."""
+    one, two, _, _ = regex_items
+    tried(service_engine, user_id, one, score=0.6)
+    tried(service_engine, user_id, two, score=0.4)
+
+    assert offered(service_engine, user_id) == ({2: 0.4, 3: None, 4: None}, 1)
+
+
+def test_exactly_half_is_still_offered(service_engine, user_id, regex_items):
+    """At or under 0.5 is "mostly wrong" (D-99, D-107's cut)."""
+    tried(service_engine, user_id, regex_items[0], score=0.5)
+
+    assert offered(service_engine, user_id)[0][1] == 0.5
+
+
+def test_the_best_is_the_highest_attempt_not_the_latest(service_engine, user_id, regex_items):
+    """index.php pos 2: 0.4, then 0.8 -> hidden. Part 2: 0.8, then 0.3 -> still hidden."""
+    one, two, _, _ = regex_items
+    tried(service_engine, user_id, one, score=0.4)
+    tried(service_engine, user_id, one, score=0.8)
+    tried(service_engine, user_id, two, score=0.8)
+    tried(service_engine, user_id, two, score=0.3)
+
+    assert offered(service_engine, user_id) == ({3: None, 4: None}, 2)
+
+
+def test_with_no_score_right_is_1_and_wrong_is_0(service_engine, user_id, regex_items):
+    """index.php pos 4, marked wrong: best 0.0, offered - tried, not unpractised."""
+    one, two, _, _ = regex_items
+    tried(service_engine, user_id, one, correct=1)
+    tried(service_engine, user_id, two, correct=0)
+
+    assert offered(service_engine, user_id) == ({2: 0.0, 3: None, 4: None}, 1)
+
+
+def test_a_score_wins_over_correct(service_engine, user_id, regex_items):
+    """Marked correct but scored 0.3: the score is the value (D-107)."""
+    tried(service_engine, user_id, regex_items[0], correct=1, score=0.3)
+
+    assert offered(service_engine, user_id)[0][1] == 0.3
+
+
+def test_assisted_and_voided_attempts_leave_the_item_unpractised(
+    service_engine, user_id, regex_items
+):
+    """Protocol layers part 1: 1.0 with the chapter open (assisted) counts for nothing (D-126);
+    a voided attempt's grade has no meaning. Both items stay offered, best None."""
+    one, two, _, _ = regex_items
+    tried(service_engine, user_id, one, score=1.0, assisted=1)
+    tried(service_engine, user_id, two, score=1.0, voided=1)
+
+    assert offered(service_engine, user_id) == ({1: None, 2: None, 3: None, 4: None}, 0)
+
+
+def test_a_counted_attempt_beside_an_assisted_one_still_counts(
+    service_engine, user_id, regex_items
+):
+    """The filter drops attempts, never the item: assisted 0.2 and unassisted 0.9 -> best 0.9."""
+    tried(service_engine, user_id, regex_items[0], score=0.2, assisted=1)
+    tried(service_engine, user_id, regex_items[0], score=0.9)
+
+    assert offered(service_engine, user_id) == ({2: None, 3: None, 4: None}, 1)
+
+
+def test_another_users_attempts_never_count(service_engine, user_id, other_user_id, regex_items):
+    tried(service_engine, other_user_id, regex_items[0], score=1.0)
+
+    assert offered(service_engine, user_id)[1] == 0

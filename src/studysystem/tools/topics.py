@@ -15,8 +15,11 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         name="study_get_topics",
         description=(
             "List a course's live topics (proposed, active, unexamined), named by course code, "
-            "each with its status and its items: item id, paper_date, position, marks and the "
-            "full question text, in paper order. Read-only. Call it before "
+            "each with its status and its items: item id, paper_date, position, marks, the "
+            "full question text and best_score, in paper order. best_score is the best "
+            "unassisted result on the item (null = never practised); an item scored above 0.5 "
+            "is not listed - it is not handed out again - and `hidden` counts them per topic. "
+            "Read-only. Call it before "
             "study_confirm_topic_proposal: show the student each proposed topic with its "
             "questions, and use the item ids here to build a decline's retag. semester_name "
             "is needed only if the code exists in two semesters."

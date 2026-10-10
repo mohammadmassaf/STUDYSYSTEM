@@ -13,6 +13,7 @@ from sqlalchemy import func, insert, select, update
 from studysystem.db.tables import (
     assessment,
     assessment_slot,
+    attempt,
     course,
     coverage,
     exam_profile,
@@ -23,6 +24,7 @@ from studysystem.db.tables import (
     past_exam,
     plan,
     plan_item,
+    practice_item,
     study_session,
     topic,
     topic_state,
@@ -533,8 +535,10 @@ def _hours(conn, uid, course_id, key, occurred_at, voided_at=None):
 
 
 def _setup(engine, uid):
+    """The setup lane as `get_plan` builds it: the study lane's topics first (D-128)."""
     with engine.connect() as conn:
-        return _setup_items(conn, uid, TODAY)
+        topics = _topic_exams(_study_rows(conn, uid, TODAY), TODAY, None, None)
+        return _setup_items(conn, uid, TODAY, topics)
 
 
 def _of(out, kind):
@@ -962,8 +966,10 @@ def test_the_log_line_counts_what_the_plan_left_out(service_engine, user_id, cap
     assert line["plan_id"] == result["plan_id"]
     assert line["filtered"] == 2  # the snoozed key + the topic with no exam left
     assert line["untaught"] == 0  # every exam is in prep
-    assert line["lanes"] == {"review": 0, "study": 3, "setup": 2}
-    assert line["candidates"] == 3 + 2 + 2
+    # setup: past-papers on I3350's Final, the Partial's, and more-papers on I3302's Final - its
+    # three topics have no parts at all, so all three are short (D-127)
+    assert line["lanes"] == {"review": 0, "study": 3, "setup": 3}
+    assert line["candidates"] == 3 + 3 + 2
     assert isinstance(line["ms"], int)
 
 
@@ -1356,3 +1362,274 @@ def test_the_log_tells_untaught_from_no_exam_left_with_an_exam_in_prep(
     }
     [line] = [json.loads(r.message) for r in caplog.records if "get_plan" in r.message]
     assert (line["filtered"], line["untaught"]) == (2, 1)  # HTTP untaught + agile no exam
+
+
+# --- more-papers: a topic short of questions (1.18; D-126 - D-129) ------------------------
+
+
+def _parts(conn, uid, topic_id, n, state="live"):
+    """`n` practice items on the topic - the parts a paper gave it. Returns their ids."""
+    task_id = new_id()
+    conn.execute(
+        insert(generation_task).values(
+            id=task_id,
+            user_id=uid,
+            kind="practice",
+            scope_type="topic",
+            scope_id=topic_id,
+            route="host",
+            created_at=now(),
+        )
+    )
+    ids = [new_id() for _ in range(n)]
+    for k, item_id in enumerate(ids, start=1):
+        conn.execute(
+            insert(practice_item).values(
+                id=item_id,
+                user_id=uid,
+                topic_id=topic_id,
+                task_id=task_id,
+                item_ordinal=k,
+                origin="generated",
+                source_marker="model-knowledge",
+                question=f"part {k}",
+                answer_provenance="none",
+                state=state,
+                novelty_score=0.5,
+                created_at=now(),
+            )
+        )
+    return ids
+
+
+def _tried(conn, uid, topic_id, item_id, assisted=0):
+    conn.execute(
+        insert(attempt).values(
+            id=new_id(),
+            user_id=uid,
+            practice_item_id=item_id,
+            topic_id=topic_id,
+            source="self-reported",
+            assisted=assisted,
+            score=0.9,
+            correctness_voided=0,
+            created_at=now(),
+        )
+    )
+
+
+def _i3304_final(conn, uid, protocol_parts=2, frame_parts=25):
+    """I3304 today: the Final (70, 10 papers - no past-papers item), protocol layers at 1.06% and
+    frame hex decoding at 14.63% of its profile, each with its parts. In prep by default, so
+    both are in the study lane without a taught chapter."""
+    course_id = _course(conn, uid, "I3304")
+    slot, final = _exam(conn, uid, course_id)
+    _papers(conn, uid, slot, 10)
+    protocol = _topic(conn, uid, course_id, "Protocol layers")
+    frame = _topic(conn, uid, course_id, "Frame hex decoding")
+    for topic_id in (protocol, frame):
+        _edge(conn, uid, topic_id, final)
+    _profile(conn, uid, slot, 1, {protocol: 1.06, frame: 14.63})
+    parts = {
+        protocol: _parts(conn, uid, protocol, protocol_parts),
+        frame: _parts(conn, uid, frame, frame_parts),
+    }
+    return SimpleNamespace(
+        course=course_id, slot=slot, final=final, parts=parts, protocol=protocol, frame=frame
+    )
+
+
+def test_a_topic_under_three_unpractised_parts_asks_its_exam_for_papers(service_engine, user_id):
+    """Protocol layers today: 2 parts, none practised -> short; frame hex's 25 are not."""
+    with write_unit(service_engine) as conn:
+        i3304 = _i3304_final(conn, user_id)
+
+    items = _of(_setup(service_engine, user_id), "more-papers")
+
+    item = items[f"more-papers:{i3304.slot}"]
+    assert list(items) == [f"more-papers:{i3304.slot}"]
+    assert item["short_topics"] == ["Protocol layers"]
+    # its share, not the slot: 70 x 1.06% x 4 credits (D-128)
+    assert item["marks_unlocked_estimate"] == pytest.approx(70 * 1.06 / 100 * 4)
+
+
+def test_practised_parts_count_down_and_assisted_ones_do_not(service_engine, user_id):
+    """Frame hex: 4 parts, 2 practised alone -> 2 left, short. Protocol layers: 4 parts, all
+    done with the chapter open (assisted, D-126) -> still 4 unpractised, not short."""
+    with write_unit(service_engine) as conn:
+        i3304 = _i3304_final(conn, user_id, protocol_parts=4, frame_parts=4)
+        for item_id in i3304.parts[i3304.frame][:2]:
+            _tried(conn, user_id, i3304.frame, item_id)
+        for item_id in i3304.parts[i3304.protocol]:
+            _tried(conn, user_id, i3304.protocol, item_id, assisted=1)
+
+    item = _of(_setup(service_engine, user_id), "more-papers")[f"more-papers:{i3304.slot}"]
+
+    assert item["short_topics"] == ["Frame hex decoding"]
+
+
+def test_a_part_no_longer_live_is_not_left_to_hand_out(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        i3304 = _i3304_final(conn, user_id, protocol_parts=3)
+        conn.execute(
+            update(practice_item)
+            .where(practice_item.c.id == i3304.parts[i3304.protocol][0])
+            .values(state="rejected")
+        )
+
+    items = _of(_setup(service_engine, user_id), "more-papers")
+
+    assert items[f"more-papers:{i3304.slot}"]["short_topics"] == ["Protocol layers"]
+
+
+def test_two_short_topics_on_one_exam_are_one_item_worth_both_shares(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        i3304 = _i3304_final(conn, user_id, frame_parts=2)
+
+    items = _of(_setup(service_engine, user_id), "more-papers")
+
+    item = items[f"more-papers:{i3304.slot}"]
+    assert len(items) == 1
+    assert item["short_topics"] == ["Frame hex decoding", "Protocol layers"]
+    assert item["marks_unlocked_estimate"] == pytest.approx(70 * (1.06 + 14.63) / 100 * 4)
+
+
+def test_a_resit_counts_its_slot_once(service_engine, user_id):
+    """A second sitting of the Final is a second assessment on the same slot: one share."""
+    with write_unit(service_engine) as conn:
+        i3304 = _i3304_final(conn, user_id)
+        resit = new_id()
+        conn.execute(
+            insert(assessment).values(
+                id=resit,
+                user_id=user_id,
+                slot_id=i3304.slot,
+                weight=70.0,
+                weight_tier="declared",
+                date="2027-02-20",
+                date_approx=1,
+                session_type="second",
+                status="upcoming",
+                prep_from="2026-10-01",
+                created_at=now(),
+            )
+        )
+        _edge(conn, user_id, i3304.protocol, resit)
+
+    item = _of(_setup(service_engine, user_id), "more-papers")[f"more-papers:{i3304.slot}"]
+
+    assert item["marks_unlocked_estimate"] == pytest.approx(70 * 1.06 / 100 * 4)
+
+
+def test_a_slot_already_asking_for_papers_raises_no_more_papers(service_engine, user_id):
+    """I3304's Partial has 3 papers: past-papers is raised (worth 0, D-24), so a short topic on
+    it adds no second item for the same hunt (D-129)."""
+    with write_unit(service_engine) as conn:
+        i3304 = _i3304_final(conn, user_id)
+        partial_slot, partial = _exam(conn, user_id, i3304.course, "Partial exam", 30.0)
+        _papers(conn, user_id, partial_slot, 3)
+        _edge(conn, user_id, i3304.protocol, partial)
+        _profile(conn, user_id, partial_slot, 1, {i3304.protocol: 7.8})
+
+    out = _setup(service_engine, user_id)
+
+    assert set(_of(out, "more-papers")) == {f"more-papers:{i3304.slot}"}  # the Final only
+    assert f"past-papers:{partial_slot}" in _of(out, "past-papers")
+
+
+def test_a_snoozed_past_papers_still_holds_its_slot(service_engine, user_id):
+    """Hours on past-papers hide it for 7 days; more-papers must not take its place (D-129)."""
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id, "I3304")
+        slot, final = _exam(conn, user_id, course_id)
+        _papers(conn, user_id, slot, 3)
+        nat = _topic(conn, user_id, course_id, "NAT")
+        _edge(conn, user_id, nat, final)
+        _parts(conn, user_id, nat, 1)
+        _hours(conn, user_id, course_id, f"past-papers:{slot}", "2026-10-03T18:00:00Z")
+
+    out = _setup(service_engine, user_id)
+
+    assert _of(out, "more-papers") == {}
+    assert _of(out, "past-papers") == {}
+
+
+def test_a_topic_not_taught_asks_for_nothing(service_engine, user_id):
+    """In term, an untaught topic is not in the study lane (D-118), so it asks for no papers."""
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id, "I3304")
+        slot, final = _exam(conn, user_id, course_id, prep_from=None)
+        _papers(conn, user_id, slot, 10)
+        nat = _topic(conn, user_id, course_id, "NAT")
+        _edge(conn, user_id, nat, final)
+        _parts(conn, user_id, nat, 1)
+
+    assert _of(_setup(service_engine, user_id), "more-papers") == {}
+
+
+def test_it_clears_once_a_third_unpractised_part_lands(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        i3304 = _i3304_final(conn, user_id)
+    key = f"more-papers:{i3304.slot}"
+    assert key in _of(_setup(service_engine, user_id), "more-papers")
+
+    with write_unit(service_engine) as conn:
+        _parts(conn, user_id, i3304.protocol, 1)  # a new paper's question on protocol layers
+
+    assert key not in _of(_setup(service_engine, user_id), "more-papers")
+
+
+def test_another_users_attempts_leave_his_parts_unpractised(service_engine, user_id, other_user_id):
+    with write_unit(service_engine) as conn:
+        i3304 = _i3304_final(conn, user_id, protocol_parts=3)
+        _tried(conn, other_user_id, i3304.protocol, i3304.parts[i3304.protocol][0])
+
+    assert _of(_setup(service_engine, user_id), "more-papers") == {}
+
+
+def test_the_reason_names_the_short_topics():
+    item = {
+        "setup_kind": "more-papers",
+        "code": "I3304",
+        "target_name": "Final exam",
+        "short_topics": ["Protocol layers (OSI / TCP-IP)"],
+        "marks_unlocked_estimate": 2.968,
+    }
+
+    assert setup_reason(item) == (
+        "I3304 Final exam: get more past papers - under 3 unpractised questions left on "
+        "Protocol layers (OSI / TCP-IP) · could move 2.968 (marks x credits)"
+    )
+
+
+def test_get_plan_stores_a_more_papers_item(service_engine, user_id):
+    """Migration 0008: the plan_item CHECK takes the seventh kind."""
+    with write_unit(service_engine) as conn:
+        i3304 = _i3304_final(conn, user_id)
+
+    plan_id = get_plan(service_engine, user_id, TODAY)["plan_id"]
+
+    with service_engine.connect() as conn:
+        keys = (
+            conn.execute(
+                select(plan_item.c.setup_key).where(
+                    plan_item.c.plan_id == plan_id, plan_item.c.setup_kind == "more-papers"
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert keys == [f"more-papers:{i3304.slot}"]
+
+
+def test_hours_on_a_more_papers_key_snooze_it(service_engine, user_id):
+    """D-128: hours logged against the key hide it for 7 days, like every setup kind (D-22)."""
+    with write_unit(service_engine) as conn:
+        i3304 = _i3304_final(conn, user_id)
+        key = f"more-papers:{i3304.slot}"
+        _hours(conn, user_id, i3304.course, key, "2026-10-03T18:00:00Z")
+
+    out = _setup(service_engine, user_id)
+
+    assert key not in _of(out, "more-papers")
+    assert out["filtered"] == 1

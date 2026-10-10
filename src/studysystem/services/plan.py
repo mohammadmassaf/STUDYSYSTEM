@@ -41,6 +41,7 @@ from studysystem.db.tables import (
     past_exam,
     plan,
     plan_item,
+    practice_item,
     study_session,
     topic,
     topic_state,
@@ -49,6 +50,7 @@ from studysystem.db.tables import (
 from studysystem.services.ids import new_id, now
 from studysystem.services.profiles import MIN_PAPERS
 from studysystem.services.study_loop import retrievability
+from studysystem.services.topics import best_scores
 from studysystem.services.units import write_unit
 from studysystem.services.values import invalid
 
@@ -60,6 +62,9 @@ ESTIMATED_MINUTES = 60  # flat cost of one topic, inferred (D-83)
 SNOOZE_DAYS = 7  # hours logged against a setup key hide it this long (D-22)
 UNKNOWN_EXAM_WEIGHT = 30.0  # an exam whose weight is unknown scores as a Partial, inferred (D-96)
 PAPERS_WANTED = 5  # a slot asks for past papers until this many land (D-22)
+# A topic is short of questions under this many unpractised parts (D-127). A placeholder: re-set
+# it from real evenings' scores.
+SHORT_OF_QUESTIONS = 3
 
 
 def study_score(exams: Sequence[tuple[float, int]], weakness: float, minutes: int) -> float:
@@ -133,6 +138,7 @@ SETUP_ASKS = {
     "target-grade": "set a target grade - the shortfall check needs it",
     "first-material": "feed a chapter and get its notes - nothing taught yet",
     "past-papers": "get more past papers",
+    "more-papers": f"get more past papers - under {SHORT_OF_QUESTIONS} unpractised questions left",
 }
 
 
@@ -141,12 +147,16 @@ def setup_reason(item: dict) -> str:
 
     I3350 today -> "I3350: feed a chapter and get its notes - nothing taught yet · could move 500
     (marks x credits)"
+    I3304 Final on 2026-10-10 -> "I3304 Final exam: get more past papers - under 3 unpractised
+    questions left on Protocol layers (OSI / TCP-IP) · could move 2.96522 (marks x credits)"
     """
     where = item["code"] if item["target_name"] is None else f"{item['code']} {item['target_name']}"
     ask = SETUP_ASKS[item["setup_kind"]]
     estimate = item["marks_unlocked_estimate"]
     if item["setup_kind"] == "past-papers" and estimate == 0:
         ask += " - the profile has its papers; papers 4-5 unlock only the mock-exam gate (D-24)"
+    if item["setup_kind"] == "more-papers":
+        ask += " on " + ", ".join(item["short_topics"])
     worth = f"could move {estimate:g} (marks x credits)" if estimate else "moves no marks itself"
     return f"{where}: {ask} · {worth}"
 
@@ -444,13 +454,36 @@ def _first_material(conn: Connection, user_id: str) -> dict[str, str]:
     return dict(rows.tuples().all())
 
 
-def _setup_items(conn: Connection, user_id: str, today: datetime.date) -> dict:
+def _unpractised(conn: Connection, user_id: str, topic_ids: Iterable[str]) -> dict[str, int]:
+    """Per topic, its live items with no counted attempt (D-126) - what is left to hand out
+    fresh. A topic with none is absent.
+
+    I3304 on 2026-10-10, 0 attempts -> protocol layers 2, frame hex decoding 25, IP addressing 17.
+    """
+    best = best_scores(user_id)
+    rows = conn.execute(
+        select(practice_item.c.topic_id, func.count(practice_item.c.id))
+        .join_from(practice_item, best, best.c.practice_item_id == practice_item.c.id, isouter=True)
+        .where(
+            practice_item.c.user_id == user_id,
+            practice_item.c.state == "live",
+            practice_item.c.topic_id.in_(list(topic_ids)),
+            best.c.practice_item_id.is_(None),  # no counted attempt: the outer join found none
+        )
+        .group_by(practice_item.c.topic_id)
+    )
+    return dict(rows.tuples().all())
+
+
+def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: dict) -> dict:
     """The "go get this input" items for today - the setup lane (D-15, D-22, D-85).
 
-    Returns {"items": [one dict per item], "filtered": how many the snooze left out}.
+    `topics` is the study lane's `_topic_exams` - `more-papers` asks for questions only on topics
+    he can study now. Returns {"items": [one dict per item], "filtered": how many the snooze left
+    out}.
 
     Each item says:
-    - what is missing: `setup_kind`, one of the six kinds (e.g. `first-material`)
+    - what is missing: `setup_kind`, one of the seven kinds (e.g. `first-material`)
     - a fixed name for it: `setup_key` = `<kind>:<target_id>`, the same string in every plan
     - which course it belongs to
     - how many marks getting it could affect: `marks_unlocked_estimate` - the lane ranks by it
@@ -461,6 +494,8 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date) -> dict:
     Live data 2026-10-09 -> 20 items:
     - 6 x `first-material`, one per course with no taught chapter (D-121) - I3350: 100 x 5 = 500
     - 14 x `past-papers`, one per exam slot with under 5 papers - I3350 Final: 70 x 5 = 350
+    Copy of the live data 2026-10-10, migration 0008 -> 22 items, one `more-papers`: I3304 Final,
+    protocol layers short (2 parts) - 70 x 1.06% x 4 = 2.97, rank 21 of 22.
     """
     cutoff = today - datetime.timedelta(days=SNOOZE_DAYS)
     snoozed = set(
@@ -493,7 +528,7 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date) -> dict:
 
     average_credits = _average_credits(row.credits for row in courses.values())
 
-    # Step 3: six blocks, one per kind, each adding to `items` through `add`.
+    # Step 3: one block per kind, each adding to `items` through `add`.
     # Every assessment once - grading and exam-date both read these rows.
     assessments = conn.execute(
         select(
@@ -606,10 +641,33 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date) -> dict:
         .tuples()
         .all()
     )
+    asking = set()  # slots raising past-papers, snoozed or not - before step 4's snooze
     for slot_id, (course_id, weight, name) in slot_weight.items():
         count = papers.get(slot_id, 0)
         if count < PAPERS_WANTED:
             add("past-papers", slot_id, course_id, weight if count < MIN_PAPERS else 0.0, name)
+            asking.add(slot_id)
+
+    # more-papers: a study-lane topic under SHORT_OF_QUESTIONS unpractised parts (D-127) asks
+    # each exam slot it reaches, worth its share of that exam (D-128) - unless the slot already
+    # asks for papers: one hunt, one item (D-129).
+    exam_slot = {r.id: r.slot_id for r in upcoming_exams}
+    left = _unpractised(conn, user_id, topics)
+    short = {}  # slot id -> {topic id: its marks on the slot, before credits}
+    for topic_id, entry in topics.items():
+        if left.get(topic_id, 0) >= SHORT_OF_QUESTIONS:
+            continue
+        for exam in entry["exams"]:
+            slot_id = exam_slot[exam["assessment_id"]]
+            if slot_id in asking:
+                continue
+            on_slot = short.setdefault(slot_id, {})
+            marks = exam["weight"] * exam["share"] / 100
+            on_slot[topic_id] = max(on_slot.get(topic_id, 0.0), marks)  # a resit: the slot once
+    for slot_id, shares in sorted(short.items()):
+        course_id, _, name = slot_weight[slot_id]
+        add("more-papers", slot_id, course_id, sum(shares.values()), name)
+        items[-1]["short_topics"] = sorted(topics[t]["topic_name"] for t in shares)
 
     # Step 4: drop the snoozed keys before ranking, so ranks run 1..n with no gap.
     kept = [item for item in items if item["setup_key"] not in snoozed]
@@ -755,7 +813,7 @@ def get_plan(
         no_exam_left = active - reachable
 
         # Setup lane.
-        setup = _setup_items(conn, user_id, today)
+        setup = _setup_items(conn, user_id, today, topics)
         setup_lane = [dict(item, reason=setup_reason(item)) for item in setup["items"]]
 
         # Review lane: already most overdue first. The schema needs a score off the setup lane,

@@ -903,7 +903,15 @@ plan = Table(
     ts(),
 )
 
-SETUP_KINDS = ["grading", "credits", "exam-date", "target-grade", "first-material", "past-papers"]
+SETUP_KINDS = [
+    "grading",
+    "credits",
+    "exam-date",
+    "target-grade",
+    "first-material",
+    "past-papers",
+    "more-papers",  # 1.18, migration 0008 (D-128)
+]
 
 plan_item = Table(
     "plan_item",

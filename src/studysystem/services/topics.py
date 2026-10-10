@@ -10,13 +10,14 @@ tagging task, onto an `active` topic (D-93, D-102).
 
 from collections import Counter
 
-from sqlalchemy import Connection, Engine, func, insert, select, update
+from sqlalchemy import Connection, Engine, Subquery, case, func, insert, select, update
 
-from studysystem.db.tables import assessment, coverage, past_exam, practice_item, topic
+from studysystem.db.tables import assessment, attempt, coverage, past_exam, practice_item, topic
 from studysystem.errors import StudyError
 from studysystem.services import values
 from studysystem.services.ids import new_id, now
 from studysystem.services.lookups import find_course
+from studysystem.services.study_loop import PASS_SCORE
 from studysystem.services.units import write_unit
 
 # Topics a transcribed item may be tagged to: live ones, `proposed` included (1.10 accepts a
@@ -146,9 +147,49 @@ def exam_assessments(conn: Connection, topic_id: str) -> list[str]:
     return list(rows)
 
 
+def best_scores(user_id: str) -> Subquery:
+    """Each practised item's best score (D-99, D-126), as a subquery to outer-join onto
+    `practice_item` - one row per item that has at least one counted attempt.
+
+    Columns: `practice_item_id`, `best`.
+
+    Counted, as FSRS counts (D-107): unassisted and not `correctness_voided`. An attempt's value
+    is its `score` when set, else 1.0 if `correct`, else 0.0. Best = the highest value.
+    An item with no counted attempt has no row here: unpractised. Must run on SQLite and Postgres.
+
+    Examples, I3302 MySQL:
+    - index.php pos 2: 0.4 on Oct 9, 0.8 on Oct 12            -> (pos 2, 0.8)
+    - index.php pos 4: marked wrong, no score                 -> (pos 4, 0.0)
+    - a part marked right, no score                           -> (part, 1.0)
+    - Protocol layers part 1: 1.0 in explain-chapter (assisted) -> no row
+    - an attempt whose answer key was wrong (voided)           -> no row
+    - another user's attempt on any item                      -> no row
+    """
+    value = case(
+        (attempt.c.score.is_not(None), attempt.c.score),
+        (attempt.c.correct == 1, 1.0),
+        else_=0.0,
+    )
+    query = (
+        select(attempt.c.practice_item_id, func.max(value).label("best"))
+        .where(
+            attempt.c.user_id == user_id,
+            attempt.c.assisted == 0,
+            attempt.c.correctness_voided == 0,
+        )
+        .group_by(attempt.c.practice_item_id)
+        .subquery()
+    )
+    return query
+
+
 def get_topics(engine: Engine, user_id: str, code: str, semester_name: str | None = None) -> dict:
-    """Every live topic of the course, each with its status and its items (id, paper date,
-    position, marks, the full question text) (D-64, D-66)."""
+    """Every live topic of the course, each with its status, its offered items (id, paper date,
+    position, marks, the full question text, best score) and how many it hides (D-64, D-66).
+
+    An item is offered while unpractised (`best_score` None) or mostly wrong (best at or under
+    PASS_SCORE); above it, it is hidden - not handed out again (D-99, D-126)."""
+    best = best_scores(user_id)
     with engine.connect() as conn:
         course_id = find_course(conn, user_id, code, semester_name)
         topics = conn.execute(
@@ -169,6 +210,7 @@ def get_topics(engine: Engine, user_id: str, code: str, semester_name: str | Non
                     practice_item.c.position,
                     practice_item.c.marks,
                     practice_item.c.question,
+                    best.c.best,
                 )
                 .join_from(
                     practice_item,
@@ -176,6 +218,8 @@ def get_topics(engine: Engine, user_id: str, code: str, semester_name: str | Non
                     practice_item.c.past_exam_id == past_exam.c.id,
                     isouter=True,
                 )
+                # Outer: an unpractised item has no `best` row and must still be listed.
+                .join(best, best.c.practice_item_id == practice_item.c.id, isouter=True)
                 .where(practice_item.c.topic_id == row.id)
                 .order_by(
                     past_exam.c.session_date.nulls_last(),
@@ -183,6 +227,8 @@ def get_topics(engine: Engine, user_id: str, code: str, semester_name: str | Non
                     practice_item.c.id,
                 )
             ).all()
+            # Decided here, not in SQL: `hidden` counts the items a WHERE would have dropped.
+            offered = [i for i in items if i.best is None or i.best <= PASS_SCORE]
             result["topics"].append(
                 {
                     "id": row.id,
@@ -195,9 +241,11 @@ def get_topics(engine: Engine, user_id: str, code: str, semester_name: str | Non
                             "position": item.position,
                             "marks": item.marks,
                             "question": item.question,
+                            "best_score": item.best,
                         }
-                        for item in items
+                        for item in offered
                     ],
+                    "hidden": len(items) - len(offered),
                 }
             )
         return result
