@@ -1,5 +1,5 @@
-"""Past exams (D-42, D-43, D-44): I3302's three papers go into its existing `Final exam` slot, the
-file is kept by hash, and every refusal writes nothing - no row, no copy."""
+"""Past exams (D-42, D-43, D-44, D-137): I3302's three papers go into its existing `Final exam`
+slot, the file is kept by hash, and every refusal writes nothing - no row, no copy."""
 
 import json
 
@@ -72,7 +72,15 @@ def test_the_first_session_paper_is_registered_under_the_final(
     result = add(service_engine, user_id, papers["2020-S1"])
 
     (row,) = rows(service_engine)
-    assert set(result) == {"past_exam_id", "slot_id", "file_ref", "has_text_layer", "pages"}
+    assert set(result) == {
+        "past_exam_id",
+        "slot_id",
+        "file_ref",
+        "has_text_layer",
+        "pages",
+        "session_date",
+        "session_date_approx",
+    }
     assert result["past_exam_id"] == row["id"] and result["slot_id"] == web["slot_id"]
     assert (row["owner_id"], row["slot_id"]) == (user_id, web["slot_id"])
     assert (row["session_type"], row["session_date"], row["session_delayed"]) == (
@@ -80,6 +88,7 @@ def test_the_first_session_paper_is_registered_under_the_final(
         "2020-02-17",
         0,
     )
+    assert row["session_date_approx"] == 0 and result["session_date_approx"] is False
     assert (row["instructor"], row["instructor_tier"]) == (HAMZE, "declared")
     assert row["has_text_layer"] == 1 and result["has_text_layer"] is True
     assert len(row["content_sha256"]) == 64
@@ -139,6 +148,17 @@ def test_a_delayed_session_is_recorded(service_engine, user_id, web, papers):
     add(service_engine, user_id, papers["2020-S1"], session_delayed="true")
 
     assert rows(service_engine)[0]["session_delayed"] == 1
+
+
+def test_a_paper_that_prints_only_its_month_is_the_1st_marked_approximate(
+    service_engine, user_id, web, papers
+):
+    """D-137: I3305's "Final Exam Feb 2024" prints no day - the month, as D-39 stores it."""
+    result = add(service_engine, user_id, papers["2020-S1"], session_date="2024-02")
+
+    (row,) = rows(service_engine)
+    assert (row["session_date"], row["session_date_approx"]) == ("2024-02-01", 1)
+    assert (result["session_date"], result["session_date_approx"]) == ("2024-02-01", True)
 
 
 def test_a_paper_in_photos_is_one_row_with_its_pages(service_engine, user_id, web, tmp_path):
@@ -201,8 +221,9 @@ def test_the_same_photos_in_another_order_are_the_same_paper(
 @pytest.mark.parametrize(
     ("override", "field"),
     [
-        ({"session_date": "2020-02"}, "session_date"),  # D-43: exact only
-        ({"session_date": "~2020-02-17"}, "session_date"),
+        ({"session_date": "2020-13"}, "session_date"),  # D-137: a real month
+        ({"session_date": "~2020-02-17"}, "session_date"),  # a paper's day is printed, or not
+        ({"session_date": "2020-02-30"}, "session_date"),
         ({"session_date": "17/02/2020"}, "session_date"),
         ({"session_type": "resit"}, "session_type"),
         ({"instructor": "  "}, "instructor"),
@@ -217,6 +238,15 @@ def test_a_bad_value_is_invalid_and_writes_nothing(
     assert err.code == "invalid_value"
     assert err.field_errors[0]["field"] == field
     assert count(service_engine) == 0 and nothing_kept()
+
+
+@pytest.mark.parametrize("bad", ["2020-13", "2020-02-30", "~2020-02-17", "Feb 2024"])
+def test_a_bad_date_names_only_the_two_paper_forms(service_engine, user_id, web, papers, bad):
+    """D-137: the fix offers the printed day or the printed month - never `~`, never a guess."""
+    err = refused(service_engine, user_id, papers["2020-S1"], session_date=bad)
+
+    assert "YYYY-MM-DD" in err.fix and "YYYY-MM if it prints only the month" in err.fix
+    assert "~" not in err.fix
 
 
 def test_a_missing_file_is_invalid_and_writes_nothing(service_engine, user_id, web, tmp_path):

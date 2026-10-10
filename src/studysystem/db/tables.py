@@ -499,6 +499,7 @@ past_exam = Table(
     fk("slot_id", "assessment_slot"),
     enum_col("session_type", ["first", "second"]),
     Column("session_date", Text, nullable=False),
+    bool_col("session_date_approx"),  # 1: the paper prints only its month, stored as the 1st
     bool_col("session_delayed"),
     *tier_pair("instructor", Text),
     bool_col("has_text_layer"),
