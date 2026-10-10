@@ -188,7 +188,8 @@ def get_topics(engine: Engine, user_id: str, code: str, semester_name: str | Non
     position, marks, the full question text, best score) and how many it hides (D-64, D-66).
 
     An item is offered while unpractised (`best_score` None) or mostly wrong (best at or under
-    PASS_SCORE); above it, it is hidden - not handed out again (D-99, D-126)."""
+    PASS_SCORE); above it, it is hidden - not handed out again (D-99, D-126). A `rejected`
+    item is not listed at all, nor counted in `hidden`."""
     best = best_scores(user_id)
     with engine.connect() as conn:
         course_id = find_course(conn, user_id, code, semester_name)
@@ -220,7 +221,7 @@ def get_topics(engine: Engine, user_id: str, code: str, semester_name: str | Non
                 )
                 # Outer: an unpractised item has no `best` row and must still be listed.
                 .join(best, best.c.practice_item_id == practice_item.c.id, isouter=True)
-                .where(practice_item.c.topic_id == row.id)
+                .where(practice_item.c.topic_id == row.id, practice_item.c.state == "live")
                 .order_by(
                     past_exam.c.session_date.nulls_last(),
                     practice_item.c.position.nulls_last(),
@@ -356,10 +357,16 @@ def _retag_shape_errors(retag) -> list[dict]:
 
 def _decline(conn: Connection, user_id: str, found, retag: list[dict]) -> dict:
     """The decline half of `confirm_topic_proposal` (D-61 - D-63): check the map, resolve each
-    target, move the items, retire the topic, then give each `active` target its edges."""
+    target, move the items, retire the topic, then give each `active` target its edges.
+    Only `live` items need a target - the ones study_get_topics lists; a `rejected` one stays
+    on the retired topic."""
     topic_id = found.id
     declined = set(
-        conn.execute(select(practice_item.c.id).where(practice_item.c.topic_id == topic_id))
+        conn.execute(
+            select(practice_item.c.id).where(
+                practice_item.c.topic_id == topic_id, practice_item.c.state == "live"
+            )
+        )
         .scalars()
         .all()
     )

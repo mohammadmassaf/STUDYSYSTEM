@@ -90,8 +90,9 @@ def derive_profile(
     """Derive the next `exam_profile` version for this course's slot `assessment_name`, as one
     write unit (D-69).
 
-    Reads the slot's transcribed papers (newest first) and their items. Refuses
-    `too_few_papers` below MIN_PAPERS, and `topics_unconfirmed` while an item sits on a
+    Reads the slot's transcribed papers (newest first) and their `live` items; a `rejected`
+    item is not evidence, and a paper with no live item is not in the set. Refuses
+    `too_few_papers` below MIN_PAPERS, and `topics_unconfirmed` while a live item sits on a
     `proposed` topic. Writes the profile row, one `topic_weight` row per topic, and moves open
     tasks built on an older profile of this slot to `invalidated`.
 
@@ -109,6 +110,9 @@ def derive_profile(
                     past_exam.c.owner_id == user_id,
                     past_exam.c.slot_id == slot_id,
                     past_exam.c.transcript_task_id.is_not(None),
+                    past_exam.c.id.in_(
+                        select(practice_item.c.past_exam_id).where(practice_item.c.state == "live")
+                    ),
                 )
                 # Newest first; two papers on one day fall back to the later-registered id.
                 .order_by(past_exam.c.session_date.desc(), past_exam.c.id.desc())
@@ -119,9 +123,14 @@ def derive_profile(
         if len(past_exam_ids) < MIN_PAPERS:
             raise StudyError(
                 code="too_few_papers",
-                message=f"{len(past_exam_ids)} transcribed papers; a profile needs {MIN_PAPERS}",
-                fix="add and transcribe more past papers for this assessment (D-14)",
-                field_errors=[{"field": "assessment", "problem": "too few transcribed papers"}],
+                message=(
+                    f"{len(past_exam_ids)} transcribed papers with a live question; "
+                    f"a profile needs {MIN_PAPERS}"
+                ),
+                fix="add and transcribe more past papers for this assessment (D-14, D-136)",
+                field_errors=[
+                    {"field": "assessment", "problem": "too few papers with a live question"}
+                ],
             )
         items = []
         for p_id in past_exam_ids:
@@ -130,7 +139,7 @@ def derive_profile(
                     practice_item.c.topic_id, practice_item.c.marks, topic.c.status, topic.c.name
                 )
                 .join_from(practice_item, topic, practice_item.c.topic_id == topic.c.id)
-                .where(practice_item.c.past_exam_id == p_id)
+                .where(practice_item.c.past_exam_id == p_id, practice_item.c.state == "live")
                 .order_by(practice_item.c.position)
             ).all()
 

@@ -438,6 +438,46 @@ def test_a_declined_topic_is_not_listed(service_engine, user_id, web, tmp_path):
     assert set(listing(service_engine, user_id)) == {REGEX}
 
 
+def reject(engine, item_id) -> None:
+    with write_unit(engine) as conn:
+        conn.execute(
+            update(practice_item).where(practice_item.c.id == item_id).values(state="rejected")
+        )
+
+
+def test_a_rejected_item_is_not_listed(service_engine, user_id, web, tmp_path):
+    transcribe(service_engine, user_id, tmp_path, "first", "2020-02-17", [FORMS, FORMS])
+    first, second = item_ids(service_engine, FORMS)
+    reject(service_engine, first)
+
+    forms = listing(service_engine, user_id)[FORMS]
+
+    assert [i["id"] for i in forms["items"]] == [second]
+    assert forms["hidden"] == 0  # hidden counts practised items, not rejected ones
+
+
+def test_a_decline_needs_no_target_for_a_rejected_item(service_engine, user_id, web, tmp_path):
+    """The listing hides a rejected item, so a decline built from it cannot name one - it must
+    not fail with "missing"; the rejected item stays on the retired topic."""
+    transcribe(service_engine, user_id, tmp_path, "first", "2020-02-17", [REGEX, FORMS, FORMS])
+    forms = topic_id(service_engine, FORMS)
+    kept, dropped = item_ids(service_engine, FORMS)
+    reject(service_engine, dropped)
+
+    confirm_topic_proposal(
+        service_engine,
+        user_id,
+        forms,
+        "decline",
+        [{"item_id": kept, "topic": {"proposed_name": REGEX}}],
+    )
+
+    with service_engine.connect() as conn:
+        on = dict(conn.execute(select(practice_item.c.id, practice_item.c.topic_id)).tuples().all())
+    assert on[kept] == topic_id(service_engine, REGEX)
+    assert on[dropped] == forms
+
+
 def test_an_item_with_no_paper_is_listed_without_a_date(service_engine, user_id, web, tmp_path):
     """A generated item has no paper; the listing must still show it, or a decline could never
     name it and would fail with "missing"."""

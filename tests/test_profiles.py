@@ -4,9 +4,16 @@ given newest first - no database. Then `derive_profile`, the write unit around i
 import json
 
 import pytest
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, update
 
-from studysystem.db.tables import exam_profile, generation_task, topic, topic_weight
+from studysystem.db.tables import (
+    exam_profile,
+    generation_task,
+    past_exam,
+    practice_item,
+    topic,
+    topic_weight,
+)
 from studysystem.errors import StudyError
 from studysystem.services.assessments import add_assessment
 from studysystem.services.courses import add_course
@@ -286,6 +293,91 @@ def test_another_slots_papers_are_ignored(service_engine, user_id, i3302, tmp_pa
 
     assert result["papers"] == 3
     assert "Midterm only" not in {w["name"] for w in result["weights"]}
+
+
+# --- rejected items are not evidence --------------------------------------------------------
+
+
+def set_state(engine, paper_id, positions, state) -> None:
+    with write_unit(engine) as conn:
+        conn.execute(
+            update(practice_item)
+            .where(
+                practice_item.c.past_exam_id == paper_id,
+                practice_item.c.position.in_(positions),
+            )
+            .values(state=state)
+        )
+
+
+def paper_on(engine, date) -> str:
+    with engine.connect() as conn:
+        return conn.execute(
+            select(past_exam.c.id).where(past_exam.c.session_date == date)
+        ).scalar_one()
+
+
+def by_name(result) -> dict:
+    return {w["name"]: w["weight"] for w in result["weights"]}
+
+
+def test_a_rejected_item_is_left_out_of_the_weights(service_engine, user_id, i3302):
+    # 2021's forms question (23 marks) rejected: the paper weighs as if it never asked it.
+    set_state(service_engine, paper_on(service_engine, "2021-09-20"), [1], "rejected")
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    expected = topic_weights([PAPER_2021[1:], PAPER_2020_RESIT, PAPER_2020_FIRST])
+    assert by_name(result) == pytest.approx({NAMES[k]: w for k, w in expected.items()})
+    assert result["papers"] == 3
+    with service_engine.connect() as conn:
+        evidence = conn.execute(select(exam_profile.c.evidence_count_syllabus)).scalar_one()
+    assert evidence == 23  # 24 items, one rejected
+
+
+def test_a_paper_with_every_item_rejected_does_not_count_toward_the_minimum(
+    service_engine, user_id, i3302
+):
+    set_state(service_engine, paper_on(service_engine, "2021-09-20"), range(1, 8), "rejected")
+
+    with pytest.raises(StudyError) as err:
+        derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    assert err.value.code == "too_few_papers"
+    assert count(service_engine, exam_profile) == 0
+
+
+def test_a_rejected_item_on_a_proposed_topic_does_not_block(
+    service_engine, user_id, i3302, tmp_path
+):
+    # I3306's case: a project question on its own topic, left proposed and rejected.
+    paper_id = add_paper(
+        service_engine,
+        user_id,
+        tmp_path,
+        "2022-04-13",
+        "first",
+        [("forms", 10.0), ("Project", None)],
+    )
+    set_state(service_engine, paper_id, [2], "rejected")
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    assert result["papers"] == 4
+    assert "Project" not in by_name(result)
+
+
+def test_a_rejected_item_set_live_again_counts_again(service_engine, user_id, i3302):
+    before = by_name(derive_profile(service_engine, user_id, "I3302", FINAL))
+    paper_id = paper_on(service_engine, "2021-09-20")
+    set_state(service_engine, paper_id, [1], "rejected")
+    rejected = by_name(derive_profile(service_engine, user_id, "I3302", FINAL))
+    set_state(service_engine, paper_id, [1], "live")
+
+    after = by_name(derive_profile(service_engine, user_id, "I3302", FINAL))
+
+    assert rejected != pytest.approx(before)
+    assert after == pytest.approx(before)
 
 
 def test_derive_through_the_tool(call, service_engine, user_id, i3302):

@@ -574,6 +574,7 @@ def _note_task(conn: Connection, found, task_id: str, profile) -> Task:
             .where(
                 past_exam.c.slot_id == profile.slot_id,
                 past_exam.c.transcript_task_id.is_not(None),
+                practice_item.c.state == "live",
             )
             .order_by(past_exam.c.session_date, practice_item.c.position)
         )
@@ -680,8 +681,9 @@ def _start_tagging(engine: Engine, user_id: str, material_id: str | None) -> Tas
 
 def _tagging_task(conn: Connection, found, task_id: str) -> Task:
     """The task for one material: its pages, the schema, and the rules - how to decide, and each
-    `active` topic of its course with every past-exam question tagged to it, which is what
-    defines the topic (D-104). No weight: tagging is a yes or no per topic, not a ranking."""
+    `active` topic of its course with every live past-exam question tagged to it, which is what
+    defines the topic (D-104; a rejected question is not evidence, D-136). No weight: tagging is
+    a yes or no per topic, not a ranking."""
     content, pictures = _pages(found.file_ref)
 
     rows = conn.execute(
@@ -702,7 +704,7 @@ def _tagging_task(conn: Connection, found, task_id: str) -> Task:
         )
         .join_from(practice_item, past_exam, practice_item.c.past_exam_id == past_exam.c.id)
         .join(assessment_slot, assessment_slot.c.id == past_exam.c.slot_id)
-        .where(practice_item.c.topic_id.in_(list(entries)))
+        .where(practice_item.c.topic_id.in_(list(entries)), practice_item.c.state == "live")
         .order_by(past_exam.c.session_date, practice_item.c.position)
     )
     for q in questions:

@@ -7,7 +7,7 @@ import json
 import pytest
 from sqlalchemy import func, select, update
 
-from studysystem.db.tables import generation_task
+from studysystem.db.tables import generation_task, past_exam, practice_item
 from studysystem.errors import StudyError
 from studysystem.services.courses import add_course
 from studysystem.services.generation import (
@@ -144,6 +144,27 @@ def test_only_the_profiles_papers_send_items(service_engine, user_id, i3302, ch6
     items = start(service_engine, user_id, ch6).payload["rules"]["past_exam_items"]
 
     assert len(items) == 24
+
+
+def test_a_rejected_item_does_not_travel(service_engine, user_id, ch6):
+    """D-136: a rejected item is not evidence, so the note cannot cite it."""
+    with write_unit(service_engine) as conn:
+        conn.execute(
+            update(practice_item)
+            .where(
+                practice_item.c.position == 1,
+                practice_item.c.past_exam_id.in_(
+                    select(past_exam.c.id).where(past_exam.c.session_date == "2020-02-17")
+                ),
+            )
+            .values(state="rejected")
+        )  # 2020-02-17's first regex question
+
+    items = start(service_engine, user_id, ch6).payload["rules"]["past_exam_items"]
+
+    assert len(items) == 23
+    assert items[0]["paper"] == "Final exam 2020-02-17 (first)"
+    assert items[0]["position"] == 2
 
 
 def test_each_call_logs_one_json_line(service_engine, user_id, ch6, caplog):

@@ -7,9 +7,9 @@ a course with no active topic is refused."""
 import json
 
 import pytest
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, update
 
-from studysystem.db.tables import coverage, generation_task, topic
+from studysystem.db.tables import coverage, generation_task, practice_item, topic
 from studysystem.errors import StudyError
 from studysystem.services.courses import add_course
 from studysystem.services.generation import (
@@ -116,6 +116,21 @@ def test_chapter_6_leaves_with_every_active_topic_and_its_questions(
     first = sent[NAMES["mysql"]]["past_exam_questions"][0]
     assert set(first) == {"paper", "position", "question"}
     assert first["question"].startswith("Question ")
+
+
+def test_a_rejected_question_does_not_define_its_topic(service_engine, user_id, ch6, ids):  # noqa: F811
+    """D-136: regex's three questions rejected - the topic still travels, with none."""
+    with write_unit(service_engine) as conn:
+        conn.execute(
+            update(practice_item)
+            .where(practice_item.c.topic_id == ids[NAMES["regex"]])
+            .values(state="rejected")
+        )
+
+    sent = {t["name"]: t for t in start(service_engine, user_id, ch6).payload["rules"]["topics"]}
+
+    assert sent[NAMES["regex"]]["past_exam_questions"] == []
+    assert sent[NAMES["mysql"]]["past_exam_questions"]
 
 
 def test_one_task_row_with_no_profile(service_engine, user_id, ch6, task_id):  # noqa: F811
