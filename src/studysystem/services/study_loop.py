@@ -422,6 +422,7 @@ MODE_SOURCE = {
 }
 ROOT_CAUSES = ("concept", "recall", "procedure", "misread", "careless", "time-pressure")
 PRACTISABLE = ("active", "unexamined")  # a proposed topic stays declinable: no state (D-22)
+RETIRED_ITEM = ("rejected", "superseded")  # needs-review is cleared at use (D-16), so it stays
 
 
 def _attempt_values(raw: object, n: int) -> dict:
@@ -464,20 +465,33 @@ def _attempt_values(raw: object, n: int) -> dict:
 
 def _attempt_topic(conn: Connection, user_id: str, course_id: str, code: str, a: dict, n: int):
     """The topic the attempt lands on - its item's, when it names one (Same course) - and the
-    item's paper and position. Refuses another course's item or topic, and a topic not open to
-    practice."""
+    item's paper and position. Refuses another course's item or topic, a rejected or superseded
+    item (D-141), and a topic not open to practice."""
     where = f"attempts[{n}]"
     paper = position = None
     topic_id = a["topic_id"]
     if a["practice_item_id"] is not None:
         item = conn.execute(
             select(
-                practice_item.c.topic_id, practice_item.c.past_exam_id, practice_item.c.position
+                practice_item.c.topic_id,
+                practice_item.c.past_exam_id,
+                practice_item.c.position,
+                practice_item.c.state,
             ).where(practice_item.c.id == a["practice_item_id"], practice_item.c.user_id == user_id)
         ).first()
         if item is None:
             raise _not_found(
                 f"{where}.practice_item_id", "item with this id", "use an id from study_get_topics"
+            )
+        if item.state in RETIRED_ITEM:
+            raise StudyError(
+                code="item_not_practisable",
+                message=f"{where}: the item is {item.state}",
+                fix="leave practice_item_id out and send the question's topic_id - an item "
+                f"that is {item.state} takes no attempt",
+                field_errors=[
+                    {"field": f"{where}.practice_item_id", "problem": f"item is {item.state}"}
+                ],
             )
         if topic_id is not None and topic_id != item.topic_id:
             raise values.invalid(

@@ -304,6 +304,41 @@ def test_a_proposed_topic_is_not_practised(service_engine, user_id, web):
     assert err.value.code == "topic_not_practisable"
 
 
+def _set_state(engine, item_id, state):
+    with write_unit(engine) as conn:
+        conn.execute(update(practice_item).where(practice_item.c.id == item_id).values(state=state))
+
+
+@pytest.mark.parametrize("state", ["rejected", "superseded"])
+def test_an_item_retired_from_practice_is_refused(service_engine, user_id, web, state):
+    # D-141: get_topics hides it, so an attempt on it must not reach FSRS either.
+    mysql = _topic(service_engine, user_id, web["course_id"], "MySQL")
+    [item] = _items(service_engine, user_id, mysql, [5])
+    _set_state(service_engine, item, state)
+
+    with pytest.raises(StudyError) as err:
+        submit_attempts(
+            service_engine, user_id, "I3302", [{"practice_item_id": item, "correct": True}]
+        )
+
+    assert err.value.code == "item_not_practisable"
+    assert err.value.field_errors[0]["field"] == "attempts[0].practice_item_id"
+    assert "topic_id" in err.value.fix  # the tool's other door: a question with no item
+    assert _count(service_engine, attempt) == 0
+    assert _state(service_engine, mysql) is None
+
+
+def test_an_item_awaiting_review_is_practised(service_engine, user_id, web):
+    # D-16(a): a needs-review item is cleared at the point of use, so it takes attempts.
+    mysql = _topic(service_engine, user_id, web["course_id"], "MySQL")
+    [item] = _items(service_engine, user_id, mysql, [5])
+    _set_state(service_engine, item, "needs-review")
+
+    submit_attempts(service_engine, user_id, "I3302", [{"practice_item_id": item, "correct": True}])
+
+    assert _count(service_engine, attempt) == 1
+
+
 def test_one_bad_part_saves_none_of_the_problem(service_engine, user_id, web):
     mysql = _topic(service_engine, user_id, web["course_id"], "MySQL")
     items = _items(service_engine, user_id, mysql, [5, 5])
