@@ -56,7 +56,7 @@ def migrate_cmd() -> None:
     engine, before = _open(path)
     now = datetime.datetime.now().astimezone()
     # One copy per run, not per day: each migrate is a restore point worth keeping.
-    target = snapshot(engine, now.date(), f"-premigrate-{now:%H%M%S}")
+    target = snapshot(engine, now.date(), f"-premigrate-{now:%H%M%S}", unique=True)
 
     try:
         migrate.upgrade(engine)
@@ -86,7 +86,7 @@ def downgrade(target: str) -> None:
         raise click.ClickException(f"no database at {path}; nothing to downgrade")
     engine, before = _open(path)
     now = datetime.datetime.now().astimezone()
-    snap = snapshot(engine, now.date(), f"-predowngrade-{now:%H%M%S}")
+    snap = snapshot(engine, now.date(), f"-predowngrade-{now:%H%M%S}", unique=True)
 
     try:
         migrate.downgrade(engine, target)

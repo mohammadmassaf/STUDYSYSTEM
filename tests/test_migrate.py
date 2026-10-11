@@ -71,10 +71,10 @@ def test_downgrade_base_reverses_it():
     assert f"{HEAD} -> None" in result.output
 
 
-def test_migrate_snapshots_even_when_daily_snapshot_exists(monkeypatch):
-    # `study migrate` reads the clock through cli's own `datetime` name, so the fixed time is
-    # set there only - the stdlib module every other import shares is left alone. A real clock
-    # could name the daily copy on one side of midnight and the premigrate copy on the other.
+def _freeze_cli_clock(monkeypatch) -> datetime.datetime:
+    """09:30:00 on 2026-10-11, local. `study` reads the clock through cli's own `datetime` name,
+    so the fixed time is set there only - the stdlib module every other import shares is left
+    alone. A real clock could name one copy on each side of midnight, or of a second."""
     at = datetime.datetime(2026, 10, 11, 9, 30).astimezone()  # noqa: DTZ001 - local wall clock
 
     class Frozen(datetime.datetime):
@@ -83,11 +83,36 @@ def test_migrate_snapshots_even_when_daily_snapshot_exists(monkeypatch):
             return at if tz is None else at.astimezone(tz)
 
     monkeypatch.setattr(cli, "datetime", SimpleNamespace(datetime=Frozen))
+    return at
+
+
+def test_migrate_snapshots_even_when_daily_snapshot_exists(monkeypatch):
+    at = _freeze_cli_clock(monkeypatch)
     engine = make_engine(db_path())
     assert snapshot(engine, at.date()) is not None  # the server already ran today
     assert CliRunner().invoke(study, ["migrate"]).exit_code == 0
     names = {p.name for p in (data_dir() / "snapshots").iterdir()}
     assert names == {"2026-10-11.db", "2026-10-11-premigrate-093000.db"}
+
+
+def test_two_runs_in_one_second_keep_a_copy_each(monkeypatch):
+    """migrate, downgrade, migrate inside 09:30:00: the second migrate's copy is the only one
+    taken after the downgrade, so it gets its own name instead of being skipped."""
+    _freeze_cli_clock(monkeypatch)
+    runner = CliRunner()
+    for args in (["migrate"], ["downgrade", "0008"], ["migrate"]):
+        result = runner.invoke(study, args)
+        assert result.exit_code == 0, result.output
+        assert "snapshot: None" not in result.output
+
+    names = {p.name for p in (data_dir() / "snapshots").iterdir()}
+    assert names == {
+        "2026-10-11-premigrate-093000.db",
+        "2026-10-11-predowngrade-093000.db",
+        "2026-10-11-premigrate-093000-2.db",
+    }
+    with sqlite3.connect(data_dir() / "snapshots" / "2026-10-11-premigrate-093000-2.db") as db:
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0008",)
 
 
 # --- check_schema ---------------------------------------------------------

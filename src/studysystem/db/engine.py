@@ -100,14 +100,23 @@ def make_engine(path: Path) -> Engine:
     return engine
 
 
-def snapshot(engine: Engine, today: datetime.date, suffix: str = "") -> Path | None:
+def snapshot(
+    engine: Engine, today: datetime.date, suffix: str = "", unique: bool = False
+) -> Path | None:
     """Copy the database to snapshots/<date><suffix>.db. Skips if that file exists, which is
-    the once-a-day rule for the plain startup snapshot (D-22)."""
-    target = data_dir() / "snapshots" / f"{today.isoformat()}{suffix}.db"
-    target.parent.mkdir(parents=True, exist_ok=True)
+    the once-a-day rule for the plain startup snapshot (D-22). With `unique` it never skips: a
+    taken name gets -2, -3, ... - two `study migrate` runs in one second keep a copy each (D-23)."""
+    folder = data_dir() / "snapshots"
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = f"{today.isoformat()}{suffix}"
+    target = folder / f"{stem}.db"
 
-    if target.exists():
-        return None
+    n = 2
+    while target.exists():
+        if not unique:
+            return None
+        target = folder / f"{stem}-{n}.db"
+        n += 1
 
     # Copied beside the real name and renamed in one step: a copy cut short (full disk, killed
     # process) never sits under the day's name, where the exists() check would trust it all day.
