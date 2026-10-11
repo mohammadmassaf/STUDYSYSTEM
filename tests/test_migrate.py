@@ -1,7 +1,9 @@
 import datetime
+import shutil
 import sqlite3
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from alembic import command
@@ -562,3 +564,69 @@ def test_migrate_twice_leaves_exactly_one_user():
 
     with sqlite3.connect(db_path()) as db:
         assert db.execute("SELECT count(*) FROM user").fetchone() == (1,)
+
+
+# --- `study serve`, the way Claude Desktop starts it ---------------------------------------
+
+
+def serve() -> subprocess.CompletedProcess:
+    """Run the installed `study` script's `serve` as its own process, stdin closed."""
+    script = shutil.which("study", path=str(Path(sys.executable).parent))
+    assert script is not None, "the study console script is not installed in this environment"
+    return subprocess.run(
+        [script, "serve"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60
+    )
+
+
+def test_study_serve_refuses_an_empty_database():
+    proc = serve()
+
+    assert proc.returncode == 1
+    assert f"database has no schema yet, head is {HEAD}" in proc.stderr
+    assert "run: study migrate" in proc.stderr
+    assert stamp() is None
+
+
+def test_study_serve_refuses_a_database_behind_head_and_leaves_its_rows():
+    """I3302 at 0008, one migration behind: refused, not migrated, not snapshotted."""
+    engine = make_engine(db_path())
+    command.upgrade(migrate.alembic_config(engine), "0008")
+    with engine.begin() as conn:
+        conn.execute(insert(user).values(id=UID, created_at=AT))
+        conn.execute(
+            insert(course).values(
+                id=COURSE,
+                user_id=UID,
+                code="I3302",
+                name="Server-Side Web Development",
+                semester_name="Semester 1",
+                instructor_tier="unknown",
+                credits_tier="unknown",
+                created_at=AT,
+            )
+        )
+    engine.dispose()
+
+    proc = serve()
+
+    assert proc.returncode == 1
+    assert f"database is at 0008, head is {HEAD}" in proc.stderr
+    assert "run: study migrate" in proc.stderr
+    assert stamp() == "0008"
+    with sqlite3.connect(db_path()) as db:
+        assert db.execute("SELECT code FROM course").fetchall() == [("I3302",)]
+    assert not (data_dir() / "snapshots").exists()
+
+
+def test_study_serve_refuses_a_database_ahead_of_head():
+    engine = make_engine(db_path())
+    _stamp_unknown_revision(engine)
+    engine.dispose()
+
+    proc = serve()
+
+    assert proc.returncode == 1
+    assert "schema_ahead_of_head" in proc.stderr
+    assert "study migrate" not in proc.stderr
+    assert stamp() == "ffff"
+    assert not (data_dir() / "snapshots").exists()
