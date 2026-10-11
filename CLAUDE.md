@@ -8,6 +8,8 @@ schedules.
 
 - Tests: `uv run pytest`
 - Lint: `uv run ruff check`
+- CI for a commit: `gh run list --commit $(git rev-parse HEAD)` - the full SHA; a short one
+  matches nothing.
 - Dependencies: `uv add <pkg>` (dev tools: `uv add --dev <pkg>`). uv owns the environment, so
   every Python command runs through `uv run`.
 
