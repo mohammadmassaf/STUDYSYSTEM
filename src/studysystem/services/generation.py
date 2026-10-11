@@ -53,6 +53,8 @@ log = logging.getLogger(__name__)
 KINDS = ("note", "practice", "memory", "transcription", "timetable", "tagging")
 BUILT = ("transcription", "note", "tagging")  # the rest arrive with their tasks (D-47)
 
+MAX_POSITION = 200  # no paper has this many questions (live maximum 24); `missing` walks 1..max
+
 # What 1.10 validates each submission against. The server fills in what the host must not get
 # wrong: origin = past-exam, past_exam_id, source_marker = from-material, answer_provenance.
 TRANSCRIPTION_SCHEMA = {
@@ -71,6 +73,7 @@ TRANSCRIPTION_SCHEMA = {
                     "position": {
                         "type": "integer",
                         "minimum": 1,
+                        "maximum": MAX_POSITION,
                         "description": "the question's place on the paper: 1, 2, 3... in order",
                     },
                     "question": {

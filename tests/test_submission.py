@@ -239,6 +239,18 @@ def test_a_blank_answer_key_or_question_is_an_item_error(
     assert 2 not in [r["position"] for r in rows(service_engine, practice_item)]
 
 
+def test_a_position_past_the_cap_is_an_item_error(service_engine, user_id, task_id):
+    """The missing-positions count walks 1..max, so 10^9 would fill memory under the write
+    lock; no paper has MAX_POSITION questions (the live maximum is 24)."""
+    items = broken(paper1_items(), 2, position=10**9)
+
+    reply = submit(service_engine, user_id, task_id, payload(items))
+
+    (err,) = reply["item_errors"]
+    assert (err["item_ordinal"], err["code"], err["field"]) == (2, "maximum", "position")
+    assert reply["missing"] == [2]
+
+
 def test_items_without_answer_key_or_marks_keys_are_unknown(service_engine, user_id, task_id):
     """Neither key is required by the schema: left out means null, not a crash."""
     items = broken(paper1_items(), 4, answer_key=..., marks=...)
