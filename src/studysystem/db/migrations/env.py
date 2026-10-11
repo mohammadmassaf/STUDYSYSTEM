@@ -19,21 +19,25 @@ def run_migrations() -> None:
     with engine.connect() as connection:
         # SQLite (D-103): batch mode rebuilds a table as copy -> drop -> rename, and with foreign
         # keys enforced the drop of a parent table fails against its children - RESTRICT fires
-        # even when deferred. `foreign_keys = OFF` is a no-op inside a transaction, and every
-        # pending migration runs inside one, so it is set here, on the raw connection, before
-        # anything opens one. Postgres alters in place and needs none of it: `raw` is the sqlite3
-        # connection underneath, or None on Postgres.
+        # even when deferred. `foreign_keys = OFF` is a no-op inside a transaction, so it is set
+        # here, on the raw connection, before the run's transaction opens. Postgres alters in
+        # place and needs none of it: `raw` is the sqlite3 connection underneath, or None on
+        # Postgres.
         sqlite = connection.dialect.name == "sqlite"
         raw = connection.connection.driver_connection if sqlite else None
         if raw is not None:
             raw.execute("PRAGMA foreign_keys = OFF")
         try:
-            context.configure(
-                connection=connection,
-                target_metadata=target_metadata,
-                render_as_batch=True,  # SQLite alters a table by rebuilding it (D-08)
-            )
-            with context.begin_transaction():
+            # The run's one transaction, opened here. Left to itself, Alembic treats SQLite's DDL
+            # as non-transactional and commits after every migration, so the check below would
+            # run after the last commit and undo nothing. A transaction already open when
+            # `configure` runs is the caller's: Alembic opens none of its own inside it.
+            with connection.begin():
+                context.configure(
+                    connection=connection,
+                    target_metadata=target_metadata,
+                    render_as_batch=True,  # SQLite alters a table by rebuilding it (D-08)
+                )
                 context.run_migrations()
                 if raw is not None:
                     # The check the run skipped, once, before COMMIT: a row pointing at a

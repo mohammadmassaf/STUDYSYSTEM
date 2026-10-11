@@ -289,3 +289,25 @@ def test_migrate_leaves_foreign_keys_on():
     with engine.connect() as conn:
         assert conn.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
     engine.dispose()
+
+
+# --- after the independent review -------------------------------------------------------------
+
+
+def test_a_run_that_leaves_a_dangling_row_rolls_back_whole():
+    """D-103's check runs before the run's one COMMIT: a dangling row found after 0008 and 0009
+    undoes both, not just the last. SQLite only - Postgres enforces foreign keys throughout."""
+    engine = make_engine(db_path())
+    command.upgrade(migrate.alembic_config(engine), "0007")
+    with sqlite3.connect(db_path()) as db:  # plain sqlite3: foreign keys off, as during a rebuild
+        db.execute(
+            "INSERT INTO course (id, user_id, code, name, semester_name, instructor_tier,"
+            " credits_tier, created_at) VALUES (?, ?, 'I3302', 'Databases', 'Fall 2026',"
+            " 'unknown', 'unknown', '2026-10-10T00:00:00Z')",
+            ("1" * 26, "9" * 26),  # a user that does not exist
+        )
+
+    with pytest.raises(RuntimeError, match="missing ids"):
+        migrate.upgrade(engine)
+
+    assert stamp() == "0007"
