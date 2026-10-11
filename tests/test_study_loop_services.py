@@ -628,3 +628,139 @@ def test_a_crash_after_the_attempts_rolls_back_the_session_and_the_attempts(
 
     assert _count(service_engine, attempt) == 0
     assert _count(service_engine, study_session) == 0
+
+
+# --- another student's rows (Conventions: ownership) ----------------------------------------
+# B owns their own I3302, so B's code finds B's course; what B can still send is one of A's ids.
+
+
+@pytest.fixture
+def b_web(service_engine, other_user_id):
+    return add_course(service_engine, other_user_id, "I3302", "Server-Side Web Development", SEM)
+
+
+def _not_found(err, field):
+    assert err.value.code == "not_found"
+    assert err.value.field_errors[0]["field"] == field
+
+
+def test_another_students_topic_cannot_be_a_session_subject(
+    service_engine, user_id, other_user_id, web, b_web
+):
+    forms = _topic(service_engine, user_id, web["course_id"], "PHP forms")
+
+    with pytest.raises(StudyError) as err:
+        start_session(service_engine, other_user_id, "I3302", "practice", "topic", forms)
+
+    _not_found(err, "subject_id")
+    assert _count(service_engine, study_session) == 0
+
+
+def test_another_students_item_cannot_be_attempted(
+    service_engine, user_id, other_user_id, web, b_web
+):
+    forms = _topic(service_engine, user_id, web["course_id"], "PHP forms")
+    [item] = _items(service_engine, user_id, forms, [5])
+
+    with pytest.raises(StudyError) as err:
+        submit_attempts(
+            service_engine, other_user_id, "I3302", [{"practice_item_id": item, "correct": True}]
+        )
+
+    _not_found(err, "attempts[0].practice_item_id")
+    assert _count(service_engine, attempt) == 0
+    assert _count(service_engine, study_session) == 0
+
+
+def test_another_students_open_session_is_never_reused(
+    service_engine, user_id, other_user_id, web, b_web
+):
+    mine = start_session(service_engine, user_id, "I3302", "practice")["session_id"]
+    b_forms = _topic(service_engine, other_user_id, b_web["course_id"], "PHP forms")
+    [b_item] = _items(service_engine, other_user_id, b_forms, [5])
+
+    result = submit_attempts(
+        service_engine, other_user_id, "I3302", [{"practice_item_id": b_item, "correct": True}]
+    )
+
+    assert result["session_id"] != mine
+    with service_engine.connect() as conn:
+        on_mine = conn.execute(select(attempt).where(attempt.c.session_id == mine)).all()
+        b_session = conn.execute(
+            select(study_session).where(study_session.c.id == result["session_id"])
+        ).one()
+    assert on_mine == []
+    assert (b_session.user_id, b_session.source) == (other_user_id, "manual")
+
+
+def test_another_students_session_cannot_take_attempts(
+    service_engine, user_id, other_user_id, web, b_web
+):
+    mine = start_session(service_engine, user_id, "I3302", "practice")["session_id"]
+    b_forms = _topic(service_engine, other_user_id, b_web["course_id"], "PHP forms")
+    [b_item] = _items(service_engine, other_user_id, b_forms, [5])
+
+    with pytest.raises(StudyError) as err:
+        submit_attempts(
+            service_engine,
+            other_user_id,
+            "I3302",
+            [{"practice_item_id": b_item, "correct": True}],
+            session_id=mine,
+        )
+
+    _not_found(err, "session_id")
+    assert _count(service_engine, attempt) == 0
+
+
+def test_another_students_entry_cannot_be_voided(
+    service_engine, user_id, other_user_id, web, b_web
+):
+    mine = log_hours(service_engine, user_id, "I3302", 40)["hours_entry_id"]
+
+    with pytest.raises(StudyError) as err:
+        log_hours(service_engine, other_user_id, "I3302", 40, voids=mine)
+
+    _not_found(err, "voids")
+    with service_engine.connect() as conn:
+        entries = conn.execute(select(hours_entry)).all()
+    assert [(e.id, e.voided_at) for e in entries] == [(mine, None)]
+
+
+def test_another_students_session_cannot_be_closed_by_logging(
+    service_engine, user_id, other_user_id, web, b_web
+):
+    mine = start_session(service_engine, user_id, "I3302", "practice")["session_id"]
+
+    with pytest.raises(StudyError) as err:
+        log_hours(service_engine, other_user_id, "I3302", 40, session_id=mine)
+
+    _not_found(err, "session_id")
+    with service_engine.connect() as conn:
+        assert conn.execute(select(study_session.c.ended_at)).scalar_one() is None
+    assert _count(service_engine, hours_entry) == 0
+
+
+def test_a_setup_key_another_students_plan_raised_is_not_found(
+    service_engine, user_id, other_user_id, web, b_web
+):
+    items = get_plan(service_engine, user_id, TODAY)["lanes"]["setup"]["items"]
+    key = next(i["setup_key"] for i in items if i["setup_kind"] == "first-material")
+
+    with pytest.raises(StudyError) as err:
+        log_hours(service_engine, other_user_id, "I3302", 10, setup_key=key)
+
+    _not_found(err, "setup_key")
+    assert _count(service_engine, hours_entry) == 0
+
+
+def test_hours_on_another_students_topic_are_refused(
+    service_engine, user_id, other_user_id, web, b_web
+):
+    forms = _topic(service_engine, user_id, web["course_id"], "PHP forms")
+
+    with pytest.raises(StudyError) as err:
+        log_hours(service_engine, other_user_id, "I3302", 40, topic_id=forms)
+
+    _not_found(err, "topic_id")
+    assert _count(service_engine, hours_entry) == 0
