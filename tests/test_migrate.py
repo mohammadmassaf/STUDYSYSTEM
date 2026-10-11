@@ -394,3 +394,38 @@ def test_a_failed_daily_snapshot_does_not_stop_the_server(monkeypatch, caplog):
 
     assert started == [True]
     assert "daily snapshot failed" in caplog.text
+
+
+# --- ON DELETE RESTRICT, as the migrations built it (Conventions) ---------------------
+
+
+def test_every_migrated_foreign_key_restricts_deletes(empty_engine):
+    """Read back from the database the nine migrations built, not from `metadata`: a rebuilt
+    table (0005, 0006, 0008) that lost its `ON DELETE RESTRICT` would pass a metadata-only check."""
+    inspector = migrated(empty_engine)
+    built = [
+        (name, tuple(fk["constrained_columns"]), (fk.get("options") or {}).get("ondelete"))
+        for name in inspector.get_table_names()
+        for fk in inspector.get_foreign_keys(name)
+    ]
+    declared = sum(len(table.foreign_keys) for table in metadata.tables.values())
+
+    assert len(built) == declared
+    assert [b for b in built if (b[2] or "").upper() != "RESTRICT"] == []
+
+
+def test_a_course_with_a_slot_cannot_be_deleted(empty_engine):
+    """I3302 and its default Final slot on the migrated database: the delete is refused and the
+    course stays. On SQLite this also proves the runtime connection has foreign keys on."""
+    from studysystem.services.courses import add_course
+    from studysystem.services.users import ensure_user
+
+    migrate.upgrade(empty_engine)
+    uid = ensure_user(empty_engine)
+    web = add_course(empty_engine, uid, "I3302", "Server-side WEB Development", "Semester 1")
+
+    with pytest.raises(IntegrityError), empty_engine.begin() as conn:
+        conn.execute(course.delete().where(course.c.id == web["course_id"]))
+
+    with empty_engine.connect() as conn:
+        assert conn.execute(select(course.c.id)).scalars().all() == [web["course_id"]]
