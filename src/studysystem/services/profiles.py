@@ -31,17 +31,28 @@ MIN_PAPERS = 3  # below this a course runs cold-start (D-14, D-69)
 PaperItems = Sequence[tuple[str, float | None]]
 
 
+def _zero_as_unmarked(paper: PaperItems) -> PaperItems:
+    """`paper` with every mark None when its printed marks are all 0 - a host writing 0 for
+    "not printed" (D-140). A paper with one real mark keeps its zeros."""
+    printed = [mark for _, mark in paper if mark is not None]
+    if printed and all(mark == 0 for mark in printed):
+        return [(topic_id, None) for topic_id, _ in paper]
+    return paper
+
+
 def topic_weights(papers: Sequence[PaperItems]) -> dict[str, float]:
     """Pooled topic weights for `papers`, given newest first. Returns {topic_id: weight}, the
     weights summing to 100. Pure: reads no database (D-67).
 
     An unmarked item takes the average printed mark of its topic across `papers`. A paper where
-    every item then has a mark shares by marks; any other paper shares by item count. Each
-    paper sums to 100, then papers pool by recency votes (NEWEST, NEXT_TWO, OLDER).
+    every item then has a mark, totalling more than 0, shares by marks; any other paper shares
+    by item count. Each paper sums to 100, then papers pool by recency votes (NEWEST, NEXT_TWO,
+    OLDER). A paper whose printed marks are all 0 is read as unmarked (D-140).
 
     I3302's three papers -> files 25.0, MySQL 23.2, sessions 17.2, forms 14.4, cookies 10.7,
     regex 9.5.
     """
+    papers = [_zero_as_unmarked(paper) for paper in papers]
     marks = defaultdict(list)
     for paper in papers:
         for topic_id, mark in paper:
@@ -68,7 +79,7 @@ def topic_weights(papers: Sequence[PaperItems]) -> dict[str, float]:
                 filled.append((topic_id, average.get(topic_id)))
             else:
                 filled.append((topic_id, mark))
-        has_mark = all(m is not None for _, m in filled)
+        has_mark = all(m is not None for _, m in filled) and sum(m for _, m in filled) > 0
 
         amounts = defaultdict(float)  # marks mode: each item adds its mark; count mode: 1
         for topic_id, mark in filled:

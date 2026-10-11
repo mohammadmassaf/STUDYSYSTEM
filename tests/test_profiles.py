@@ -72,6 +72,27 @@ def test_a_single_paper_returns_its_own_shares():
     assert topic_weights([[("a", 5.0), ("b", 15.0)]]) == pytest.approx({"a": 25.0, "b": 75.0})
 
 
+def test_a_paper_whose_marks_are_all_zero_shares_by_count():
+    # 0 + 0 is a host writing 0 for "not printed" (D-140): the paper counts its items, a 1 : 1.
+    assert topic_weights([[("a", 0.0), ("b", 0.0)]]) == pytest.approx({"a": 50.0, "b": 50.0})
+
+
+def test_an_all_zero_paper_lends_no_average_to_another_paper():
+    # Newest: a unmarked, b 10. Older: a 0, b 0 - unmarked too, so a has no average and the
+    # newest paper counts (a 50, b 50). The older counts too: 50 / 50. Pooled 3 : 2.
+    weights = topic_weights([[("a", None), ("b", 10.0)], [("a", 0.0), ("b", 0.0)]])
+
+    assert weights == pytest.approx({"a": 50.0, "b": 50.0})
+
+
+def test_a_zero_average_filling_every_item_shares_by_count():
+    # Newest: a 0, b 5 (total 5, a real zero). Older: a unmarked -> average 0, nothing else:
+    # its total is 0 after filling, so it counts: a 100. Pooled: a (0 x 3 + 100 x 2) / 5.
+    weights = topic_weights([[("a", 0.0), ("b", 5.0)], [("a", None)]])
+
+    assert weights == pytest.approx({"a": 40.0, "b": 60.0})
+
+
 def test_papers_past_the_third_get_the_older_vote():
     # One topic per paper, votes 3, 2, 2, 1, 1 -> 9 in all.
     papers = [[(name, None)] for name in ("p1", "p2", "p3", "p4", "p5")]
