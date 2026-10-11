@@ -29,7 +29,7 @@ def test_hours_as_a_numeric_string_are_stored_as_a_number(service_engine, user_i
 
 
 def test_a_second_call_adds_a_row_and_keeps_the_first(service_engine, user_id):
-    """A vacation: its start, then the return - both rows stay, in order."""
+    """A break: its own hours from its start, then the return - both rows stay, in order."""
     set_capacity(service_engine, user_id, 20, "2026-10-01")
     set_capacity(service_engine, user_id, 40, "2027-02-01")
 

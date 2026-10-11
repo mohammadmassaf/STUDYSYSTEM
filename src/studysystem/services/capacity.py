@@ -1,6 +1,7 @@
 """Weekly study capacity, dated and insert-only (D-17). The capacity in force on day D is the row
 with the latest `from_date <= D`, ties to the later id - read by the scheduler's shortfall
-detector (D-15), not by anything in 1.7. A vacation is two rows: its start, and the return.
+detector (D-15), not by anything in 1.7. A break is two rows: its own hours from its start,
+then the term's hours from the return. Hours are always > 0 - a week with no study is not stored.
 """
 
 from sqlalchemy import Engine, insert

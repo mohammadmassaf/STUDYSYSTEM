@@ -103,7 +103,8 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         description=(
             "Record how many hours a week are available for study, from a date on (YYYY-MM-DD). "
             "Adds a new row and never edits an old one: the latest from_date on or before a day "
-            "is the capacity for that day. A vacation is two calls - its start and the return."
+            "is the capacity for that day. A break is two calls - its own hours from its start, "
+            "then the term's hours from the return. Hours are always > 0."
         ),
     )
     def study_set_capacity(hours_per_week: str | float, from_date: str) -> CallToolResult:
