@@ -13,10 +13,15 @@ from studysystem.cli import study
 from studysystem.db import migrate
 from studysystem.db.engine import data_dir, db_path, make_engine, snapshot
 from studysystem.db.tables import (
+    assessment,
+    assessment_slot,
     course,
     generation_task,
     hours_entry,
     metadata,
+    past_exam,
+    plan,
+    plan_item,
     study_session,
     submission,
     user,
@@ -429,3 +434,131 @@ def test_a_course_with_a_slot_cannot_be_deleted(empty_engine):
 
     with empty_engine.connect() as conn:
         assert conn.execute(select(course.c.id)).scalars().all() == [web["course_id"]]
+
+
+# --- 0007 - 0009 with rows present (his database went through all three full) ----------------
+
+AT = "2026-10-08T00:00:00Z"
+UID, COURSE, SLOT, EXAM, PAPER, PLAN = ("0" * 26, "1" * 26, "2" * 26, "3" * 26, "4" * 26, "5" * 26)
+
+
+def _setup_item(item_id: str, kind: str, rank: int) -> dict:
+    return {
+        "id": item_id,
+        "user_id": UID,
+        "plan_id": PLAN,
+        "lane": "setup",
+        "course_id": COURSE,
+        "rank": rank,
+        "reason": f"{kind} for I3302",
+        "setup_kind": kind,
+        "setup_key": f"{kind}:{SLOT}",
+    }
+
+
+def _i3302_at_0006(engine) -> None:
+    """I3302 at 0006: its Final (slot + sitting), the Final 2020-02-17 paper, and a plan with a
+    past-papers setup item - one row in each table 0007, 0008 and 0009 change."""
+    command.upgrade(migrate.alembic_config(engine), "0006")
+    with engine.begin() as conn:
+        conn.execute(insert(user).values(id=UID, created_at=AT))
+        conn.execute(
+            insert(course).values(
+                id=COURSE,
+                user_id=UID,
+                code="I3302",
+                name="Server-Side Web Development",
+                semester_name="Semester 1",
+                instructor_tier="unknown",
+                credits_tier="unknown",
+                created_at=AT,
+            )
+        )
+        conn.execute(
+            insert(assessment_slot).values(
+                id=SLOT,
+                owner_id=UID,
+                course_id=COURSE,
+                name="Final exam",
+                kind="exam",
+                created_at=AT,
+            )
+        )
+        conn.execute(
+            insert(assessment).values(
+                id=EXAM,
+                user_id=UID,
+                slot_id=SLOT,
+                weight=100,
+                weight_tier="inferred",
+                created_at=AT,
+            )
+        )
+        conn.execute(
+            insert(past_exam).values(
+                id=PAPER,
+                owner_id=UID,
+                slot_id=SLOT,
+                session_type="first",
+                session_date="2020-02-17",
+                instructor_tier="unknown",
+                file_ref="files/x",
+                content_sha256="a" * 64,
+                created_at=AT,
+            )
+        )
+        conn.execute(
+            insert(plan).values(
+                id=PLAN,
+                user_id=UID,
+                scope="all-courses",
+                shown_n=5,
+                strategy_snapshot="{}",
+                created_at=AT,
+            )
+        )
+        conn.execute(insert(plan_item).values(**_setup_item("6" * 26, "past-papers", 1)))
+
+
+def test_0007_to_0009_keep_his_rows_and_leave_unknown_unknown(empty_engine):
+    _i3302_at_0006(empty_engine)
+
+    migrate.upgrade(empty_engine)
+
+    with empty_engine.begin() as conn:
+        exam = conn.execute(select(assessment).where(assessment.c.id == EXAM)).one()
+        paper = conn.execute(select(past_exam).where(past_exam.c.id == PAPER)).one()
+        kinds = conn.execute(select(plan_item.c.setup_kind)).scalars().all()
+        conn.execute(insert(plan_item).values(**_setup_item("7" * 26, "more-papers", 2)))
+    assert (exam.weight, exam.prep_from) == (100, None)  # no prep day guessed (0007)
+    assert (paper.session_date, paper.session_date_approx) == ("2020-02-17", 0)  # exact (0009)
+    assert kinds == ["past-papers"]  # survived the plan_item rebuild (0008)
+    with pytest.raises(IntegrityError, match="setup_kind"), empty_engine.begin() as conn:
+        conn.execute(insert(plan_item).values(**_setup_item("8" * 26, "bogus", 3)))
+
+
+def test_downgrade_below_0008_is_refused_while_a_more_papers_item_exists(empty_engine):
+    """0008's promise: the old CHECK refuses the row, so the downgrade fails and changes nothing."""
+    _i3302_at_0006(empty_engine)
+    migrate.upgrade(empty_engine)
+    with empty_engine.begin() as conn:
+        conn.execute(insert(plan_item).values(**_setup_item("7" * 26, "more-papers", 2)))
+
+    with pytest.raises(IntegrityError, match="setup_kind"):
+        migrate.downgrade(empty_engine, "0007")
+
+    assert migrate.current_revision(empty_engine) == HEAD
+    with empty_engine.connect() as conn:
+        kinds = sorted(conn.execute(select(plan_item.c.setup_kind)).scalars().all())
+    assert kinds == ["more-papers", "past-papers"]
+    columns = {c["name"] for c in inspect(empty_engine).get_columns("past_exam")}
+    assert "session_date_approx" in columns  # 0009's drop ran first, in the same transaction
+
+
+def test_migrate_twice_leaves_exactly_one_user():
+    runner = CliRunner()
+    assert runner.invoke(study, ["migrate"]).exit_code == 0
+    assert runner.invoke(study, ["migrate"]).exit_code == 0
+
+    with sqlite3.connect(db_path()) as db:
+        assert db.execute("SELECT count(*) FROM user").fetchone() == (1,)
