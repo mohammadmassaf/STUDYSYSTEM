@@ -393,6 +393,91 @@ def test_downgrade_to_an_unknown_target_changes_nothing(target):
     assert not any("-predowngrade-" in n for n in names)  # the refused run keeps no copy
 
 
+def test_downgrade_on_a_missing_database_creates_nothing():
+    result = CliRunner().invoke(study, ["downgrade", "base"])
+
+    assert result.exit_code == 1
+    assert "no database at" in result.output
+    assert not db_path().exists()
+
+
+def _locked_rollback_file() -> sqlite3.Connection:
+    """A migrated file in the old journal mode, held under an exclusive lock: even a read waits
+    out busy_timeout (5 s) and fails. The caller closes the holder."""
+    engine = make_engine(db_path())
+    migrate.upgrade(engine)
+    engine.dispose()
+    holder = sqlite3.connect(db_path(), isolation_level=None)
+    holder.execute("PRAGMA journal_mode = DELETE")  # under WAL a reader never waits
+    holder.execute("BEGIN EXCLUSIVE")
+    return holder
+
+
+def test_migrate_refuses_a_locked_database_in_one_line():
+    holder = _locked_rollback_file()
+    try:
+        result = CliRunner().invoke(study, ["migrate"])
+    finally:
+        holder.close()
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)  # a click refusal, not a traceback
+    assert "database_unavailable: cannot open" in result.output
+    assert "database is locked" in result.output
+    assert not (data_dir() / "snapshots").exists()  # refused before the copy
+
+
+def test_migrate_while_another_program_writes_is_busy_and_changes_nothing():
+    """The dashboard holds the write lock: with WAL the read goes through, the upgrade's write
+    waits out busy_timeout. One line, and the run's one transaction left 0008 as it was."""
+    engine = make_engine(db_path())
+    command.upgrade(migrate.alembic_config(engine), "0008")
+    engine.dispose()
+    holder = sqlite3.connect(db_path(), isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        result = CliRunner().invoke(study, ["migrate"])
+    finally:
+        holder.close()
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "database_busy: another program is writing to" in result.output
+    assert stamp() == "0008"
+
+
+def test_downgrade_while_another_program_writes_is_busy_and_keeps_no_copy():
+    runner = CliRunner()
+    assert runner.invoke(study, ["migrate"]).exit_code == 0
+    holder = sqlite3.connect(db_path(), isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        result = runner.invoke(study, ["downgrade", "0008"])
+    finally:
+        holder.close()
+
+    assert result.exit_code == 1
+    assert "database_busy: another program is writing to" in result.output
+    assert stamp() == HEAD
+    names = [p.name for p in (data_dir() / "snapshots").iterdir()]
+    assert not any("-predowngrade-" in n for n in names)
+
+
+def test_migrate_keeps_any_other_database_error_a_crash(monkeypatch):
+    """Only the lock wait becomes database_busy: a broken migration must not read as busy."""
+    from sqlalchemy.exc import OperationalError
+
+    def broken(_engine):
+        raise OperationalError("ALTER TABLE", {}, sqlite3.OperationalError("no such table: x"))
+
+    monkeypatch.setattr(migrate, "upgrade", broken)
+
+    result = CliRunner().invoke(study, ["migrate"])
+
+    assert isinstance(result.exception, OperationalError)
+    assert "database_busy" not in result.output
+
+
 def test_downgrade_takes_a_relative_target():
     runner = CliRunner()
     assert runner.invoke(study, ["migrate"]).exit_code == 0
@@ -612,12 +697,7 @@ def test_study_serve_refuses_an_empty_database():
 def test_study_serve_refuses_a_locked_database_in_one_line():
     """Another process holds the file's exclusive lock past busy_timeout (5 s): one line naming
     the code and the fix, not a traceback."""
-    engine = make_engine(db_path())
-    migrate.upgrade(engine)
-    engine.dispose()  # its pooled connection would block the switch below
-    holder = sqlite3.connect(db_path(), isolation_level=None)
-    holder.execute("PRAGMA journal_mode = DELETE")  # under WAL a reader never waits
-    holder.execute("BEGIN EXCLUSIVE")
+    holder = _locked_rollback_file()
     try:
         proc = serve()
     finally:
