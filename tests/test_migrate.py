@@ -311,3 +311,25 @@ def test_a_run_that_leaves_a_dangling_row_rolls_back_whole():
         migrate.upgrade(engine)
 
     assert stamp() == "0007"
+
+
+def test_a_failed_daily_snapshot_does_not_stop_the_server(monkeypatch, caplog):
+    import studysystem.server as server
+
+    migrate.upgrade(make_engine(db_path()))
+    started = []
+
+    def disk_full(*_args):
+        raise OSError("No space left on device")
+
+    class Server:
+        def run(self):
+            started.append(True)
+
+    monkeypatch.setattr(server, "snapshot", disk_full)
+    monkeypatch.setattr(server, "create_server", lambda engine: Server())
+
+    server.main()
+
+    assert started == [True]
+    assert "daily snapshot failed" in caplog.text

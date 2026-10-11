@@ -90,10 +90,19 @@ def snapshot(engine: Engine, today: datetime.date, suffix: str = "") -> Path | N
     if target.exists():
         return None
 
-    raw = engine.raw_connection()
+    # Copied beside the real name and renamed in one step: a copy cut short (full disk, killed
+    # process) never sits under the day's name, where the exists() check would trust it all day.
+    # The pid keeps two servers starting together off each other's half-written file.
+    partial = target.with_name(f"{target.name}.{os.getpid()}.partial")
     try:
-        raw.execute("VACUUM INTO ?", (target.as_posix(),))
-    finally:
-        raw.close()
+        raw = engine.raw_connection()
+        try:
+            raw.execute("VACUUM INTO ?", (partial.as_posix(),))
+        finally:
+            raw.close()  # before the unlink below: Windows cannot delete an open file
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    os.replace(partial, target)
 
     return target

@@ -101,6 +101,36 @@ def test_foreign_keys_are_enforced():
 # --- after the independent review ---------------------------------------------
 
 
+def test_a_snapshot_cut_short_leaves_nothing_under_the_days_name(monkeypatch):
+    engine = make_engine(db_path())
+    real = engine.raw_connection
+
+    class CutShort:
+        """VACUUM INTO that writes half a file, then fails - a full disk."""
+
+        def __init__(self):
+            self.raw = real()
+
+        def execute(self, _sql, params):
+            Path(params[0]).write_bytes(b"half a database")
+            raise sqlite3.OperationalError("database or disk is full")
+
+        def close(self):
+            self.raw.close()
+
+    monkeypatch.setattr(engine, "raw_connection", CutShort)
+    today = datetime.date(2026, 10, 10)
+
+    with pytest.raises(sqlite3.OperationalError):
+        snapshot(engine, today)
+
+    assert list((data_dir() / "snapshots").iterdir()) == []
+    # so the next start still takes the day's copy, and it is a real database
+    target = snapshot(make_engine(db_path()), today)
+    with sqlite3.connect(target) as db:
+        assert db.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+
+
 def _with_table(path: Path):
     engine = make_engine(path)
     with write_unit(engine) as conn:

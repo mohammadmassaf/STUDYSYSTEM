@@ -54,5 +54,10 @@ def main() -> None:
     except SchemaBehindHead as e:
         print(f"{e.code}: {e.message}. {e.fix}", file=sys.stderr)
         sys.exit(1)
-    snapshot(engine, datetime.datetime.now().astimezone().date())
+    try:
+        snapshot(engine, datetime.datetime.now().astimezone().date())
+    except Exception:
+        # A restore point is a convenience: a full disk or a read-only folder must not keep the
+        # server from starting. The day's copy is retried at the next start.
+        logging.getLogger("studysystem").warning("daily snapshot failed", exc_info=True)
     create_server(engine).run()
