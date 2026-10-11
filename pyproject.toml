@@ -50,3 +50,9 @@ select = ["E", "F", "I", "UP", "B", "DTZ"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# The editor's type checker resolves imports from uv's environment, not whichever Python the
+# editor picked - without it every import of a dependency reads as missing.
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
