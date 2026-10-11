@@ -1,10 +1,11 @@
 """Topics (D-13, D-60 - D-66): list a course's topics with their items, then accept or decline
 each proposal."""
 
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
+from pydantic import WithJsonSchema
 from sqlalchemy import Engine
 
 from studysystem.services import topics
@@ -43,9 +44,17 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "never accept or decline on your own."
         ),
     )
-    # retag is Any, not list[dict]: the service checks its shape, in the D-17 shape (D-36)
+    # retag is Any, not list[dict]: the service checks its shape, in the D-17 shape (D-36). The
+    # schema still tells the host it is a list - WithJsonSchema changes the hint, not the check.
     def study_confirm_topic_proposal(
-        topic_id: str, decision: str, retag: Any = None
+        topic_id: str,
+        decision: str,
+        retag: Annotated[
+            Any,
+            WithJsonSchema(
+                {"anyOf": [{"type": "array", "items": {"type": "object"}}, {"type": "null"}]}
+            ),
+        ] = None,
     ) -> CallToolResult:
         return run(
             lambda: topics.confirm_topic_proposal(

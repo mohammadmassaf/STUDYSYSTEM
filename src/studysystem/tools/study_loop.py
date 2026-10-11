@@ -5,10 +5,11 @@ assertion. Each tool is one line of work through `run`, so a bad value comes bac
 error shape.
 """
 
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
+from pydantic import WithJsonSchema
 from sqlalchemy import Engine
 
 from studysystem.services import study_loop
@@ -47,7 +48,8 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         description=(
             "Record one problem the student solved, once it is graded: all its parts in one "
             "call. Grade each part against the question, show the student the grades and let "
-            "them correct any, then submit. Each attempt: practice_item_id (from "
+            "them correct any, then submit. attempts is a list, one object per part. Each "
+            "attempt: practice_item_id (from "
             "study_get_topics), or topic_id for a question with no item; score 0-1 for a part "
             "partly right, correct true/false otherwise (score wins when both are sent); "
             "optional root_cause ('concept', 'recall', 'procedure', 'misread', 'careless', "
@@ -56,10 +58,11 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "Returns each topic's next review date."
         ),
     )
-    # attempts is Any, not list[dict]: the service checks it, in the D-17 shape (D-36)
+    # attempts is Any, not list[dict]: the service checks it, in the D-17 shape (D-36). The
+    # schema still tells the host it is a list - WithJsonSchema changes the hint, not the check.
     def study_submit_attempt(
         code: str,
-        attempts: Any,
+        attempts: Annotated[Any, WithJsonSchema({"type": "array", "items": {"type": "object"}})],
         session_id: str | None = None,
         semester_name: str | None = None,
     ) -> CallToolResult:
