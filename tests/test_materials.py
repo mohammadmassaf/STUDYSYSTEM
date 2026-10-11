@@ -1,13 +1,17 @@
 """Material intake (task 1.14): Chapter 6 goes in once - the same bytes again hand back the same
 row, a new version of the chapter is a new row - and every refusal writes nothing."""
 
+import asyncio
+import json
 from pathlib import Path
 
 import pytest
+from mcp import Client
 from sqlalchemy import func, select
 
 from studysystem.db.tables import material
 from studysystem.errors import StudyError
+from studysystem.server import create_server
 from studysystem.services import intake
 from studysystem.services.courses import add_course
 from studysystem.services.materials import add_material
@@ -204,3 +208,67 @@ def test_the_same_pdf_from_another_student_is_their_own_row(
         (user_id, web["course_id"]),
         (other_user_id, b_web["course_id"]),
     }
+
+
+# --- through the tool, as the host calls it ------------------------------------
+
+
+def test_chapter_6_through_the_tool(call, service_engine, web, ch6):
+    first = call("study_add_material", {"code": "I3302", "path": str(ch6), "kind": "chapter"})
+    again = call("study_add_material", {"code": "I3302", "path": str(ch6), "kind": "chapter"})
+
+    assert not first.is_error
+    (row,) = rows(service_engine)
+    assert first.structured_content["material_id"] == row["id"]
+    assert first.structured_content["existing"] is False
+    assert again.structured_content == {**first.structured_content, "existing": True}
+
+
+def test_a_refusal_through_the_tool_is_the_whole_error(call, service_engine, web, ch6):
+    result = call("study_add_material", {"code": "I3399", "path": str(ch6), "kind": "chapter"})
+
+    assert result.is_error
+    body = json.loads(result.content[0].text)
+    assert body["code"] == "not_found"
+    assert body["fix"]
+    assert result.structured_content == body
+    assert count(service_engine) == 0
+    assert kept() == []
+
+
+def tool_on(engine):
+    """`call` without its user: a server on a database `study migrate` never gave one."""
+    server = create_server(engine)
+
+    def _call(name: str, args: dict):
+        async def go():
+            async with Client(server) as client:
+                return await client.call_tool(name, args)
+
+        return asyncio.run(go())
+
+    return _call
+
+
+def test_a_database_with_no_user_answers_no_user_through_the_tool(service_engine, ch6):
+    host = tool_on(service_engine)
+
+    result = host("study_add_material", {"code": "I3302", "path": str(ch6), "kind": "chapter"})
+
+    assert result.is_error
+    assert result.structured_content["code"] == "no_user"
+    assert result.structured_content["fix"] == "run: study migrate"
+    assert count(service_engine) == 0
+    assert kept() == []  # refused before the file was read, let alone kept
+
+
+def test_a_database_with_two_users_answers_too_many_users_through_the_tool(
+    call, service_engine, other_user_id, ch6
+):
+    result = call("study_add_material", {"code": "I3302", "path": str(ch6), "kind": "chapter"})
+
+    assert result.is_error
+    assert result.structured_content["code"] == "too_many_users"
+    assert "snapshots" in result.structured_content["fix"]
+    assert count(service_engine) == 0
+    assert kept() == []
