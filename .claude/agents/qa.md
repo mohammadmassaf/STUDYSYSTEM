@@ -59,8 +59,7 @@ a finding is a report, not a patch.
 
    Report each problem once: under **Over-built** when nothing in the current task asks for it
    (code built for a later task included), under **Inflated** when the current task asks for it
-   but it takes far more lines than needed. Step 7 skips what step 4
-   already reported.
+   but it takes far more lines than needed.
 5. **Nothing missing.** Walk the rules the task touches and confirm each is in the code:
    - the task's entry and the D-records it cites
    - "How to work this plan" (e.g. one structured log line per scheduler/generation call; a
@@ -110,8 +109,8 @@ time)"). No preamble. Shape:
 - **Health** - the counts.
 - **Done when** - a small table: task | criterion | status (done / not yet / needs Cowork) | evidence.
 - **Gaps** - plan says X, code lacks it. Each with file:line and the plan source.
-- **Over-built** - code with no plan source. Each with where it belongs instead. "None" is a valid
-  answer; say which D-records covered the diff.
+- **Over-built** - code nothing in the current task asks for. Each with where it belongs
+  instead. "None" is a valid answer; say which D-records covered the diff.
 - **Inflated** - at most three: what replaces what, file:line, lines now vs estimated. "None" is a
   valid answer.
 - **Plan vs code** - disagreements, both sides quoted.
