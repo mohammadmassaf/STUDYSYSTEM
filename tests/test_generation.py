@@ -6,12 +6,13 @@ import base64
 import json
 
 import pytest
+from jsonschema import Draft202012Validator
 from sqlalchemy import func, insert, select, update
 
 from studysystem.db.tables import generation_task, past_exam, topic
 from studysystem.errors import StudyError
 from studysystem.services.courses import add_course
-from studysystem.services.generation import TRANSCRIPTION_SCHEMA, measure, start_generation
+from studysystem.services.generation import measure, start_generation
 from studysystem.services.ids import new_id, now
 from studysystem.services.past_exams import add_past_exam
 from studysystem.services.units import write_unit
@@ -83,7 +84,21 @@ def test_paper_1_leaves_as_its_pages_text(service_engine, user_id, paper1):
     assert [p["page"] for p in payload["content"]] == [1, 2, 3]
     assert [p["text"] for p in payload["content"]] == PAGES
     assert [p["image"] for p in payload["content"]] == [None, None, None]  # no figures
-    assert payload["schema"] == TRANSCRIPTION_SCHEMA
+    host = Draft202012Validator(json.loads(json.dumps(payload["schema"])))  # what the host reads
+    good = {
+        "items": [
+            {
+                "position": 1,
+                "question": "Write a regular expression that matches a Lebanese phone number",
+                "answer_key": None,
+                "marks": 3,
+                "topic": {"proposed_name": "Regular expressions"},
+            }
+        ]
+    }
+    bad = {"items": [{**good["items"][0], "position": 0}]}
+    assert host.is_valid(good)
+    assert not host.is_valid(bad)
     assert payload["rules"]["topics"] == []  # I3302 has no topics yet
     assert payload["rules"]["steps"]
 

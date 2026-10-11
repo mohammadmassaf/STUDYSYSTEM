@@ -5,13 +5,13 @@ note: an open task comes back as itself, a closed one refuses, and every refusal
 import json
 
 import pytest
+from jsonschema import Draft202012Validator
 from sqlalchemy import func, select, update
 
 from studysystem.db.tables import generation_task, past_exam, practice_item
 from studysystem.errors import StudyError
 from studysystem.services.courses import add_course
 from studysystem.services.generation import (
-    NOTE_SCHEMA,
     NOTE_STEPS,
     measure,
     start_generation,
@@ -87,7 +87,10 @@ def test_chapter_6_leaves_as_its_pages_with_the_schema_and_steps(service_engine,
     payload = start(service_engine, user_id, ch6).payload
 
     assert [p["text"] for p in payload["content"]] == CH6_PAGES
-    assert payload["schema"] == NOTE_SCHEMA
+    host = Draft202012Validator(json.loads(json.dumps(payload["schema"])))  # what the host reads
+    good = {"notes": [{"section": 1, "body": "# PHP and MySQL - mysqli_connect opens..."}]}
+    assert host.is_valid(good)
+    assert not host.is_valid({"notes": [{"section": 0, "body": "# PHP and MySQL"}]})
     assert payload["rules"]["steps"] == NOTE_STEPS
 
 

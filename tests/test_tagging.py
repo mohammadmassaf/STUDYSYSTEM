@@ -7,13 +7,13 @@ a course with no active topic is refused."""
 import json
 
 import pytest
+from jsonschema import Draft202012Validator
 from sqlalchemy import func, insert, select, update
 
 from studysystem.db.tables import coverage, generation_task, practice_item, topic
 from studysystem.errors import StudyError
 from studysystem.services.courses import add_course
 from studysystem.services.generation import (
-    TAGGING_SCHEMA,
     TAGGING_STEPS,
     start_generation,
     submit_generation,
@@ -105,7 +105,12 @@ def test_chapter_6_leaves_with_every_active_topic_and_its_questions(
 
     payload = start(service_engine, user_id, ch6).payload
 
-    assert payload["schema"] == TAGGING_SCHEMA
+    host = Draft202012Validator(json.loads(json.dumps(payload["schema"])))  # what the host reads
+    first = payload["rules"]["topics"][0]["id"]
+    assert host.is_valid({"topics": [{"id": first}]})
+    assert host.is_valid({"topics": []})  # a material can teach none of them (D-102)
+    assert not host.is_valid({"topics": [{}]})  # an entry needs its id
+    assert not host.is_valid({"topics": [{"id": first, "name": "PHP forms"}]})  # and nothing else
     assert payload["rules"]["steps"] == TAGGING_STEPS
     sent = {t["name"]: t for t in payload["rules"]["topics"]}
     assert set(sent) == set(NAMES.values())  # the six accepted; the declined one stays home
