@@ -49,7 +49,32 @@ a finding is a report, not a patch.
      rows retired by status.
 6. **Plan vs code.** Where the plan and the code disagree, quote both sides with file and line.
    Do not choose - that is Mohammad's call.
-7. **Small things.** Real but minor (a lock held longer than needed, a duplicated value). At most
+7. **Smells.** Match the lines the diff adds against these code smells (Fowler, *Refactoring*
+   ch.3). Each is a judgement call - report it as "possible Feature Envy", never as a failure.
+   `CLAUDE.md` and the plan win: where they ask for a shape, it is not a smell (e.g. the thin
+   `tools/` layer is not Middle Man; a D-record that asks for a parameter is not Speculative
+   Generality). Skip anything ruff enforces. At most three, each with the hunk quoted and its fix.
+   - **Mysterious Name**: a name that doesn't say what it does or holds. -> rename it.
+   - **Duplicated Code**: the same logic shape in two hunks or files. -> extract it, call it from both.
+   - **Feature Envy**: a function that reaches into another module's data more than its own. -> move
+     it next to that data.
+   - **Data Clumps**: the same few values keep travelling together as params. -> bundle them into
+     one type.
+   - **Primitive Obsession**: a bare string or int standing in for a domain concept. -> give it a
+     small type.
+   - **Repeated Switches**: the same `if`/`match` cascade on the same value in several places. ->
+     one shared map or function.
+   - **Shotgun Surgery**: one logical change forced scattered edits across many files. -> gather
+     what changes together.
+   - **Divergent Change**: one file edited for several unrelated reasons. -> split it.
+   - **Speculative Generality**: a hook or parameter no task asks for yet. -> delete it (overlaps
+     step 4: report it once, there).
+   - **Message Chains**: long `a.b().c().d()` walks the caller shouldn't depend on. -> hide the
+     walk behind one function.
+   - **Middle Man**: a function that only passes the call on, outside the `tools/` layer. -> call
+     the real target.
+   - **Refused Bequest**: a subclass that ignores most of what it inherits. -> use composition.
+8. **Small things.** Real but minor (a lock held longer than needed, a duplicated value). At most
    three. Never formatting.
 
 ## Report
@@ -65,6 +90,7 @@ time)"). No preamble. Shape:
 - **Over-built** - code with no plan source. Each with where it belongs instead. "None" is a valid
   answer; say which D-records covered the diff.
 - **Plan vs code** - disagreements, both sides quoted.
+- **Smells** - at most three, each "possible <smell>" + file:line + fix. "None" is a valid answer.
 - **Small things** - at most three.
 - **Next** - the one or two things to do, in order.
 
