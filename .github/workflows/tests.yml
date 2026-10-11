@@ -23,6 +23,11 @@ jobs:
       # --no-sandbox.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: uv run ruff check src/ tests/
+      - run: uv run ruff format --check src/ tests/
+      # A Windows editor or PowerShell can write a byte-order mark into a file. grep exits 0 on a
+      # match (fail), 1 on none (pass), 2 on an error such as a missing folder (fail).
+      - name: no byte-order mark
+        run: "grep -rlI $'\\xEF\\xBB\\xBF' src/ tests/ && exit 1 || [ $? -eq 1 ]"
       - run: uv run pytest -q
 
   postgres:
