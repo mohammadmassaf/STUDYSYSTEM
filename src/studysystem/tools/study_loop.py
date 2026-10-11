@@ -5,6 +5,8 @@ assertion. Each tool is one line of work through `run`, so a bad value comes bac
 error shape.
 """
 
+from typing import Any
+
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
 from sqlalchemy import Engine
@@ -54,9 +56,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "Returns each topic's next review date."
         ),
     )
+    # attempts is Any, not list[dict]: the service checks it, in the D-17 shape (D-36)
     def study_submit_attempt(
         code: str,
-        attempts: list[dict],
+        attempts: Any,
         session_id: str | None = None,
         semester_name: str | None = None,
     ) -> CallToolResult:

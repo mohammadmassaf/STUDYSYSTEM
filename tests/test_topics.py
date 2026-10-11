@@ -670,3 +670,14 @@ def test_another_users_attempts_never_count(service_engine, user_id, other_user_
     tried(service_engine, other_user_id, regex_items[0], score=1.0)
 
     assert offered(service_engine, user_id)[1] == 0
+
+
+def test_a_retag_that_is_not_a_list_comes_back_in_the_error_shape(call, user_id, paper2):
+    # retag is typed Any at the tool: the service's shape check answers, naming the field
+    result = call(
+        "study_confirm_topic_proposal",
+        {"topic_id": paper2, "decision": "decline", "retag": "move them all to sessions"},
+    )
+
+    assert result.is_error
+    assert json.loads(result.content[0].text)["field_errors"][0]["field"] == "retag"

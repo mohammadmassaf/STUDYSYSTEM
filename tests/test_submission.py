@@ -571,3 +571,13 @@ def test_the_tool_returns_a_refusal_as_an_error_result(call, task_id):
 
     assert result.is_error
     assert json.loads(result.content[0].text)["code"] == "not_found"
+
+
+def test_a_payload_that_is_not_an_object_reaches_the_envelope_check(call, task_id):
+    # payload is typed Any, so the SDK lets a plain string through and the service's envelope
+    # check answers it - in the reply's item_errors, not as the SDK's validation text
+    result = call("study_submit_generation", {"task_id": task_id, "payload": "not a payload"})
+
+    reply = json.loads(result.content[0].text)
+    assert reply["item_errors"][0]["item_ordinal"] is None
+    assert reply["accepted"] == []

@@ -15,13 +15,13 @@ a path.
 
 import hashlib
 import io
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 import pypdfium2 as pdfium
 from pypdf import PdfReader
-from pypdf.errors import PyPdfError
 
 from studysystem.db.engine import data_dir
 from studysystem.services.values import invalid
@@ -42,6 +42,9 @@ class Paper:
     file_ref: str
     has_text_layer: bool
     sources: tuple[Path, ...]  # in page order; one entry for a PDF
+    # The bytes `read` hashed, one entry per source: `keep` writes these, never a second read of
+    # the path, so the copy is always the file the sha names.
+    data: tuple[bytes, ...]
 
 
 def papers_dir() -> Path:
@@ -76,27 +79,30 @@ def read(paths: object, field: str = "paths") -> Paper:
 def _read_pdf(path: Path, field: str) -> Paper:
     data = path.read_bytes()
     try:
-        reader = PdfReader(path)
+        reader = PdfReader(io.BytesIO(data))
         # One page with real text is enough: a scan has none, a typed paper has it on every page.
         has_text = any((page.extract_text() or "").strip() for page in reader.pages)
-    except (PyPdfError, ValueError, OSError):
+    except Exception:
+        # Not only PyPdfError: a damaged file reaches pypdf's internals too (KeyError, TypeError,
+        # zlib.error...). Still a bad file, not a server bug - it gets the same answer.
         raise invalid(field, f"{path.name} is not a readable PDF", SHAPES) from None
     sha = hashlib.sha256(data).hexdigest()
-    return Paper(sha, f"{sha}.pdf", has_text, (path,))
+    return Paper(sha, f"{sha}.pdf", has_text, (path,), (data,))
 
 
 def _read_images(files: list[Path], kinds: list[str], field: str) -> Paper:
-    page_shas = []
+    page_shas, pages = [], []
     for f, kind in zip(files, kinds, strict=True):
         data = f.read_bytes()
         if not data.startswith(MAGIC[kind]):
             raise invalid(field, f"{f.name} is not a {kind[1:]} image", SHAPES)
         page_shas.append(hashlib.sha256(data).hexdigest())
+        pages.append(data)
     if len(set(page_shas)) != len(page_shas):
         raise invalid(field, "the same page is in the list twice", "send each page once")
     # Sorted: the same photos sent again in another order are still the same paper (D-44).
     sha = hashlib.sha256("".join(sorted(page_shas)).encode()).hexdigest()
-    return Paper(sha, f"{sha}/", False, tuple(files))
+    return Paper(sha, f"{sha}/", False, tuple(files), tuple(pages))
 
 
 def keep(paper: Paper) -> list[str]:
@@ -105,8 +111,13 @@ def keep(paper: Paper) -> list[str]:
     if not paper.file_ref.endswith("/"):
         target = root / paper.file_ref
         if not target.exists():
+            # Written beside the real name and renamed in one step, like the folder below: a
+            # copy cut short never sits under the hash name, where the retry would trust it.
+            # The pid keeps two processes keeping the same paper off each other's file.
             root.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(paper.sources[0], target)
+            partial = root / f"{paper.file_ref}.{os.getpid()}.partial"
+            partial.write_bytes(paper.data[0])
+            os.replace(partial, target)
         return [paper.file_ref]
 
     folder = root / paper.file_ref.rstrip("/")
@@ -117,8 +128,8 @@ def keep(paper: Paper) -> list[str]:
         partial = root / f"{folder.name}.partial"
         shutil.rmtree(partial, ignore_errors=True)
         partial.mkdir(parents=True)
-        for src, name in zip(paper.sources, names, strict=True):
-            shutil.copyfile(src, partial / name)
+        for data, name in zip(paper.data, names, strict=True):
+            (partial / name).write_bytes(data)
         partial.rename(folder)
     return names
 

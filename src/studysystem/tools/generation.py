@@ -1,6 +1,8 @@
 """The generation contract (D-11, D-47): the host asks, the server hands it a task; the host
 submits, the server keeps what is valid (D-52, D-53)."""
 
+from typing import Any
+
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
 from sqlalchemy import Engine
@@ -54,7 +56,9 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "study_export_notes writes what is missing once the problem is fixed."
         ),
     )
-    def study_submit_generation(task_id: str, payload: dict) -> CallToolResult:
+    # payload is Any, not dict: a wrong shape (a JSON string, a list) reaches the service's
+    # envelope check and comes back as item_errors, not as the SDK's validation text (D-36).
+    def study_submit_generation(task_id: str, payload: Any) -> CallToolResult:
         return run(
             lambda: generation.submit_generation(engine, current_user(engine), task_id, payload)
         )

@@ -130,3 +130,14 @@ def test_a_near_miss_name_is_not_found_and_the_fix_lists_the_real_names(service_
     assert err.code == "not_found"
     assert err.field_errors[0]["field"] == "assessment"
     assert "Midterm" in err.fix and "Final exam" in err.fix
+
+
+# --- surrounding spaces -----------------------------------------------------
+
+
+def test_surrounding_spaces_are_ignored_as_add_course_ignored_them(service_engine, user_id):
+    ids = add_course(service_engine, user_id, "I3302-E", "Server-Side Web Development", SEM)
+
+    with service_engine.connect() as conn:
+        assert find_course(conn, user_id, " I3302-E ", f" {SEM} ") == ids["course_id"]
+        assert find_slot(conn, user_id, ids["course_id"], " final exam ") == ids["slot_id"]

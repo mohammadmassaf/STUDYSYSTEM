@@ -552,3 +552,20 @@ def test_an_unknown_mark_borrows_from_every_known_mark_rejected_items_too(
     submit_attempts(service_engine, user_id, "I3302", parts)
 
     assert _state(service_engine, mysql).lapses == 0  # Good
+
+
+def test_attempts_that_are_not_a_list_come_back_in_the_error_shape(call, web):
+    # attempts is typed Any at the tool: the service refuses it, naming the field
+    result = call("study_submit_attempt", {"code": "I3302", "attempts": "two parts, both right"})
+
+    assert result.is_error
+    assert _body(result)["field_errors"][0]["field"] == "attempts"
+
+
+def test_an_item_id_that_is_not_text_is_refused_before_any_query(call, web):
+    attempt = {"practice_item_id": {"id": "X"}, "correct": True}
+
+    result = call("study_submit_attempt", {"code": "I3302", "attempts": [attempt]})
+
+    assert result.is_error
+    assert _body(result)["field_errors"][0]["field"] == "attempts[0].practice_item_id"

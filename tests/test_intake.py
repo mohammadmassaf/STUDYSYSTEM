@@ -1,6 +1,9 @@
 """The file intake layer (D-44): one PDF or page images in, a hash-named copy kept, and the
 refusals that must write nothing."""
 
+import hashlib
+from pathlib import Path
+
 import pytest
 
 from studysystem.errors import StudyError
@@ -191,3 +194,30 @@ def test_photos_leave_as_pictures_with_no_text(downloads):
         (None, JPEG, "image/jpeg"),
         (None, PNG + b"2", "image/png"),
     ]
+
+
+# --- after the independent review ---------------------------------------------
+
+
+def test_a_pdf_that_breaks_pypdf_inside_is_refused_not_crashed(downloads, monkeypatch):
+    # a damaged file can fail deep in pypdf with a plain KeyError, not a PyPdfError
+    def broken(_stream):
+        raise KeyError("/Root")
+
+    monkeypatch.setattr(intake, "PdfReader", broken)
+
+    err = refusal([write(downloads, "p.pdf", pdf_bytes("x"))])
+
+    assert "not a readable PDF" in err.field_errors[0]["problem"]
+
+
+def test_keep_writes_the_bytes_that_were_hashed_even_if_the_file_changed_since(downloads):
+    path = write(downloads, "p.pdf", pdf_bytes("Exercise 1"))
+    paper = intake.read([path])
+    Path(path).write_bytes(pdf_bytes("Exercise 2"))  # edited between read and keep
+
+    intake.keep(paper)
+
+    stored = (intake.papers_dir() / paper.file_ref).read_bytes()
+    assert hashlib.sha256(stored).hexdigest() == paper.sha256
+    assert list(intake.papers_dir().glob("*.partial")) == []

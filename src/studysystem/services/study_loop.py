@@ -431,6 +431,11 @@ def _attempt_values(raw: object, n: int) -> dict:
     if not isinstance(raw, dict):
         raise values.invalid(where, f"{raw!r} is not an object", "send each attempt as an object")
     item_id, topic_id = raw.get("practice_item_id"), raw.get("topic_id")
+    # ids go into SQL next: anything but text is refused here, not by the driver
+    if item_id is not None:
+        item_id = values.text(f"{where}.practice_item_id", item_id)
+    if topic_id is not None:
+        topic_id = values.text(f"{where}.topic_id", topic_id)
     if item_id is None and topic_id is None:
         raise values.invalid(
             f"{where}.practice_item_id",

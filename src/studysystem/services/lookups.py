@@ -9,11 +9,16 @@ from sqlalchemy import Connection, func, select
 
 from studysystem.db.tables import assessment, assessment_slot, course
 from studysystem.errors import StudyError
+from studysystem.services import values
 
 
 def find_course(conn: Connection, user_id: str, code: str, semester_name: str | None) -> str:
     """The id of this user's course with `code`, matched case-insensitively like the unique
-    index. `semester_name` narrows it when the code exists in more than one semester."""
+    index. `semester_name` narrows it when the code exists in more than one semester. Both are
+    stripped first, as `add_course` stored them: "I3302 " finds I3302."""
+    code = values.text("code", code)
+    if semester_name is not None:
+        semester_name = values.text("semester_name", semester_name)
     query = select(course.c.id, course.c.semester_name).where(
         course.c.user_id == user_id, func.lower(course.c.code) == func.lower(code)
     )
@@ -45,6 +50,7 @@ def find_slot(conn: Connection, user_id: str, course_id: str, name: str) -> str:
     """The id of this course's slot called `name` (case-insensitive). Never creates one: a
     near miss like "Mid-term" is `not_found` listing the real names, so the paper pool cannot
     split across two slots (D-35, D-42)."""
+    name = values.text("assessment", name)
     found = conn.execute(
         select(assessment_slot.c.id).where(
             assessment_slot.c.owner_id == user_id,
