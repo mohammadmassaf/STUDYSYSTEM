@@ -2,13 +2,11 @@
 Each test follows one real row of his MySQL evening: start a practice session, submit index.php's
 parts, log the 40 minutes."""
 
-import asyncio
 import datetime
 import json
 import logging
 
 import pytest
-from mcp import Client
 from sqlalchemy import func, insert, select, update
 
 from studysystem.db.tables import (
@@ -30,6 +28,7 @@ from studysystem.services.materials import add_material
 from studysystem.services.plan import get_plan
 from studysystem.services.study_loop import log_hours, start_session, submit_attempts
 from studysystem.services.units import write_unit
+from tests._client import tool_names
 from tests._papers import pdf_bytes, write
 
 SEM = "Semester 1 2026-2027"
@@ -515,11 +514,7 @@ def _body(result):
 
 
 def test_the_three_loop_tools_are_listed(service_engine):
-    async def go():
-        async with Client(create_server(service_engine)) as client:
-            return await client.list_tools()
-
-    names = {t.name for t in asyncio.run(go()).tools}
+    names = tool_names(create_server(service_engine))
     assert {"study_start_session", "study_submit_attempt", "study_log_hours"} <= names
 
 

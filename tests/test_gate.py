@@ -3,10 +3,7 @@ hours with fixed timestamps, shaped on his live database: plans P1-P6 from 2026-
 in the same second), MySQL as study #1, I3350's first-material as setup #1, I3305's as hidden
 setup #6."""
 
-import asyncio
-
 import pytest
-from mcp import Client
 from sqlalchemy import insert
 
 from studysystem.db.tables import hours_entry, plan, plan_item, topic
@@ -15,6 +12,7 @@ from studysystem.services.courses import add_course
 from studysystem.services.gate import dogfood_gate
 from studysystem.services.ids import new_id, now
 from studysystem.services.units import write_unit
+from tests._client import tool_names
 
 SEM = "Semester 1 2026-2027"
 
@@ -309,11 +307,7 @@ def test_an_hour_on_a_topic_in_two_lanes_is_listed_once_per_item(
 
 
 def test_the_gate_tool_is_listed(service_engine):
-    async def go():
-        async with Client(create_server(service_engine)) as client:
-            return await client.list_tools()
-
-    assert "study_get_gate" in {t.name for t in asyncio.run(go()).tools}
+    assert "study_get_gate" in tool_names(create_server(service_engine))
 
 
 def test_the_gate_tool_returns_the_service_answer(call):

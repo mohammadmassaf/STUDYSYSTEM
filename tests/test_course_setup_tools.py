@@ -1,13 +1,12 @@
 """The five setup tools through a real in-process client (D-35, D-36) - what the host sees: the
 names it can call, a success as JSON, and a refusal as an error result carrying the D-17 dict."""
 
-import asyncio
 import json
 
 import pytest
-from mcp import Client
 
 from studysystem.server import create_server
+from tests._client import tool_names
 from tests._papers import pdf_bytes, write
 
 SEM = "Semester 1 2026-2027"
@@ -32,11 +31,7 @@ def add_web(call):
 
 
 def test_the_five_setup_tools_are_listed_under_the_study_prefix(service_engine):
-    async def go():
-        async with Client(create_server(service_engine)) as client:
-            return await client.list_tools()
-
-    names = {t.name for t in asyncio.run(go()).tools}
+    names = tool_names(create_server(service_engine))
     assert SETUP_TOOLS <= names
     assert all(n.startswith("study_") for n in names)
 
@@ -125,11 +120,7 @@ def test_a_bad_value_comes_back_in_the_d17_shape_not_the_sdk_s(call, name, args,
 
 
 def test_add_past_exam_is_listed(service_engine):
-    async def go():
-        async with Client(create_server(service_engine)) as client:
-            return await client.list_tools()
-
-    assert "study_add_past_exam" in {t.name for t in asyncio.run(go()).tools}
+    assert "study_add_past_exam" in tool_names(create_server(service_engine))
 
 
 def test_a_paper_goes_in_through_the_tool(call, tmp_path):

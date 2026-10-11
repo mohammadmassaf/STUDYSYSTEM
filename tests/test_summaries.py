@@ -5,11 +5,9 @@ else reads a summary.
 
 Every test writes to a vault under tmp_path; conftest unsets the real one."""
 
-import asyncio
 import json
 
 import pytest
-from mcp import Client
 from sqlalchemy import func, insert, select, update
 
 from studysystem.db.tables import (
@@ -29,6 +27,7 @@ from studysystem.services.courses import set_course_input
 from studysystem.services.ids import new_id, now
 from studysystem.services.summaries import SUMMARY_STEPS, save_summary, summary_task
 from studysystem.services.units import write_unit
+from tests._client import tool_names
 from tests.test_note_generation import CH6_PAGES, i3302, material, web  # noqa: F401 - fixtures
 from tests.test_profiles import NAMES
 
@@ -218,11 +217,7 @@ def test_a_failed_pdf_keeps_the_md_and_says_so(
 
 
 def test_both_tools_are_listed(service_engine):
-    async def go():
-        async with Client(create_server(service_engine)) as client:
-            return await client.list_tools()
-
-    names = {t.name for t in asyncio.run(go()).tools}
+    names = tool_names(create_server(service_engine))
     assert {"study_get_summary_task", "study_save_summary"} <= names
 
 

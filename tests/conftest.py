@@ -171,19 +171,12 @@ def call(service_engine, user_id):
     """Call one tool on a server wired to this test's database; returns the CallToolResult.
     `user_id` is asked for only so the user row exists - every tool resolves it with
     `current_user`, as `study migrate` would have made it."""
-    import asyncio
-
-    from mcp import Client
-
     from studysystem.server import create_server
+    from tests._client import call_tool
 
     server = create_server(service_engine)
 
     def _call(name: str, args: dict):
-        async def go():
-            async with Client(server) as client:
-                return await client.call_tool(name, args)
-
-        return asyncio.run(go())
+        return call_tool(server, name, args)
 
     return _call

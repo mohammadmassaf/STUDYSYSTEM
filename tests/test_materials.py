@@ -1,12 +1,10 @@
 """Material intake (task 1.14): Chapter 6 goes in once - the same bytes again hand back the same
 row, a new version of the chapter is a new row - and every refusal writes nothing."""
 
-import asyncio
 import json
 from pathlib import Path
 
 import pytest
-from mcp import Client
 from sqlalchemy import func, select
 
 from studysystem.db.tables import material
@@ -15,6 +13,7 @@ from studysystem.server import create_server
 from studysystem.services import intake
 from studysystem.services.courses import add_course
 from studysystem.services.materials import add_material
+from tests._client import call_tool
 from tests._papers import JPEG, pdf_bytes, write
 
 SEM = "Semester 1 2026-2027"
@@ -241,11 +240,7 @@ def tool_on(engine):
     server = create_server(engine)
 
     def _call(name: str, args: dict):
-        async def go():
-            async with Client(server) as client:
-                return await client.call_tool(name, args)
-
-        return asyncio.run(go())
+        return call_tool(server, name, args)
 
     return _call
 

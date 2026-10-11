@@ -1,18 +1,17 @@
 """How a service call leaves a tool (D-36), checked through a real client - what the host sees,
 not what the function returns."""
 
-import asyncio
 import json
 import sqlite3
 
 import pytest
-from mcp import Client
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
 from sqlalchemy.exc import OperationalError
 
 from studysystem.errors import StudyError
 from studysystem.tools.results import run, run_task
+from tests._client import call_tool
 
 ERR = StudyError(
     code="course_exists",
@@ -30,11 +29,7 @@ def call(body):
     def study_probe() -> CallToolResult:
         return run(body)
 
-    async def go():
-        async with Client(mcp) as client:
-            return await client.call_tool("study_probe", {})
-
-    return asyncio.run(go())
+    return call_tool(mcp, "study_probe", {})
 
 
 def fail():
