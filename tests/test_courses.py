@@ -215,10 +215,11 @@ def test_a_bad_value_is_invalid_and_changes_nothing(service_engine, user_id, web
     [
         ("weight", "study_set_assessment_input"),
         ("date", "study_set_assessment_input"),
-        ("strategy", "study_respond_to_offer"),
+        ("exam_date", "set date with study_set_assessment_input"),
+        ("strategy", "planner's offer (not built yet)"),
     ],
 )
-def test_a_field_with_another_home_is_unknown_field_naming_that_tool(
+def test_a_field_with_another_home_is_unknown_field_naming_that_home(
     service_engine, user_id, web, field, home
 ):
     with pytest.raises(StudyError) as excinfo:
@@ -227,6 +228,7 @@ def test_a_field_with_another_home_is_unknown_field_naming_that_tool(
     assert excinfo.value.code == "unknown_field"
     assert excinfo.value.field_errors[0]["field"] == "field"
     assert home in excinfo.value.fix
+    assert "study_respond_to_offer" not in excinfo.value.fix  # a 4.9 tool, not built yet
     assert untouched(course_row(service_engine, web["course_id"]))
 
 

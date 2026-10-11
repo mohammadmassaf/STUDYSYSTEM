@@ -30,11 +30,12 @@ COURSE_FIELDS = {
 NO_TIER = ("target_grade", "vault_folder")
 
 # Fields that sound like course inputs but have another home - the unknown_field fix names it.
+# strategy's tool, study_respond_to_offer, arrives with 4.9; until then the fix names no tool.
 OTHER_HOMES = {
-    "weight": "study_set_assessment_input",
-    "date": "study_set_assessment_input",
-    "exam_date": "study_set_assessment_input",
-    "strategy": "study_respond_to_offer",
+    "weight": "set weight with study_set_assessment_input",
+    "date": "set date with study_set_assessment_input",
+    "exam_date": "set date with study_set_assessment_input",
+    "strategy": "strategy is set by the planner's offer (not built yet), not by a course input",
 }
 
 
@@ -97,9 +98,7 @@ def set_course_input(
         raise StudyError(
             code="unknown_field",
             message=f"{field} is not a course input",
-            fix=f"set {field} with {home}"
-            if home is not None
-            else f"field must be one of: {', '.join(COURSE_FIELDS)}",
+            fix=home if home is not None else f"field must be one of: {', '.join(COURSE_FIELDS)}",
             field_errors=[{"field": "field", "problem": f"{field!r} is not a course input"}],
         )
 
