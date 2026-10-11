@@ -197,23 +197,70 @@ def test_a_problem_moves_its_topic_once(service_engine, user_id, web):
     assert {(r.source, bool(r.assisted)) for r in rows} == {("practice", False)}
 
 
-def test_a_second_problem_the_same_evening_rewrites_the_days_review(service_engine, user_id, web):
-    # + 2023 Q III (35 marks, ok): 57/85 -> Good. Still one review, now no lapse.
-    mysql = _topic(service_engine, user_id, web["course_id"], "MySQL")
-    items = _items(service_engine, user_id, mysql, [5, 5, 15, 25])
-    [q_iii] = _items(service_engine, user_id, mysql, [35])
-    session = start_session(service_engine, user_id, "I3302", "practice", "topic", mysql)[
-        "session_id"
-    ]
-    submit_attempts(service_engine, user_id, "I3302", _index_php(items), session)
+def _clock(monkeypatch) -> dict:
+    """The study loop's clock, set by the test: `clock["now"] = stamp` before each call. A real
+    clock would split two submits across local midnight once in a while."""
+    clock = {"now": None}
+    monkeypatch.setattr(study_loop, "now", lambda: clock["now"])
+    return clock
 
-    submit_attempts(
-        service_engine, user_id, "I3302", [{"practice_item_id": q_iii, "correct": True}], session
+
+def _utc(local: datetime.datetime) -> str:
+    """A naive wall-clock time on this machine as the stamp `now()` writes. Naive on purpose:
+    `astimezone()` applies this machine's rules for that date, summer time included."""
+    return local.astimezone().astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _two_problems(engine, uid, course_id, clock, first, second):
+    """index.php's four parts at `first`, then 2023 Q III (35 marks, ok) at `second`."""
+    mysql = _topic(engine, uid, course_id, "MySQL")
+    items = _items(engine, uid, mysql, [5, 5, 15, 25])
+    [q_iii] = _items(engine, uid, mysql, [35])
+    session = start_session(engine, uid, "I3302", "practice", "topic", mysql)["session_id"]
+    clock["now"] = first
+    submit_attempts(engine, uid, "I3302", _index_php(items), session)
+    clock["now"] = second
+    submit_attempts(engine, uid, "I3302", [{"practice_item_id": q_iii, "correct": True}], session)
+    return mysql
+
+
+def test_a_second_problem_the_same_evening_rewrites_the_days_review(
+    service_engine, user_id, web, monkeypatch
+):
+    # + 2023 Q III (35 marks, ok): 57/85 -> Good. Still one review, now no lapse. Noon UTC is one
+    # local day at every offset from -11 to +11, so the two stamps share a day wherever this runs.
+    clock = _clock(monkeypatch)
+    mysql = _two_problems(
+        service_engine,
+        user_id,
+        web["course_id"],
+        clock,
+        "2026-10-07T12:00:00Z",
+        "2026-10-07T12:20:00Z",
     )
 
     state = _state(service_engine, mysql)
     assert (state.reps, state.lapses) == (1, 0)
     assert _count(service_engine, topic_state) == 1
+
+
+def test_two_problems_either_side_of_local_midnight_are_two_reviews(
+    service_engine, user_id, web, monkeypatch
+):
+    """What a real clock could do to the test above: 23:50 and 00:10 are two local days, so
+    index.php's Again stays a review of its own (D-107) - reps 2, lapses 1."""
+    clock = _clock(monkeypatch)
+    mysql = _two_problems(
+        service_engine,
+        user_id,
+        web["course_id"],
+        clock,
+        _utc(datetime.datetime(2026, 10, 7, 23, 50)),  # noqa: DTZ001 - local wall clock
+        _utc(datetime.datetime(2026, 10, 8, 0, 10)),  # noqa: DTZ001 - local wall clock
+    )
+
+    state = _state(service_engine, mysql)
+    assert (state.reps, state.lapses) == (2, 1)
 
 
 def test_with_no_open_session_a_manual_practice_session_is_opened(service_engine, user_id, web):

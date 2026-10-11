@@ -4,6 +4,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from alembic import command
@@ -11,6 +12,7 @@ from click.testing import CliRunner
 from sqlalchemy import CheckConstraint, func, insert, inspect, select
 from sqlalchemy.exc import IntegrityError
 
+from studysystem import cli
 from studysystem.cli import study
 from studysystem.db import migrate
 from studysystem.db.engine import data_dir, db_path, make_engine, snapshot
@@ -69,16 +71,23 @@ def test_downgrade_base_reverses_it():
     assert f"{HEAD} -> None" in result.output
 
 
-def test_migrate_snapshots_even_when_daily_snapshot_exists():
+def test_migrate_snapshots_even_when_daily_snapshot_exists(monkeypatch):
+    # `study migrate` reads the clock through cli's own `datetime` name, so the fixed time is
+    # set there only - the stdlib module every other import shares is left alone. A real clock
+    # could name the daily copy on one side of midnight and the premigrate copy on the other.
+    at = datetime.datetime(2026, 10, 11, 9, 30).astimezone()  # noqa: DTZ001 - local wall clock
+
+    class Frozen(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return at if tz is None else at.astimezone(tz)
+
+    monkeypatch.setattr(cli, "datetime", SimpleNamespace(datetime=Frozen))
     engine = make_engine(db_path())
-    today = datetime.datetime.now().astimezone().date()
-    assert snapshot(engine, today) is not None  # the server already ran today
+    assert snapshot(engine, at.date()) is not None  # the server already ran today
     assert CliRunner().invoke(study, ["migrate"]).exit_code == 0
     names = {p.name for p in (data_dir() / "snapshots").iterdir()}
-    daily = f"{today.isoformat()}.db"
-    assert daily in names
-    assert len(names) == 2
-    assert (names - {daily}).pop().startswith(f"{today.isoformat()}-premigrate-")
+    assert names == {"2026-10-11.db", "2026-10-11-premigrate-093000.db"}
 
 
 # --- check_schema ---------------------------------------------------------
