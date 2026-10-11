@@ -157,7 +157,8 @@ def setup_reason(item: dict) -> str:
         ask += " - the profile has its papers; papers 4-5 unlock only the mock-exam gate (D-24)"
     if item["setup_kind"] == "more-papers":
         ask += " on " + ", ".join(item["short_topics"])
-    worth = f"could move {estimate:g} (marks x credits)" if estimate else "moves no marks itself"
+    how = "; ".join(["marks x credits", *item.get("guesses", [])])  # every guess named (D-96)
+    worth = f"could move {estimate:g} ({how})" if estimate else "moves no marks itself"
     return f"{where}: {ask} · {worth}"
 
 
@@ -488,6 +489,8 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
     - a fixed name for it: `setup_key` = `<kind>:<target_id>`, the same string in every plan
     - which course it belongs to
     - how many marks getting it could affect: `marks_unlocked_estimate` - the lane ranks by it
+    - which inputs of that estimate are guessed: `guesses`, for the reason (an unknown exam
+      weight scores as 30, D-96; unknown credits take the average, D-84)
 
     Snooze: an item with study time logged against its key in the last SNOOZE_DAYS days (not
     voided) is left out - e.g. the student emailed the lecturer and is waiting for the reply.
@@ -561,27 +564,51 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
     def weight_of(row) -> float:
         return row.weight if row.weight is not None else UNKNOWN_EXAM_WEIGHT  # D-96
 
+    def weight_guess(row) -> list[str]:
+        """The reason's words for a weight that is not declared (D-96) - none when it is."""
+        if row.weight_tier == "declared":
+            return []
+        tier = "inferred" if row.weight is None else row.weight_tier
+        return [f"{row.slot_name} weight {weight_of(row):g}, {tier}"]
+
     # Per course: its nearest exam date, the third tie key (D-91). Per slot: its course and
-    # weight - a resit is a second row on the same slot, so the slot counts once.
+    # weight - a resit is a second row on the same slot, so the slot counts once - and how
+    # that weight was guessed, for the reason.
     nearest_exam = {}
     slot_weight = {}
+    slot_guess = {}
     for r in upcoming_exams:
         if r.date is not None and r.date < nearest_exam.get(r.course_id, "9999-12-31"):
             nearest_exam[r.course_id] = r.date
         _, weight, _ = slot_weight.get(r.slot_id, (r.course_id, 0.0, r.slot_name))
+        # the guess follows the row whose weight the slot uses; a tie prefers a declared one
+        first, guess = r.slot_id not in slot_guess, weight_guess(r)
+        if first or weight_of(r) > weight or (weight_of(r) == weight and not guess):
+            slot_guess[r.slot_id] = guess
         slot_weight[r.slot_id] = (r.course_id, max(weight, weight_of(r)), r.slot_name)
 
     items = []
 
     def add(
-        kind: str, target_id: str, course_id: str, marks: float, target_name: str | None = None
+        kind: str,
+        target_id: str,
+        course_id: str,
+        marks: float,
+        target_name: str | None = None,
+        guesses: list[str] | None = None,
     ) -> None:
-        """One item: its fixed key, and the marks it could move x the course's credits."""
+        """One item: its fixed key, and the marks it could move x the course's credits.
+        `guesses` names the guessed weights inside `marks`; a guessed credits is added here."""
         row = courses[course_id]
+        guesses = list(guesses or [])
         if row.credits is not None:
             credits = row.credits
-        else:  # D-84's average; none declared anywhere -> 1 (D-98)
-            credits = average_credits if average_credits is not None else 1.0
+        elif average_credits is not None:  # D-84's average
+            credits = average_credits
+            guesses.append(f"x {credits:g} credits, average of declared courses, inferred")
+        else:  # none declared anywhere -> 1 (D-98)
+            credits = 1.0
+            guesses.append("x 1 credits, no course declares credits yet (D-98)")
         items.append(
             {
                 "setup_kind": kind,
@@ -592,6 +619,7 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
                 "credits": credits,
                 "nearest_exam": nearest_exam.get(course_id),
                 "marks_unlocked_estimate": marks * credits,
+                "guesses": guesses if marks else [],  # nothing to move, nothing guessed
             }
         )
 
@@ -604,16 +632,18 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
 
     # grading: one item per course, worth the sum of its guessed weights.
     guessed = {}
+    grading_guess = {}
     for r in assessments:
         if r.weight_tier in ("unknown", "inferred"):
             guessed[r.course_id] = guessed.get(r.course_id, 0.0) + weight_of(r)
+            grading_guess.setdefault(r.course_id, []).extend(weight_guess(r))
     for course_id, marks in guessed.items():
-        add("grading", course_id, course_id, marks)
+        add("grading", course_id, course_id, marks, guesses=grading_guess[course_id])
 
     # exam-date: one item per upcoming exam with no date, worth its own weight.
     for r in upcoming_exams:
         if r.date is None:
-            add("exam-date", r.id, r.course_id, weight_of(r), r.slot_name)
+            add("exam-date", r.id, r.course_id, weight_of(r), r.slot_name, weight_guess(r))
 
     # first-material: a course with no taught chapter (D-121) - nothing in the study lane until
     # one is, so the plan asks for it. Covers the cold start too: no material, nothing taught.
@@ -628,8 +658,10 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
     )
     for course_id in courses:
         if course_id not in taught_courses:
-            marks = sum(w for c, w, _ in slot_weight.values() if c == course_id)
-            add("first-material", course_id, course_id, marks)
+            slots = [s for s, (c, _, _) in slot_weight.items() if c == course_id]
+            marks = sum(slot_weight[s][1] for s in slots)
+            guesses = [g for s in slots for g in slot_guess[s]]
+            add("first-material", course_id, course_id, marks, guesses=guesses)
 
     # past-papers: an upcoming exam slot (D-99) under PAPERS_WANTED papers; worth its weight
     # until MIN_PAPERS land, then 0 - papers 4-5 unlock only the mock gate (D-24).
@@ -646,7 +678,8 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
     for slot_id, (course_id, weight, name) in slot_weight.items():
         count = papers.get(slot_id, 0)
         if count < PAPERS_WANTED:
-            add("past-papers", slot_id, course_id, weight if count < MIN_PAPERS else 0.0, name)
+            marks = weight if count < MIN_PAPERS else 0.0
+            add("past-papers", slot_id, course_id, marks, name, slot_guess[slot_id])
             asking.add(slot_id)
 
     # more-papers: a study-lane topic under SHORT_OF_QUESTIONS unpractised parts (D-127) asks
@@ -667,7 +700,7 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
             on_slot[topic_id] = max(on_slot.get(topic_id, 0.0), marks)  # a resit: the slot once
     for slot_id, shares in sorted(short.items()):
         course_id, _, name = slot_weight[slot_id]
-        add("more-papers", slot_id, course_id, sum(shares.values()), name)
+        add("more-papers", slot_id, course_id, sum(shares.values()), name, slot_guess[slot_id])
         items[-1]["short_topics"] = sorted(topics[t]["topic_name"] for t in shares)
 
     # Step 4: drop the snoozed keys before ranking, so ranks run 1..n with no gap.

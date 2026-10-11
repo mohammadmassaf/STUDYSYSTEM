@@ -826,6 +826,72 @@ def test_setup_reasons_say_what_to_get_and_what_it_could_move():
     )
 
 
+def test_a_setup_reason_names_every_guessed_input(service_engine, user_id):
+    # study_get_plan promises every reason names its guesses: here the Final's weight (NULL ->
+    # 30, D-96) and I3350's credits (none declared -> the average of I3302's 4, D-84).
+    with write_unit(service_engine) as conn:
+        _course(conn, user_id)
+        i3350 = _course(conn, user_id, "I3350", credits=None)
+        _exam(conn, user_id, i3350, weight=None, date=None, approx=0)
+
+    [item] = _of(_setup(service_engine, user_id), "exam-date").values()
+    reason = setup_reason(item)
+
+    assert reason.endswith(
+        "could move 120 (marks x credits; Final exam weight 30, inferred; x 4 credits, average "
+        "of declared courses, inferred)"
+    )
+
+
+def _resit(conn, uid, slot_id, weight):
+    """A second sitting on `slot_id` - its slot counts once (physical-schema, assessment)."""
+    conn.execute(
+        insert(assessment).values(
+            id=new_id(),
+            user_id=uid,
+            slot_id=slot_id,
+            weight=weight,
+            weight_tier="declared" if weight is not None else "unknown",
+            date="2027-02-20",
+            date_approx=1,
+            session_type="second",
+            status="upcoming",
+            created_at=now(),
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("first", "resit", "named"),
+    [
+        (None, None, "; Final exam weight 30, inferred)"),  # one guess, named once
+        (70.0, None, " credits)"),  # the marks use the declared 70: no 30 guessed in them
+        (None, 70.0, " credits)"),  # the same, declared row second: the bigger weight wins
+        (None, 30.0, " credits)"),  # a tie: the declared 30 wins, so nothing is guessed
+    ],
+)
+def test_a_resit_names_the_slots_weight_guess_once(service_engine, user_id, first, resit, named):
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        slot_id, _ = _exam(conn, user_id, course_id, weight=first)
+        _resit(conn, user_id, slot_id, resit)
+
+    [item] = _of(_setup(service_engine, user_id), "past-papers").values()
+
+    assert setup_reason(item).endswith(named)
+    assert setup_reason(item).count("weight 30") <= 1
+
+
+def test_a_setup_reason_with_declared_inputs_names_no_guess(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        _exam(conn, user_id, course_id, date=None, approx=0)
+
+    [item] = _of(_setup(service_engine, user_id), "exam-date").values()
+
+    assert setup_reason(item).endswith("could move 280 (marks x credits)")
+
+
 def test_a_review_reason_says_since_when():
     row = SimpleNamespace(code="I3302", topic_name="PHP sessions", due_at="2026-10-01T08:00:00Z")
 
