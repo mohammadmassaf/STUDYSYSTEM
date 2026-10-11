@@ -949,6 +949,22 @@ def _study_items(result):
     return {item["topic_name"]: item for item in result["lanes"]["study"]["items"]}
 
 
+def test_an_undated_exam_borrows_no_date_already_passed(service_engine, user_id):
+    # D-142, February 2027: the January Final is over and the spring Partial has no date yet.
+    # A passed date is no "far end of the session" - the reason must not claim one was borrowed.
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        _exam(conn, user_id, course_id, date="2027-01-18", approx=0, status="sat")
+        _, partial = _exam(conn, user_id, course_id, "Partial exam", date=None, approx=0)
+        _edge(conn, user_id, _topic(conn, user_id, course_id, "PHP sessions"), partial)
+
+    result = get_plan(service_engine, user_id, datetime.date(2027, 2, 10))
+    reason = _study_items(result)["PHP sessions"]["reason"]
+
+    assert "no upcoming exam has a date" in reason
+    assert "borrowed" not in reason
+
+
 def test_the_log_line_counts_what_the_plan_left_out(service_engine, user_id, caplog):
     with write_unit(service_engine) as conn:
         ids = _i3302_and_a_cold_course(conn, user_id)

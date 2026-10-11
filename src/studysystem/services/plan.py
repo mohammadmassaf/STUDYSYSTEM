@@ -90,7 +90,7 @@ DATE_NOTES = {
     "exact": "",
     "approximate": "approximate date",
     "borrowed": "no date - the latest exam date borrowed",
-    "unknown": "no exam has a date yet",
+    "unknown": "no upcoming exam has a date",
 }
 
 
@@ -189,7 +189,8 @@ def _topic_exams(
     Share: the profile's; a profile without this topic -> 100 / profile_size ("average"); no
     profile -> 100 / topics reaching that exam ("equal split") (D-89, D-90). Marks = exam weight
     x share / 100 x credits; NULL credits -> `average_credits`, inferred (D-84). Days = date -
-    today; NULL date -> `latest_exam_date`, borrowed (D-86); below 1 -> 1 (D-95).
+    today; NULL date -> `latest_exam_date`, the latest one not yet passed, borrowed (D-86,
+    D-142); below 1 -> 1 (D-95).
 
     MySQL today -> one exam: 70 x 39.34% x 4 = 110.2 marks, 106 days, share from profile v2.
     PHP sessions on the Final and a Partial with no profile, 3 topics on it -> Final 46.7 marks,
@@ -766,7 +767,11 @@ def get_plan(
         latest = conn.execute(
             select(func.max(assessment.c.date))
             .join_from(assessment, assessment_slot, assessment_slot.c.id == assessment.c.slot_id)
-            .where(assessment.c.user_id == user_id, assessment_slot.c.kind == "exam")
+            .where(
+                assessment.c.user_id == user_id,
+                assessment_slot.c.kind == "exam",
+                assessment.c.date >= today.isoformat(),  # a passed date is no far end (D-142)
+            )
         ).scalar()
         latest_exam_date = datetime.date.fromisoformat(latest) if latest else None
 
