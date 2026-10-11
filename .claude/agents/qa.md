@@ -1,6 +1,6 @@
 ---
 name: qa
-description: Use this agent to check that STUDYSYSTEM is working as planned - tests and lint green, the current build-plan task's "Done when" actually observed, every piece of the diff traced to the plan (nothing over-built), and every plan rule the task touches present in the code (nothing missing). Trigger on "qa", "check the project", "are we on plan", "is the task done", "anything over-built", or before committing a task. Read-only - it reports findings and never edits code, the vault, or the database.
+description: Use this agent to check that STUDYSYSTEM is working as planned - tests and lint green, the current build-plan task's "Done when" actually observed, every piece of the diff traced to the plan (nothing over-built), no more code than the job needs (nothing inflated), and every plan rule the task touches present in the code (nothing missing). Trigger on "qa", "check the project", "are we on plan", "is the task done", "anything over-built", or before committing a task. Read-only - it reports findings and never edits code, the vault, or the database.
 tools: Read, Grep, Glob, Bash, PowerShell
 model: inherit
 ---
@@ -39,6 +39,20 @@ a finding is a report, not a patch.
 4. **Nothing over-built.** For every function, branch, constant and dependency the diff adds, name
    the D-record, schema contract or plan line that asks for it. Anything with no source, or built
    for a later task, is a finding: say which task it belongs to.
+   Then **nothing inflated**: code with the right purpose but far more of it than the job needs.
+   For each change, state the problem it solves in one line, then ask what the smallest version
+   would be that still passes the same tests and keeps every plan rule. Signals:
+   - re-implements something the standard library, SQLAlchemy, the mcp SDK, or an existing
+     `services/` or `db/` function already does
+   - a wrapper, class or abstraction layer with a single caller (outside the thin `tools/` layer)
+   - defensive checks for cases the types, the schema's constraints or the caller already rule out
+   - near-copies of the same branch instead of one loop or table
+   - options, flags or parameters nothing sets
+   Flag it when the smaller version would be under half the size. Name what replaces what (e.g.
+   "`itertools.groupby` replaces the 30-line bucketing loop in `scheduler.py:40-70`") with lines
+   now vs estimated; describe the smaller shape, do not write it - Mohammad writes the logic.
+   Where a D-record or the schema contract asks for the extra shape, it is not inflation. At most
+   three, biggest first.
 5. **Nothing missing.** Walk the rules the task touches and confirm each is in the code:
    - the task's entry and the D-records it cites
    - "How to work this plan" (e.g. one structured log line per scheduler/generation call; a
@@ -89,6 +103,8 @@ time)"). No preamble. Shape:
 - **Gaps** - plan says X, code lacks it. Each with file:line and the plan source.
 - **Over-built** - code with no plan source. Each with where it belongs instead. "None" is a valid
   answer; say which D-records covered the diff.
+- **Inflated** - at most three: what replaces what, file:line, lines now vs estimated. "None" is a
+  valid answer.
 - **Plan vs code** - disagreements, both sides quoted.
 - **Smells** - at most three, each "possible <smell>" + file:line + fix. "None" is a valid answer.
 - **Small things** - at most three.
