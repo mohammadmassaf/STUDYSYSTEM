@@ -40,19 +40,27 @@ a finding is a report, not a patch.
    the D-record, schema contract or plan line that asks for it. Anything with no source, or built
    for a later task, is a finding: say which task it belongs to.
    Then **nothing inflated**: code with the right purpose but far more of it than the job needs.
-   For each change, state the problem it solves in one line, then ask what the smallest version
-   would be that still passes the same tests and keeps every plan rule. Signals:
+   For each change, work out (for yourself, not in the report) the problem it solves in one
+   line, then ask what the smallest version would be that still passes the same tests and keeps
+   every plan rule. Signals:
    - re-implements something the standard library, SQLAlchemy, the mcp SDK, or an existing
      `services/` or `db/` function already does
    - a wrapper, class or abstraction layer with a single caller (outside the thin `tools/` layer)
    - defensive checks for cases the types, the schema's constraints or the caller already rule out
    - near-copies of the same branch instead of one loop or table
    - options, flags or parameters nothing sets
+
    Flag it when the smaller version would be under half the size. Name what replaces what (e.g.
    "`itertools.groupby` replaces the 30-line bucketing loop in `scheduler.py:40-70`") with lines
    now vs estimated; describe the smaller shape, do not write it - Mohammad writes the logic.
-   Where a D-record or the schema contract asks for the extra shape, it is not inflation. At most
-   three, biggest first.
+   Where `CLAUDE.md`, the plan, a D-record or the schema contract asks for the extra shape (e.g.
+   the write-unit wrapper, the structured error fields), it is not inflation. At most three,
+   biggest first.
+
+   Report each problem once: under **Over-built** when nothing in the current task asks for it
+   (code built for a later task included), under **Inflated** when the current task asks for it
+   but it takes far more lines than needed. Step 7 skips what step 4
+   already reported.
 5. **Nothing missing.** Walk the rules the task touches and confirm each is in the code:
    - the task's entry and the D-records it cites
    - "How to work this plan" (e.g. one structured log line per scheduler/generation call; a
@@ -67,7 +75,9 @@ a finding is a report, not a patch.
    ch.3). Each is a judgement call - report it as "possible Feature Envy", never as a failure.
    `CLAUDE.md` and the plan win: where they ask for a shape, it is not a smell (e.g. the thin
    `tools/` layer is not Middle Man; a D-record that asks for a parameter is not Speculative
-   Generality). Skip anything ruff enforces. At most three, each with the hunk quoted and its fix.
+   Generality). Skip anything ruff enforces, and anything step 4 already reported (Speculative
+   Generality, Middle Man and Duplicated Code overlap it). At most three, each with the hunk quoted
+   and its fix.
    - **Mysterious Name**: a name that doesn't say what it does or holds. -> rename it.
    - **Duplicated Code**: the same logic shape in two hunks or files. -> extract it, call it from both.
    - **Feature Envy**: a function that reaches into another module's data more than its own. -> move
@@ -81,8 +91,7 @@ a finding is a report, not a patch.
    - **Shotgun Surgery**: one logical change forced scattered edits across many files. -> gather
      what changes together.
    - **Divergent Change**: one file edited for several unrelated reasons. -> split it.
-   - **Speculative Generality**: a hook or parameter no task asks for yet. -> delete it (overlaps
-     step 4: report it once, there).
+   - **Speculative Generality**: a hook or parameter no task asks for yet. -> delete it.
    - **Message Chains**: long `a.b().c().d()` walks the caller shouldn't depend on. -> hide the
      walk behind one function.
    - **Middle Man**: a function that only passes the call on, outside the `tools/` layer. -> call
@@ -110,5 +119,7 @@ time)"). No preamble. Shape:
 - **Small things** - at most three.
 - **Next** - the one or two things to do, in order.
 
-Every finding cites a file:line and the plan line it is measured against. Do not report a
-finding you did not verify by reading the code or running a command.
+Every finding cites a file:line and what it is measured against: the plan line for gaps,
+over-built and plan-vs-code findings; the replacement and lines now vs estimated for inflated
+ones; the named smell and the quoted hunk for smells. Do not report a finding you did not verify
+by reading the code or running a command.
