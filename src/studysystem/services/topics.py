@@ -129,14 +129,15 @@ def material_edge_if_missing(
 
 
 def exam_assessments(conn: Connection, topic_id: str) -> list[str]:
-    """The assessment ids the topic is examined in: its past-exam items -> their paper -> the
-    paper's slot -> the slot's assessment(s). Empty when the topic has no past-exam item."""
+    """The assessment ids the topic is examined in: its live past-exam items -> their paper ->
+    the paper's slot -> the slot's assessment(s). Empty when the topic has no live past-exam
+    item - a rejected item is not evidence (D-136, D-141)."""
     rows = (
         conn.execute(
             select(assessment.c.id)
             .join_from(practice_item, past_exam, practice_item.c.past_exam_id == past_exam.c.id)
             .join(assessment, assessment.c.slot_id == past_exam.c.slot_id)
-            .where(practice_item.c.topic_id == topic_id)
+            .where(practice_item.c.topic_id == topic_id, practice_item.c.state == "live")
             .distinct()
             .order_by(assessment.c.id)
         )

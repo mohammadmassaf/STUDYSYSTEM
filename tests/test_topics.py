@@ -120,6 +120,35 @@ def test_a_topic_with_no_past_exam_item_gives_none(service_engine, user_id, web)
         assert exam_assessments(conn, tid) == []
 
 
+def set_item_state(engine, paper_id, position, state):
+    with write_unit(engine) as conn:
+        conn.execute(
+            update(practice_item)
+            .where(practice_item.c.past_exam_id == paper_id, practice_item.c.position == position)
+            .values(state=state)
+        )
+
+
+@pytest.mark.parametrize("state", ["rejected", "superseded"])
+def test_a_topic_whose_only_item_is_not_live_gives_none(
+    service_engine, user_id, web, tmp_path, state
+):
+    """A rejected item is not evidence (D-136, D-141): it links its topic to no exam."""
+    paper_id = transcribe(service_engine, user_id, tmp_path, "first", "2020-02-17", [REGEX])
+    set_item_state(service_engine, paper_id, 1, state)
+
+    assert assessments_of(service_engine, REGEX) == []
+
+
+def test_one_live_item_beside_a_rejected_one_still_gives_the_assessment(
+    service_engine, user_id, web, tmp_path
+):
+    paper_id = transcribe(service_engine, user_id, tmp_path, "first", "2020-02-17", [REGEX] * 2)
+    set_item_state(service_engine, paper_id, 1, "rejected")
+
+    assert assessments_of(service_engine, REGEX) == [web["assessment_id"]]
+
+
 # --- edge_if_missing (D-60) ---------------------------------------------------------
 
 
