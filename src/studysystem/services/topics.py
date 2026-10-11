@@ -18,7 +18,7 @@ from studysystem.services import values
 from studysystem.services.ids import new_id, now
 from studysystem.services.lookups import find_course
 from studysystem.services.study_loop import PASS_SCORE
-from studysystem.services.units import write_unit
+from studysystem.services.units import read_unit, write_unit
 
 # Topics a transcribed item may be tagged to: live ones, `proposed` included (1.10 accepts a
 # proposal). `superseded` and `declined` topics are retired and never offered.
@@ -191,7 +191,7 @@ def get_topics(engine: Engine, user_id: str, code: str, semester_name: str | Non
     PASS_SCORE); above it, it is hidden - not handed out again (D-99, D-126). A `rejected`
     item is not listed at all, nor counted in `hidden`."""
     best = best_scores(user_id)
-    with engine.connect() as conn:
+    with read_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
         topics = conn.execute(
             select(topic.c.id, topic.c.name, topic.c.status)

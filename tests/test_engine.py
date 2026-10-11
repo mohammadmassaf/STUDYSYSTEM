@@ -2,12 +2,15 @@ import datetime
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import event
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from studysystem.db.engine import data_dir, db_path, make_engine, snapshot
+from studysystem.services.units import read_unit, write_unit
 
 WRITER = Path(__file__).with_name("_writer.py")
 
@@ -93,3 +96,40 @@ def test_foreign_keys_are_enforced():
         )
     with pytest.raises(IntegrityError), engine.begin() as conn:
         conn.exec_driver_sql("INSERT INTO child (parent_id) VALUES (999)")
+
+
+# --- after the independent review ---------------------------------------------
+
+
+def _with_table(path: Path):
+    engine = make_engine(path)
+    with write_unit(engine) as conn:
+        conn.exec_driver_sql("CREATE TABLE t (id INTEGER)")
+    return engine
+
+
+def test_a_read_does_not_wait_behind_another_write_unit():
+    writer = _with_table(db_path())
+    reader = make_engine(db_path())
+
+    with write_unit(writer) as conn:
+        conn.exec_driver_sql("INSERT INTO t VALUES (1)")  # the write lock is held from here
+        started = time.perf_counter()
+        with read_unit(reader) as rconn:
+            assert rconn.exec_driver_sql("SELECT count(*) FROM t").scalar_one() == 0
+        assert time.perf_counter() - started < 1  # not the 5 s busy_timeout
+
+
+def test_a_second_write_unit_waits_for_the_lock():
+    writer = _with_table(db_path())
+    other = make_engine(db_path())
+
+    @event.listens_for(other, "connect")
+    def quick(dbapi_conn, _record):  # after make_engine's: 100 ms instead of 5 s
+        dbapi_conn.execute("PRAGMA busy_timeout = 100")
+
+    with write_unit(writer) as conn:
+        conn.exec_driver_sql("INSERT INTO t VALUES (1)")
+        # BEGIN IMMEDIATE asks for the lock before the first statement, so the unit cannot open
+        with pytest.raises(OperationalError, match="locked"), write_unit(other):
+            pass

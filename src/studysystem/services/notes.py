@@ -31,7 +31,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from studysystem.db.tables import course, exam_profile, material, note
 from studysystem.services.lookups import find_course
 from studysystem.services.pdf_render import render_pdf
-from studysystem.services.units import write_unit
+from studysystem.services.units import read_unit, write_unit
 
 VAULT_ENV = "STUDYSYSTEM_VAULT_DIR"
 # how every fix that leaves a file unwritten ends: the note waits safely, the tool sends it (D-79)
@@ -61,7 +61,7 @@ def export_course_notes(
     Idempotent: a second call finds nothing missing and writes nothing. Returns {"course",
     "exports"}, the entries as export_notes gives them - "course" as stored (`I3302`), however
     the code was typed. An unknown code is `not_found`."""
-    with engine.connect() as conn:
+    with read_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
         stored = conn.execute(select(course.c.code).where(course.c.id == course_id)).scalar_one()
     return {"course": stored, "exports": _export_where(engine, user_id, course.c.id == course_id)}
@@ -90,7 +90,7 @@ def _unexported_notes(engine: Engine, user_id: str, scope: ColumnElement[bool]) 
     """The notes in `scope` missing their md or their PDF, oldest first, with what their files
     need: where the md went (NULL = not written), the task and material that made them, the
     course's vault folder and the profile's version."""
-    with engine.connect() as conn:
+    with read_unit(engine) as conn:
         return list(
             conn.execute(
                 select(

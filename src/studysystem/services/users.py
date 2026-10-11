@@ -9,7 +9,7 @@ from sqlalchemy import Connection, Engine, insert, select
 from studysystem.db.tables import user
 from studysystem.errors import StudyError
 from studysystem.services.ids import new_id, now
-from studysystem.services.units import write_unit
+from studysystem.services.units import read_unit, write_unit
 
 
 def _user_ids(conn: Connection) -> Sequence[str]:
@@ -33,7 +33,7 @@ def ensure_user(engine: Engine) -> str:
 def current_user(engine: Engine) -> str:
     """The id every front door passes into services. Read only: creating the user is migrate's
     job, and a read that could write would race the other process (D-31)."""
-    with engine.connect() as conn:
+    with read_unit(engine) as conn:
         ids = _user_ids(conn)
         if len(ids) == 0:
             raise StudyError(

@@ -35,6 +35,7 @@ from studysystem.errors import StudyError
 from studysystem.services import notes, values
 from studysystem.services.generation import Task, _find_material, _pages
 from studysystem.services.pdf_render import render_pdf
+from studysystem.services.units import read_unit
 
 log = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ def summary_task(engine: Engine, user_id: str, material_id: str | None) -> Task:
         raise values.invalid(
             "material_id", "is missing", "send the material_id that study_add_material returned"
         )
-    with engine.connect() as conn:
+    with read_unit(engine) as conn:
         found = _find_material(conn, user_id, material_id)
         exam = _exam_weight(conn, user_id, found.id)
     content, pictures = _pages(found.file_ref)
@@ -256,7 +257,7 @@ def save_summary(engine: Engine, user_id: str, material_id: str, markdown: str) 
     if not markdown.strip():
         raise values.invalid("markdown", "is empty", "send the whole summary as markdown")
 
-    with engine.connect() as conn:
+    with read_unit(engine) as conn:
         found = conn.execute(
             select(material.c.id, material.c.filename, course.c.vault_folder)
             .join(course, course.c.id == material.c.course_id)

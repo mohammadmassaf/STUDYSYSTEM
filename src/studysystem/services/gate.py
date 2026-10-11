@@ -2,13 +2,14 @@
 database proves use. M1's proof is an `hours_entry` logged against a `plan_item` the server
 ranked and showed, in the plan in force when the work started.
 
-Read only: one query, no write unit. The tool `study_get_gate` and, later, the dashboard panel
-call this same function.
+Read only: one query in a read unit, no write lock. The tool `study_get_gate` and, later, the
+dashboard panel call this same function.
 """
 
 from sqlalchemy import Engine, and_, or_, select
 
 from studysystem.db.tables import hours_entry, plan, plan_item
+from studysystem.services.units import read_unit
 
 
 def dogfood_gate(engine: Engine, user_id: str) -> dict:
@@ -61,6 +62,6 @@ def dogfood_gate(engine: Engine, user_id: str) -> dict:
         .where(hours_entry.c.user_id == user_id, hours_entry.c.voided_at.is_(None))
         .order_by(hours_entry.c.occurred_at, hours_entry.c.id)
     )
-    with engine.connect() as conn:
+    with read_unit(engine) as conn:
         rows = [dict(row._mapping) for row in conn.execute(query)]
     return {"used": bool(rows), "rows": rows}

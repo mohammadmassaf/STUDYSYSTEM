@@ -9,6 +9,7 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Engine
 
+from studysystem.db.engine import READ_ONLY
 from studysystem.errors import StudyError
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
@@ -40,8 +41,9 @@ def head_revision() -> str | None:
 
 
 def current_revision(engine: Engine) -> str | None:
-
+    """The revision stamped in the database; a read, so it takes no write lock."""
     with engine.connect() as conn:
+        conn.execution_options(**{READ_ONLY: True})
         rev = MigrationContext.configure(conn).get_current_revision()
     return rev
 

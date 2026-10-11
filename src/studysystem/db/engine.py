@@ -14,6 +14,10 @@ from sqlalchemy import Engine, create_engine, event
 _WAL_ATTEMPTS = 10
 _WAL_BACKOFF = 0.05
 
+# The execution option a read-only connection carries (`services.units.read_unit`): its
+# transaction opens with a plain BEGIN instead of BEGIN IMMEDIATE.
+READ_ONLY = "studysystem_read_only"
+
 
 def data_dir() -> Path:
 
@@ -67,7 +71,12 @@ def make_engine(path: Path) -> Engine:
 
     @event.listens_for(engine, "begin")
     def on_begin(conn):
-        conn.exec_driver_sql("BEGIN IMMEDIATE")
+        # A write takes the file's one write lock before its first read (D-22). A read opts out:
+        # under WAL a plain BEGIN still sees one consistent moment, and never waits on a writer.
+        if conn.get_execution_options().get(READ_ONLY):
+            conn.exec_driver_sql("BEGIN")
+        else:
+            conn.exec_driver_sql("BEGIN IMMEDIATE")
 
     return engine
 
