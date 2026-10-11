@@ -379,15 +379,28 @@ def test_downgrade_snapshots_first():
     assert stamp() == "0008"
 
 
-def test_downgrade_to_an_unknown_target_changes_nothing():
+@pytest.mark.parametrize("target", ["9999", "-99"])  # a revision typo, a step count too far
+def test_downgrade_to_an_unknown_target_changes_nothing(target):
     runner = CliRunner()
     assert runner.invoke(study, ["migrate"]).exit_code == 0
 
-    result = runner.invoke(study, ["downgrade", "9999"])
+    result = runner.invoke(study, ["downgrade", "--", target])  # `--`: -99 is not an option
 
     assert result.exit_code == 1
-    assert "9999" in result.output
+    assert target in result.output
     assert stamp() == HEAD
+    names = [p.name for p in (data_dir() / "snapshots").iterdir()]
+    assert not any("-predowngrade-" in n for n in names)  # the refused run keeps no copy
+
+
+def test_downgrade_takes_a_relative_target():
+    runner = CliRunner()
+    assert runner.invoke(study, ["migrate"]).exit_code == 0
+
+    result = runner.invoke(study, ["downgrade", "head-1"])
+
+    assert result.exit_code == 0, result.output
+    assert stamp() == "0008"
 
 
 def test_a_failed_daily_snapshot_does_not_stop_the_server(monkeypatch, caplog):

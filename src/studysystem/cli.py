@@ -48,7 +48,12 @@ def downgrade(target: str) -> None:
     before = migrate.current_revision(engine)
     try:
         migrate.downgrade(engine, target)
-    except CommandError as e:  # an unknown TARGET, most often a typo
+    except CommandError as e:  # a TARGET alembic cannot reach, most often a typo
+        # The run is one transaction (env.py), so the database is unchanged and the copy only
+        # duplicates it: drop it.
+        # Asking alembic first would mean re-implementing its target syntax (`head-1`, `0005+1`).
+        if snap is not None:
+            snap.unlink()
         raise click.ClickException(f"{e}; nothing was changed") from None
     click.echo(f"snapshot: {snap}")
     click.echo(f"{before} -> {migrate.current_revision(engine)}")
