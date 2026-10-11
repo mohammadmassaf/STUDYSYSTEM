@@ -254,3 +254,23 @@ def test_a_missing_file_is_invalid_and_writes_nothing(service_engine, user_id, w
 
     assert (err.code, err.field_errors[0]["field"]) == ("invalid_value", "paths")
     assert count(service_engine) == 0
+
+
+# --- another student (Conventions: ownership) ---------------------------------
+
+
+def test_the_same_paper_from_another_student_is_their_own_row(
+    service_engine, user_id, other_user_id, web, papers
+):
+    """B's own I3302 Final, the same Final 2020-02-17 bytes: a new row for B, not a refusal as
+    a duplicate of A's paper, and A's row is untouched."""
+    mine = add(service_engine, user_id, papers["2020-S1"])
+    b_web = add_course(service_engine, other_user_id, "I3302", "Server-Side Web Development", SEM)
+
+    theirs = add(service_engine, other_user_id, papers["2020-S1"])
+
+    assert theirs["past_exam_id"] != mine["past_exam_id"]
+    assert {(r["owner_id"], r["slot_id"]) for r in rows(service_engine)} == {
+        (user_id, web["slot_id"]),
+        (other_user_id, b_web["slot_id"]),
+    }

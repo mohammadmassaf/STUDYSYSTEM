@@ -66,3 +66,23 @@ def test_a_bad_input_is_invalid_and_writes_nothing(
     assert excinfo.value.code == "invalid_value"
     assert excinfo.value.field_errors[0]["field"] == field
     assert rows(service_engine) == []
+
+
+# --- another student (Conventions: ownership) ---------------------------------
+
+
+def test_another_students_capacity_is_their_own_row(service_engine, user_id, other_user_id):
+    """Nothing reads capacity before 4.9, so ownership is the row itself: B's row carries B's
+    user_id, and A's rows stay as they were."""
+    set_capacity(service_engine, user_id, 10, "2026-09-27")
+    set_capacity(service_engine, user_id, 21, "2026-12-24")
+    set_capacity(service_engine, user_id, 10, "2027-01-04")
+
+    set_capacity(service_engine, other_user_id, 30, "2026-10-01")
+
+    assert [(r.user_id, r.hours_per_week, r.from_date) for r in rows(service_engine)] == [
+        (user_id, 10, "2026-09-27"),
+        (user_id, 21, "2026-12-24"),
+        (user_id, 10, "2027-01-04"),
+        (other_user_id, 30, "2026-10-01"),
+    ]

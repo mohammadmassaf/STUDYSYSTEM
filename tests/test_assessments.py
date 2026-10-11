@@ -316,3 +316,19 @@ def test_adding_to_an_unknown_course_is_not_found(service_engine, user_id, web_b
 
     assert excinfo.value.code == "not_found"
     assert slot_count(service_engine) == 1
+
+
+# --- another student (Conventions: ownership) ---------------------------------
+
+
+def test_setting_an_input_changes_only_the_callers_own_sitting(
+    service_engine, user_id, other_user_id, web
+):
+    """B's own I3302-E: B's weight 40 lands on B's final; A's final stays as add_course left it."""
+    b_web = add_course(service_engine, other_user_id, "I3302-E", "Server-Side Web Development", SEM)
+
+    set_final(service_engine, other_user_id, "weight", 40)
+
+    assert as_it_was(sitting(service_engine, web["assessment_id"]))
+    theirs = sitting(service_engine, b_web["assessment_id"])
+    assert (theirs["weight"], theirs["weight_tier"]) == (40, "declared")

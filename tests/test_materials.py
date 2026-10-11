@@ -183,3 +183,24 @@ def test_an_unknown_course_is_not_found_and_nothing_is_kept(service_engine, user
 
     assert err.code == "not_found"
     assert count(service_engine) == 0 and kept() == []
+
+
+# --- another student (Conventions: ownership) ---------------------------------
+
+
+def test_the_same_pdf_from_another_student_is_their_own_row(
+    service_engine, user_id, other_user_id, web, ch6
+):
+    """B's own I3302, the same Chapter 6 bytes: a new row for B, never A's material_id."""
+    mine = add(service_engine, user_id, ch6)
+    b_web = add_course(service_engine, other_user_id, "I3302", "Server-side WEB Development", SEM)
+
+    theirs = add(service_engine, other_user_id, ch6)
+
+    assert theirs["existing"] is False
+    assert theirs["material_id"] != mine["material_id"]
+    assert theirs["course_id"] == b_web["course_id"]
+    assert {(r["user_id"], r["course_id"]) for r in rows(service_engine)} == {
+        (user_id, web["course_id"]),
+        (other_user_id, b_web["course_id"]),
+    }

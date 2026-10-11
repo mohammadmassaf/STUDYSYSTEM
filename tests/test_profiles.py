@@ -410,3 +410,20 @@ def test_derive_through_the_tool(call, service_engine, user_id, i3302):
     assert body["version"] == 1
     assert weights == sorted(weights, reverse=True)
     assert body["weights"][0]["name"] == NAMES["files"]
+
+
+# --- another student (Conventions: ownership) ---------------------------------
+
+
+def test_another_students_papers_never_count_toward_a_profile(
+    service_engine, user_id, other_user_id, i3302
+):
+    """A has three transcribed papers; B's own I3302 Final has none - too few for B."""
+    add_course(service_engine, other_user_id, "I3302", "Server-Side Web Development", SEM)
+
+    with pytest.raises(StudyError) as err:
+        derive_profile(service_engine, other_user_id, "I3302", FINAL)
+
+    assert err.value.code == "too_few_papers"
+    assert count(service_engine, exam_profile) == 0
+    assert count(service_engine, topic_weight) == 0
