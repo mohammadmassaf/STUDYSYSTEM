@@ -606,7 +606,61 @@ def test_study_serve_refuses_an_empty_database():
     assert proc.returncode == 1
     assert f"database has no schema yet, head is {HEAD}" in proc.stderr
     assert "run: study migrate" in proc.stderr
-    assert stamp() is None
+    assert not db_path().exists()  # refused before opening it: no empty file left behind
+
+
+def test_study_serve_refuses_a_locked_database_in_one_line():
+    """Another process holds the file's exclusive lock past busy_timeout (5 s): one line naming
+    the code and the fix, not a traceback."""
+    engine = make_engine(db_path())
+    migrate.upgrade(engine)
+    engine.dispose()  # its pooled connection would block the switch below
+    holder = sqlite3.connect(db_path(), isolation_level=None)
+    holder.execute("PRAGMA journal_mode = DELETE")  # under WAL a reader never waits
+    holder.execute("BEGIN EXCLUSIVE")
+    try:
+        proc = serve()
+    finally:
+        holder.close()
+
+    assert proc.returncode == 1
+    assert "database_unavailable: cannot open" in proc.stderr
+    assert "database is locked" in proc.stderr
+    assert "Traceback" not in proc.stderr
+
+
+def test_study_serve_refuses_a_file_that_is_not_a_database_in_one_line():
+    db_path().write_text("not a database, a typed note saved under the wrong name")
+
+    proc = serve()
+
+    assert proc.returncode == 1
+    assert "database_unavailable: cannot open" in proc.stderr
+    assert "file is not a database" in proc.stderr
+    assert "snapshots folder" in proc.stderr  # the damaged-file fix
+    assert "Traceback" not in proc.stderr
+
+
+def test_a_failed_wal_switch_refuses_the_server_in_one_line(monkeypatch, capsys):
+    import studysystem.db.engine as engine_module
+    import studysystem.server as server
+
+    engine = make_engine(db_path())
+    migrate.upgrade(engine)
+    engine.dispose()
+
+    def held(_conn):
+        raise engine_module.WalUnavailable("could not put the database in WAL mode")
+
+    monkeypatch.setattr(engine_module, "_ensure_wal", held)  # what the real connect hook calls
+
+    with pytest.raises(SystemExit) as excinfo:
+        server.main()
+
+    assert excinfo.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("database_unavailable: cannot open")
+    assert "WAL mode" in err
 
 
 def test_study_serve_refuses_a_database_behind_head_and_leaves_its_rows():

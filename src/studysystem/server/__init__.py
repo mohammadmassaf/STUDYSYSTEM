@@ -6,9 +6,16 @@ import sys
 
 from mcp.server import MCPServer
 from sqlalchemy import Engine
+from sqlalchemy.exc import DatabaseError
 
-from studysystem.db.engine import db_path, make_engine, snapshot
-from studysystem.db.migrate import SchemaAheadOfHead, SchemaBehindHead, check_schema
+from studysystem.db.engine import WalUnavailable, db_path, make_engine, snapshot, unavailable
+from studysystem.db.migrate import (
+    SchemaAheadOfHead,
+    SchemaBehindHead,
+    check_schema,
+    head_revision,
+)
+from studysystem.errors import StudyError
 from studysystem.tools import (
     course_setup,
     gate,
@@ -44,16 +51,26 @@ def create_server(engine: Engine) -> MCPServer:
     return mcp
 
 
+def _refuse(e: StudyError) -> None:
+    print(f"{e.code}: {e.message}. {e.fix}", file=sys.stderr)
+    sys.exit(1)
+
+
 def main() -> None:
     # stderr only: stdout carries the MCP messages. The SDK stays at warnings; ours at info.
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="%(asctime)s %(message)s")
     logging.getLogger("studysystem").setLevel(logging.INFO)
-    engine = make_engine(db_path())
+    path = db_path()
+    if not path.exists():
+        # Opening it would leave an empty file behind; the refusal is the empty database's.
+        _refuse(SchemaBehindHead(None, head_revision()))
+    engine = make_engine(path)
     try:
         check_schema(engine)
     except (SchemaBehindHead, SchemaAheadOfHead) as e:  # each names its own fix
-        print(f"{e.code}: {e.message}. {e.fix}", file=sys.stderr)
-        sys.exit(1)
+        _refuse(e)
+    except (DatabaseError, WalUnavailable) as e:  # the first connection could not use the file
+        _refuse(unavailable(path, e))
     try:
         snapshot(engine, datetime.datetime.now().astimezone().date())
     except Exception:

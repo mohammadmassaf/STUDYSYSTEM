@@ -10,6 +10,8 @@ from pathlib import Path
 import platformdirs
 from sqlalchemy import Engine, create_engine, event
 
+from studysystem.errors import StudyError
+
 # Ten tries, 50ms apart: the holder only needs to finish one PRAGMA.
 _WAL_ATTEMPTS = 10
 _WAL_BACKOFF = 0.05
@@ -17,6 +19,23 @@ _WAL_BACKOFF = 0.05
 # The execution option a read-only connection carries (`services.units.read_unit`): its
 # transaction opens with a plain BEGIN instead of BEGIN IMMEDIATE.
 READ_ONLY = "studysystem_read_only"
+
+
+class WalUnavailable(RuntimeError):
+    """The file could not be switched to WAL: another process kept it locked throughout."""
+
+
+def unavailable(path: Path, e: BaseException) -> StudyError:
+    """The one-line refusal for a file the first connection could not use: locked, unreadable,
+    or not a database at all. For the server's start and the `study` commands only - a tool maps
+    just the lock wait (D-144). The driver text is kept, so the real fault stays visible."""
+    return StudyError(
+        code="database_unavailable",
+        message=f"cannot open {path}: {getattr(e, 'orig', None) or e}",
+        fix="if another program holds it (study migrate, the dashboard), close it and start "
+        "again; if it cannot be read or written, check its folder's permissions; if it is "
+        "damaged, restore a copy from the snapshots folder beside it",
+    )
 
 
 def data_dir() -> Path:
@@ -54,7 +73,7 @@ def _ensure_wal(dbapi_conn) -> None:
             return
         except sqlite3.OperationalError:
             time.sleep(_WAL_BACKOFF)  # the holder is mid-switch; it lands in milliseconds
-    raise RuntimeError(
+    raise WalUnavailable(
         "could not put the database in WAL mode: another process held it for "
         f"{_WAL_ATTEMPTS * _WAL_BACKOFF:.1f}s"
     )
