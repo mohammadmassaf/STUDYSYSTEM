@@ -8,6 +8,7 @@ from sqlalchemy import insert, select, update
 
 from studysystem.db.tables import assessment, attempt, coverage, practice_item, topic
 from studysystem.errors import StudyError
+from studysystem.services import topics
 from studysystem.services.assessments import add_assessment
 from studysystem.services.courses import add_course
 from studysystem.services.generation import start_generation, submit_generation
@@ -710,3 +711,48 @@ def test_a_retag_that_is_not_a_list_comes_back_in_the_error_shape(call, user_id,
 
     assert result.is_error
     assert json.loads(result.content[0].text)["field_errors"][0]["field"] == "retag"
+
+
+# --- rollback on a real unit (Write units) -------------------------------------------
+
+
+def crash(*args, **kwargs):
+    raise RuntimeError("disk failed")
+
+
+def test_a_crash_while_adding_the_edge_rolls_back_the_accept(
+    service_engine, user_id, web, tmp_path, monkeypatch
+):
+    """The topic turns active before its edge is written; a crash there leaves it proposed."""
+    transcribe(service_engine, user_id, tmp_path, "first", "2020-02-17", [REGEX] * 3)
+    regex = topic_id(service_engine, REGEX)
+
+    monkeypatch.setattr(topics, "edge_if_missing", crash)
+    with pytest.raises(RuntimeError):
+        confirm_topic_proposal(service_engine, user_id, regex, "accept")
+
+    assert status_of(service_engine, regex) == "proposed"
+    assert edges(service_engine) == []
+
+
+def test_a_crash_while_adding_edges_rolls_back_the_whole_decline(
+    service_engine, user_id, web, paper2, monkeypatch
+):
+    """A new topic by name, every item moved and the topic declined all come before the active
+    target's edge; a crash there undoes all three."""
+    files = topic_id(service_engine, FILES)
+    confirm_topic_proposal(service_engine, user_id, files, "accept")
+    q1, q2, q3, q4, q7 = item_ids(service_engine, SESSIONS)
+    retag = [{"item_id": i, "topic": {"id": files}} for i in (q1, q2)]
+    retag += [{"item_id": i, "topic": {"proposed_name": "PHP sessions 2"}} for i in (q3, q4, q7)]
+    edges_before = edges(service_engine)
+
+    monkeypatch.setattr(topics, "edge_if_missing", crash)
+    with pytest.raises(RuntimeError):
+        confirm_topic_proposal(service_engine, user_id, paper2, "decline", retag)
+
+    assert status_of(service_engine, paper2) == "proposed"
+    assert item_ids(service_engine, SESSIONS) == [q1, q2, q3, q4, q7]
+    with service_engine.connect() as conn:
+        assert conn.execute(select(topic).where(topic.c.name == "PHP sessions 2")).all() == []
+    assert edges(service_engine) == edges_before

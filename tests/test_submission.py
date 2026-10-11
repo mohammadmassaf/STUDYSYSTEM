@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import func, insert, select
 
 from studysystem.db.tables import (
+    coverage,
     evidence,
     generation_task,
     past_exam,
@@ -18,6 +19,7 @@ from studysystem.db.tables import (
     topic,
 )
 from studysystem.errors import StudyError
+from studysystem.services import generation
 from studysystem.services.courses import add_course
 from studysystem.services.generation import start_generation, submit_generation
 from studysystem.services.ids import new_id, now
@@ -593,3 +595,27 @@ def test_a_payload_that_is_not_an_object_reaches_the_envelope_check(call, task_i
     reply = json.loads(result.content[0].text)
     assert reply["item_errors"][0]["item_ordinal"] is None
     assert reply["accepted"] == []
+
+
+# --- rollback on a real unit (Write units) -------------------------------------------
+
+
+def test_a_crash_at_the_last_write_rolls_back_the_whole_submission(
+    service_engine, user_id, web, paper1, task_id, monkeypatch
+):
+    """Items, proposed topics, an edge for the active topic, the closed task and the paper's link
+    are all written before the submission row; a crash there leaves none of them."""
+    add_topic(service_engine, user_id, web["course_id"], REGEX)  # active: its items get an edge
+    tables = (practice_item, topic, coverage, evidence, submission)
+    before = {t.name: count(service_engine, t) for t in tables}
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("disk failed")
+
+    monkeypatch.setattr(generation, "_record_submission", crash)
+    with pytest.raises(RuntimeError):
+        submit(service_engine, user_id, task_id, payload(paper1_items()))
+
+    assert {t.name: count(service_engine, t) for t in tables} == before
+    assert the_task(service_engine, task_id)["status"] == "open"
+    assert link(service_engine, paper1) is None

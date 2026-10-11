@@ -23,6 +23,7 @@ from studysystem.db.tables import (
 )
 from studysystem.errors import StudyError
 from studysystem.server import create_server
+from studysystem.services import study_loop
 from studysystem.services.courses import add_course
 from studysystem.services.ids import new_id, now
 from studysystem.services.plan import get_plan
@@ -604,3 +605,26 @@ def test_an_item_id_that_is_not_text_is_refused_before_any_query(call, web):
 
     assert result.is_error
     assert _body(result)["field_errors"][0]["field"] == "attempts[0].practice_item_id"
+
+
+# --- rollback on a real unit (Write units) -------------------------------------------
+
+
+def test_a_crash_after_the_attempts_rolls_back_the_session_and_the_attempts(
+    service_engine, user_id, web, monkeypatch
+):
+    """The manual session and both parts are written before FSRS moves the topic; a crash
+    there leaves neither."""
+    forms = _topic(service_engine, user_id, web["course_id"], "PHP forms")
+    items = _items(service_engine, user_id, forms, [5, 5])
+    parts = [{"practice_item_id": i, "correct": True} for i in items]
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("disk failed")
+
+    monkeypatch.setattr(study_loop, "_store_state", crash)
+    with pytest.raises(RuntimeError):
+        submit_attempts(service_engine, user_id, "I3302", parts)
+
+    assert _count(service_engine, attempt) == 0
+    assert _count(service_engine, study_session) == 0
