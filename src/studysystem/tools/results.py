@@ -3,7 +3,9 @@
 The SDK treats any exception it does not know as a crash and sends the host one generic line, so
 a `StudyError` survives only as a return value: an error result whose text is the D-17 dict as
 JSON, with the same dict as structured content. A success goes out the same way, unflagged.
-Anything else still raises - a crash stays a crash, and its text stays on the server.
+Anything else still raises - a crash stays a crash, and its text stays on the server. One
+exception: SQLite giving up on its lock wait is not a crash but a busy database, so it leaves as
+`database_busy` with a retry fix (D-144).
 
 A generation task goes out the same way, with a picture block after the JSON for each page that
 has one (D-17, D-49).
@@ -13,6 +15,7 @@ import json
 from collections.abc import Callable
 
 from mcp.types import CallToolResult, ImageContent, TextContent
+from sqlalchemy.exc import OperationalError
 
 from studysystem.errors import StudyError
 from studysystem.services.generation import Task
@@ -30,6 +33,17 @@ def error_result(err: StudyError) -> CallToolResult:
     return _result(err.to_dict(), is_error=True)
 
 
+def _busy(err: OperationalError) -> StudyError:
+    """The locked-database case as a `StudyError`; any other database error re-raises."""
+    if "database is locked" not in str(err.orig):
+        raise err
+    return StudyError(
+        code="database_busy",
+        message="the database stayed locked: another study program is writing",
+        fix="retry in a few seconds",
+    )
+
+
 def run(call: Callable[[], dict]) -> CallToolResult:
     """Every tool body goes through this: `return run(lambda: service(...))`. The lambda keeps
     `current_user()` inside the try, so `no_user` reaches the host in the same shape."""
@@ -37,6 +51,8 @@ def run(call: Callable[[], dict]) -> CallToolResult:
         return _result(call(), is_error=False)
     except StudyError as err:
         return error_result(err)
+    except OperationalError as err:
+        return error_result(_busy(err))
 
 
 def run_task(call: Callable[[], Task]) -> CallToolResult:
@@ -46,6 +62,8 @@ def run_task(call: Callable[[], Task]) -> CallToolResult:
         task = call()
     except StudyError as err:
         return error_result(err)
+    except OperationalError as err:
+        return error_result(_busy(err))
     pictures = [
         ImageContent(type="image", data=p.data, mime_type=p.mime_type) for p in task.pictures
     ]
