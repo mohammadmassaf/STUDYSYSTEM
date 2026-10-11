@@ -313,6 +313,67 @@ def test_a_run_that_leaves_a_dangling_row_rolls_back_whole():
     assert stamp() == "0007"
 
 
+def test_check_schema_names_an_empty_database_as_such():
+    with pytest.raises(migrate.SchemaBehindHead) as excinfo:
+        migrate.check_schema(make_engine(db_path()))
+
+    assert excinfo.value.message == f"database has no schema yet, head is {HEAD}"
+
+
+def _stamp_unknown_revision(engine) -> None:
+    """The database as a newer build left it: a revision this build has never heard of."""
+    migrate.upgrade(engine)
+    with sqlite3.connect(db_path()) as db:
+        db.execute("UPDATE alembic_version SET version_num = 'ffff'")
+
+
+def test_check_schema_refuses_a_database_ahead_of_head():
+    engine = make_engine(db_path())
+    _stamp_unknown_revision(engine)
+
+    with pytest.raises(migrate.SchemaAheadOfHead) as excinfo:
+        migrate.check_schema(engine)
+
+    err = excinfo.value
+    assert err.code == "schema_ahead_of_head"
+    assert "study migrate" not in err.fix  # migrate cannot help here
+    assert (err.current, err.head) == ("ffff", HEAD)
+
+
+def test_migrate_on_a_database_ahead_of_head_fails_cleanly():
+    _stamp_unknown_revision(make_engine(db_path()))
+
+    result = CliRunner().invoke(study, ["migrate"])
+
+    assert result.exit_code == 1
+    assert "ffff" in result.output
+    assert "Traceback" not in result.output
+    assert stamp() == "ffff"
+
+
+def test_downgrade_snapshots_first():
+    runner = CliRunner()
+    assert runner.invoke(study, ["migrate"]).exit_code == 0
+
+    result = runner.invoke(study, ["downgrade", "0008"])
+
+    assert result.exit_code == 0, result.output
+    names = [p.name for p in (data_dir() / "snapshots").iterdir()]
+    assert any("-predowngrade-" in n for n in names)
+    assert stamp() == "0008"
+
+
+def test_downgrade_to_an_unknown_target_changes_nothing():
+    runner = CliRunner()
+    assert runner.invoke(study, ["migrate"]).exit_code == 0
+
+    result = runner.invoke(study, ["downgrade", "9999"])
+
+    assert result.exit_code == 1
+    assert "9999" in result.output
+    assert stamp() == HEAD
+
+
 def test_a_failed_daily_snapshot_does_not_stop_the_server(monkeypatch, caplog):
     import studysystem.server as server
 

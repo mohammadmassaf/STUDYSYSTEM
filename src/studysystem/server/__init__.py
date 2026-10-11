@@ -8,7 +8,7 @@ from mcp.server import MCPServer
 from sqlalchemy import Engine
 
 from studysystem.db.engine import db_path, make_engine, snapshot
-from studysystem.db.migrate import SchemaBehindHead, check_schema
+from studysystem.db.migrate import SchemaAheadOfHead, SchemaBehindHead, check_schema
 from studysystem.tools import (
     course_setup,
     gate,
@@ -51,7 +51,7 @@ def main() -> None:
     engine = make_engine(db_path())
     try:
         check_schema(engine)
-    except SchemaBehindHead as e:
+    except (SchemaBehindHead, SchemaAheadOfHead) as e:  # each names its own fix
         print(f"{e.code}: {e.message}. {e.fix}", file=sys.stderr)
         sys.exit(1)
     try:
