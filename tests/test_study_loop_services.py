@@ -26,9 +26,11 @@ from studysystem.server import create_server
 from studysystem.services import study_loop
 from studysystem.services.courses import add_course
 from studysystem.services.ids import new_id, now
+from studysystem.services.materials import add_material
 from studysystem.services.plan import get_plan
 from studysystem.services.study_loop import log_hours, start_session, submit_attempts
 from studysystem.services.units import write_unit
+from tests._papers import pdf_bytes, write
 
 SEM = "Semester 1 2026-2027"
 TODAY = datetime.date(2026, 10, 7)
@@ -764,3 +766,35 @@ def test_hours_on_another_students_topic_are_refused(
 
     _not_found(err, "topic_id")
     assert _count(service_engine, hours_entry) == 0
+
+
+@pytest.mark.parametrize("subject_type", ["material", "past-exam"])
+def test_another_students_material_or_paper_cannot_be_a_session_subject(
+    service_engine, user_id, other_user_id, web, b_web, tmp_path, subject_type
+):
+    if subject_type == "material":
+        path = write(tmp_path, "PHP_Chapter6_Eng_DataBase.pdf", pdf_bytes("mysqli_connect"))
+        subject = add_material(service_engine, user_id, "I3302", path, "chapter")["material_id"]
+    else:
+        subject = _paper(service_engine, user_id, web["slot_id"])
+
+    with pytest.raises(StudyError) as err:
+        start_session(service_engine, other_user_id, "I3302", "practice", subject_type, subject)
+
+    _not_found(err, "subject_id")
+    assert _count(service_engine, study_session) == 0
+
+
+def test_another_students_topic_cannot_be_attempted_without_an_item(
+    service_engine, user_id, other_user_id, web, b_web
+):
+    forms = _topic(service_engine, user_id, web["course_id"], "PHP forms")
+
+    with pytest.raises(StudyError) as err:
+        submit_attempts(
+            service_engine, other_user_id, "I3302", [{"topic_id": forms, "correct": True}]
+        )
+
+    _not_found(err, "attempts[0].topic_id")
+    assert _count(service_engine, attempt) == 0
+    assert _count(service_engine, study_session) == 0
