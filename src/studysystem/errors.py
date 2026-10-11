@@ -16,10 +16,10 @@ class StudyError(Exception):
         self.fix = fix
         super().__init__(self.message)
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return {
             "code": self.code,
             "message": self.message,
-            "field_errors": self.field_errors,
+            "field_errors": list(self.field_errors),
             "fix": self.fix,
         }

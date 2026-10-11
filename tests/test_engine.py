@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError, OperationalError
 
+from studysystem.db import engine as engine_module
 from studysystem.db.engine import data_dir, db_path, make_engine, snapshot
 from studysystem.services.units import read_unit, write_unit
 
@@ -26,9 +27,13 @@ def test_env_var_wins_and_is_created(tmp_path, monkeypatch):
     assert db_path() == nested / "studysystem.db"
 
 
-def test_platformdirs_fallback(monkeypatch):
+def test_platformdirs_fallback(tmp_path, monkeypatch):
+    # platformdirs is pointed at tmp_path, so the test never creates the real data folder
     monkeypatch.delenv("STUDYSYSTEM_DATA_DIR")
-    assert data_dir().name == "studysystem"
+    monkeypatch.setattr(
+        engine_module.platformdirs, "user_data_dir", lambda name, **_: str(tmp_path / name)
+    )
+    assert data_dir() == tmp_path / "studysystem"
 
 
 # --- snapshot -------------------------------------------------------------

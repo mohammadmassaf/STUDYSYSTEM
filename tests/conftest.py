@@ -25,6 +25,11 @@ from studysystem.db.tables import metadata
 
 PG_URL = os.environ.get("STUDYSYSTEM_TEST_PG")
 
+# CI's Postgres job sets this: there a missing URL is a broken job, not a laptop, and silently
+# skipping the Postgres half would turn the job green having proved nothing.
+if os.environ.get("STUDYSYSTEM_REQUIRE_PG") and not PG_URL:
+    raise pytest.UsageError("STUDYSYSTEM_REQUIRE_PG is set but STUDYSYSTEM_TEST_PG is not")
+
 # Each consumer gets a database of its own, so none has to care what order tests run in:
 # one holds a schema built by `metadata.create_all`, one is wiped and re-migrated, and the
 # service tests get a fresh schema per test.

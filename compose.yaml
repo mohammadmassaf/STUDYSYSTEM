@@ -18,7 +18,9 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5433:5432"
+      # Bound to this machine only: the password is the well-known default, so the port must not
+      # answer on a shared network.
+      - "127.0.0.1:5433:5432"
     # Without this `docker compose up -d` returns before the server accepts connections, and
     # the first test to connect is the one that fails.
     healthcheck:

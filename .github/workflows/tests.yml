@@ -51,7 +51,9 @@ jobs:
       # --no-sandbox.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # With this set, the engine-parametrised tests run twice: once on SQLite, once here.
-      # Unset - anyone's laptop - the Postgres half skips instead of failing.
+      # Unset - anyone's laptop - the Postgres half skips instead of failing. REQUIRE_PG turns
+      # that skip into a failure here, so this job can never go green having run no Postgres.
       - run: uv run pytest -q
         env:
           STUDYSYSTEM_TEST_PG: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+          STUDYSYSTEM_REQUIRE_PG: "1"
