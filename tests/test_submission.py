@@ -253,6 +253,17 @@ def test_a_position_past_the_cap_is_an_item_error(service_engine, user_id, task_
     assert reply["missing"] == [2]
 
 
+def test_a_position_below_1_is_an_item_error(service_engine, user_id, task_id):
+    """The low end of the same rule: positions count from 1, as the schema the host read says."""
+    items = broken(paper1_items(), 2, position=0)
+
+    reply = submit(service_engine, user_id, task_id, payload(items))
+
+    (err,) = reply["item_errors"]
+    assert (err["item_ordinal"], err["code"], err["field"]) == (2, "minimum", "position")
+    assert reply["missing"] == [2]
+
+
 def test_items_without_answer_key_or_marks_keys_are_unknown(service_engine, user_id, task_id):
     """Neither key is required by the schema: left out means null, not a crash."""
     items = broken(paper1_items(), 4, answer_key=..., marks=...)
