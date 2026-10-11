@@ -718,9 +718,9 @@ def _state(conn, uid, topic_id, due_at):
     )
 
 
-def _reviews(engine, uid):
+def _reviews(engine, uid, tz=datetime.UTC):
     with engine.connect() as conn:
-        return [row.topic_name for row in _due_reviews(conn, uid, TODAY)]
+        return [row.topic_name for row in _due_reviews(conn, uid, TODAY, tz)]
 
 
 def test_due_reviews_are_today_or_earlier_most_overdue_first(service_engine, user_id):
@@ -736,6 +736,18 @@ def test_due_reviews_are_today_or_earlier_most_overdue_first(service_engine, use
             _state(conn, user_id, _topic(conn, user_id, course_id, name), due_at)
 
     assert _reviews(service_engine, user_id) == ["last week", "yesterday", "today late"]
+
+
+def test_due_means_today_on_the_students_clock_not_utc(service_engine, user_id):
+    # Beirut is UTC+3: 20:00Z is 23:00 on Oct 4 there - due today; 22:30Z is already 01:30 on
+    # Oct 5 - due tomorrow, though its UTC date still reads Oct 4.
+    beirut = datetime.timezone(datetime.timedelta(hours=3))
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        _state(conn, user_id, _topic(conn, user_id, course_id, "23:00"), "2026-10-04T20:00:00Z")
+        _state(conn, user_id, _topic(conn, user_id, course_id, "01:30"), "2026-10-04T22:30:00Z")
+
+    assert _reviews(service_engine, user_id, beirut) == ["23:00"]
 
 
 def test_only_the_users_active_topics_are_reviewed(service_engine, user_id, other_user_id):
@@ -895,7 +907,28 @@ def test_a_setup_reason_with_declared_inputs_names_no_guess(service_engine, user
 def test_a_review_reason_says_since_when():
     row = SimpleNamespace(code="I3302", topic_name="PHP sessions", due_at="2026-10-01T08:00:00Z")
 
-    assert review_reason(row) == "I3302: PHP sessions - review due since 2026-10-01"
+    assert review_reason(row, datetime.UTC) == "I3302: PHP sessions - review due since 2026-10-01"
+
+
+BEIRUT = datetime.timezone(datetime.timedelta(hours=3))
+
+
+def test_a_review_reason_names_the_day_on_the_students_clock():
+    # 22:30Z on Oct 3 is 01:30 on Oct 4 in Beirut (D-143).
+    row = SimpleNamespace(code="I3302", topic_name="PHP sessions", due_at="2026-10-03T22:30:00Z")
+
+    assert review_reason(row, BEIRUT) == "I3302: PHP sessions - review due since 2026-10-04"
+
+
+def test_a_review_due_after_his_midnight_is_zero_days_overdue(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        _state(conn, user_id, _topic(conn, user_id, course_id, "MySQL"), "2026-10-03T22:30:00Z")
+
+    [item] = get_plan(service_engine, user_id, TODAY, tz=BEIRUT)["lanes"]["review"]["items"]
+
+    assert item["score"] == 0.0
+    assert item["reason"].endswith("due since 2026-10-04")
 
 
 # --- get_plan: the write unit (D-12, D-22, D-92, D-100) --------------------------------------

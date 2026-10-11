@@ -162,12 +162,19 @@ def setup_reason(item: dict) -> str:
     return f"{where}: {ask} · {worth}"
 
 
-def review_reason(row) -> str:
-    """The stored `reason` for one due review from `_due_reviews`. Pure.
+def _local_day(stamp: str, tz: datetime.tzinfo | None) -> datetime.date:
+    """The day a stored UTC timestamp falls on, on the student's clock (`tz`, None = this
+    machine's). Pure. 2026-10-03T22:30:00Z in Beirut (UTC+3) -> Oct 4."""
+    return datetime.datetime.fromisoformat(stamp).astimezone(tz).date()
+
+
+def review_reason(row, tz: datetime.tzinfo | None = None) -> str:
+    """The stored `reason` for one due review from `_due_reviews`. Pure. The day is on the
+    student's clock (D-143).
 
     -> "I3302: PHP sessions - review due since 2026-10-01"
     """
-    return f"{row.code}: {row.topic_name} - review due since {row.due_at[:10]}"
+    return f"{row.code}: {row.topic_name} - review due since {_local_day(row.due_at, tz)}"
 
 
 def _average_credits(credits: Iterable[float | None]) -> float | None:
@@ -710,15 +717,21 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
     return {"items": kept, "filtered": len(items) - len(kept)}
 
 
-def _due_reviews(conn: Connection, user_id: str, today: datetime.date) -> list:
+def _due_reviews(
+    conn: Connection, user_id: str, today: datetime.date, tz: datetime.tzinfo | None = None
+) -> list:
     """Topics whose review is due (`due_at` passed, topic `active`), most overdue first (D-87).
     Live data today -> [] (0 `topic_state` rows until 1.16).
 
-    Due means `due_at` falls on `today` or earlier: it is a UTC timestamp, so anything before
-    tomorrow's date as text. An `unexamined` topic is not reviewed (D-15); a topic on a sat exam
-    still is - the review lane is how it gets revised (D-94).
+    Due means `due_at` falls on `today` or earlier on the student's clock (`tz`, None = this
+    machine's): before tomorrow's local midnight, written as the UTC timestamp `due_at` is
+    stored in, so the two compare as text. In Beirut (UTC+3), 2026-10-04T22:30:00Z is 01:30 on
+    Oct 5 - not due on Oct 4. An `unexamined` topic is not reviewed (D-15); a topic on a sat
+    exam still is - the review lane is how it gets revised (D-94).
     """
-    tomorrow = (today + datetime.timedelta(days=1)).isoformat()
+    midnight = datetime.datetime.combine(today + datetime.timedelta(days=1), datetime.time())
+    midnight = midnight.astimezone() if tz is None else midnight.replace(tzinfo=tz)
+    tomorrow = midnight.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return list(
         conn.execute(
             select(
@@ -863,10 +876,10 @@ def get_plan(
                 "course_id": row.course_id,
                 "code": row.code,
                 "due_at": row.due_at,
-                "score": float((today - datetime.date.fromisoformat(row.due_at[:10])).days),
-                "reason": review_reason(row),
+                "score": float((today - _local_day(row.due_at, tz)).days),  # days overdue
+                "reason": review_reason(row, tz),
             }
-            for row in _due_reviews(conn, user_id, today)
+            for row in _due_reviews(conn, user_id, today, tz)
         ]
 
         # Rank: each lane on its own; ties by D-91, then the id, so every rank is unique.
