@@ -1100,6 +1100,16 @@ def test_get_plan_through_the_tool(call, service_engine, user_id):
     assert body["lanes"]["study"]["items"][0]["topic_name"] == "MySQL"
 
 
+def test_shown_n_sent_as_text_counts(service_engine, user_id):
+    # Cowork may send "3" for 3: the tool types it loosely, the service reads it (D-36).
+    with write_unit(service_engine) as conn:
+        _i3302_and_a_cold_course(conn, user_id)
+
+    plan_ = get_plan(service_engine, user_id, TODAY, shown_n="3")
+
+    assert len(plan_["lanes"]["study"]["items"]) == 3
+
+
 # --- after QA (D-95 in the setup lane, the D-95 note, the D-98 credits note) ----------------
 
 

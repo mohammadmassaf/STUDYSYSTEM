@@ -29,5 +29,5 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "plan."
         ),
     )
-    def study_get_plan(shown_n: int = plan.SHOWN_N) -> CallToolResult:
+    def study_get_plan(shown_n: str | float = plan.SHOWN_N) -> CallToolResult:
         return run(lambda: plan.get_plan(engine, current_user(engine), today(), shown_n))

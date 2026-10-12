@@ -1,5 +1,6 @@
-"""The input schemas the host reads. A parameter the service checks itself is typed Any (D-36);
-its schema still says what shape to send, or the host sees `{}` and guesses."""
+"""The input schemas the host reads. A parameter the service checks itself is typed loosely - Any
+for a list or an object, `str | float` for a number (D-36) - so a bad value reaches its
+structured error; the schema still says what shape to send, or the host sees `{}` and guesses."""
 
 import asyncio
 
@@ -33,3 +34,20 @@ def test_payload_is_an_object():
 
     # every kind's schema is an object at the top (items, notes, topics, claims)
     assert payload["type"] == "object"
+
+
+def test_no_parameter_is_a_bare_number():
+    # The SDK refuses a number it cannot read before the service runs: the host gets plain text,
+    # no code or fix (D-36). A number parameter keeps a string branch (`str | float`) and is
+    # checked in `values`. Optional ones too: `int | None` is anyOf[integer, null].
+    def types(schema: dict) -> set:
+        branches = schema.get("anyOf", [schema])
+        return {b.get("type") for b in branches}
+
+    bare = {
+        (tool, name)
+        for tool, props in schemas().items()
+        for name, schema in props.items()
+        if types(schema) & {"integer", "number"} and "string" not in types(schema)
+    }
+    assert bare == set()

@@ -52,7 +52,7 @@ from studysystem.services.profiles import MIN_PAPERS
 from studysystem.services.study_loop import retrievability
 from studysystem.services.topics import best_scores
 from studysystem.services.units import write_unit
-from studysystem.services.values import invalid
+from studysystem.services.values import invalid, number
 
 log = logging.getLogger(__name__)
 
@@ -759,7 +759,7 @@ def get_plan(
     engine: Engine,
     user_id: str,
     today: datetime.date,
-    shown_n: int = SHOWN_N,
+    shown_n: object = SHOWN_N,
     tz: datetime.tzinfo | None = None,
 ) -> dict:
     """Rank every course's work into three lanes and record it, as one write unit (D-12).
@@ -773,9 +773,10 @@ def get_plan(
     Returns {"plan_id", "lanes": {"review" | "study" | "setup": {"items": [the shown items, in
     full], "hidden": count}}} - only what is returned is marked shown (D-92).
 
-    Refuses `shown_n` below 1 before anything is read. Weakness is 1.0 for a topic never
-    practised, else 1 - its FSRS recall chance on `today`, days since its review counted in `tz`
-    (None: this machine's zone, the one `today` is taken in) (D-82).
+    Refuses `shown_n` below 1, or not whole, before anything is read; "5" counts as 5 (the tool
+    types it loosely, so the refusal is this structured one, D-36). Weakness is 1.0 for a topic
+    never practised, else 1 - its FSRS recall chance on `today`, days since its review counted in
+    `tz` (None: this machine's zone, the one `today` is taken in) (D-82).
 
     Live data 2026-10-09 (a copy, D-122), shown_n 5 -> study: MySQL (4.249), frame hex decoding
     (0.652), IP addressing (0.367), protocol layers (0.029) - the taught chapters' topics only,
@@ -783,12 +784,14 @@ def get_plan(
     Final (350), first-material DHR300 (300), 15 hidden · review: none.
     """
     started = time.perf_counter()
-    if isinstance(shown_n, bool) or not isinstance(shown_n, int) or shown_n < 1:
+    nb = number("shown_n", shown_n, ge=1)
+    if nb != int(nb):
         raise invalid(
             "shown_n",
-            f"{shown_n!r} is not a whole number of at least 1",
+            f"{nb:g} is not a whole number",
             "send how many items of each lane to show, e.g. 5",
         )
+    shown_n = int(nb)
 
     with write_unit(engine) as conn:
         # Gather: every read sits inside the unit, so the plan comes from one moment.
