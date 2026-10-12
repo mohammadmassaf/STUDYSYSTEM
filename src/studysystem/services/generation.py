@@ -190,10 +190,14 @@ _NOTE_ENVELOPE_CHECK = Draft202012Validator(
 NOTE_SECTIONS = frozenset({1})
 
 # How to write the note - add-pdf's Pipeline A §3-5, ported (D-74): the host gets no vault, so
-# everything it needs to aim the note travels in `rules`. Dropped and changed rows: D-74.
+# everything it needs to aim the note travels in `rules`. Dropped and changed rows: D-74. Flow in
+# the pages' order and the visuals rule: D-148.
 NOTE_STEPS = [
     "Write one exam-ready study note for this material, aimed by the exam evidence in rules - "
     "not by how much space the pages give each part.",
+    "Flow: Layer 1 and Layer 2 follow the order of the pages, start to end. Exam weight decides "
+    "how deep each part goes and which parts get 🎯, never the order - a part with little "
+    "weight may be what a heavier part builds on.",
     "Read every page before writing: the last pages often show what the material builds toward.",
     "Write in the language of the pages, and keep their terminology exactly.",
     "Evidence: rules.topics gives each topic's share of past exams (the weights sum to 100); "
@@ -210,11 +214,18 @@ NOTE_STEPS = [
     "Evidence |. E1 = asked in a past exam, cite the item (e.g. 'Final 2020-02-17 Q3'); E2 = "
     "instructor emphasis, cite the pages; E3 = your judgment, cite 'examinable, no signal yet'. "
     "Tier order is study priority; keep E3 rows few.",
-    "Layer 1 - Summary: the whole material compressed for a night-before read, 700-900 words at "
-    "most. Compress; never repeat Layer 2 word for word.",
-    "Layer 2 - Core notes: definitions, syntax, functions and algorithms, each with a worked "
-    "example, as a strong student takes them in class. If you can run code, run every worked "
-    "example and show its real output.",
+    "Layer 1 - Summary: the whole material compressed for a night-before read, in the pages' "
+    "order, 700-900 words at most. Compress; never repeat Layer 2 word for word.",
+    "Layer 2 - Core notes, in the pages' order: definitions, syntax, functions and algorithms, "
+    "each with a worked example, as a strong student takes them in class. If you can run code, "
+    "run every worked example and show its real output.",
+    "Visuals: where a page's picture shows a diagram - a figure, a layout with its parts, steps "
+    "in order, a comparison table - redraw it in the note where its topic is taught, and cite "
+    "the page. Also draw one where words alone are hard to follow: steps in order, a layout "
+    "with its parts, a side-by-side comparison. Draw only with markdown tables and with "
+    "characters inside a code block - no images, HTML or Mermaid - so they print in the PDF as "
+    "written; keep each under 90 characters wide. Never put 🎯 inside a table or a diagram. No "
+    "visual for decoration.",
     "Layer 3 - Depth & pitfalls: edge cases and tricky details, only where an exam could ask them.",
     "Markers: 🎯 likely exam target - justify each from rules, citing the item or the weight; "
     "💡 tip or shortcut; ⚠️ common mistake. There is no mistake history yet, so say once that the "

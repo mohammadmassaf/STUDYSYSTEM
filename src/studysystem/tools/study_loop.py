@@ -23,7 +23,9 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         description=(
             "Start a study session on a course, before the work begins. mode: 'practice' "
             "(questions solved alone - the usual evening), 'exam-walkthrough' (a past paper "
-            "explained question by question), 'explain-chapter', 'mock' (a paper sat cold) or "
+            "explained question by question), 'explain-chapter' (a material taught in the order "
+            "of its own pages or slides, start to end - exam weight decides how deep each part "
+            "goes, never the order), 'mock' (a paper sat cold) or "
             "'review-quiz' (due reviews). Optionally name what it is about: subject_type "
             "'topic', 'material' or 'past-exam' with subject_id from study_get_topics. A "
             "session records no time - log the minutes with study_log_hours when done; one "

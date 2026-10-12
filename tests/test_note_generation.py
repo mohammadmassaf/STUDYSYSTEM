@@ -92,6 +92,11 @@ def test_chapter_6_leaves_as_its_pages_with_the_schema_and_steps(service_engine,
     assert host.is_valid(good)
     assert not host.is_valid({"notes": [{"section": 0, "body": "# PHP and MySQL"}]})
     assert payload["rules"]["steps"] == NOTE_STEPS
+    steps = " ".join(NOTE_STEPS)
+    # the settled rules (D-148), so an edit to the steps cannot pass silently
+    rules = ("follow the order of the pages", "never the order", "in the pages' order")
+    for rule in (*rules, "cite the page", "under 90 characters", "Never put 🎯 inside a table"):
+        assert rule in steps
 
 
 def test_one_task_row_records_it_on_profile_v1(service_engine, user_id, i3302, ch6):
