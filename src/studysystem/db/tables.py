@@ -613,6 +613,30 @@ generation_task = Table(
         server_default=text("0"),
         nullable=False,
     ),
+    # A task too big for one reply goes out in parts, fetched in order (D-145, migration 0010):
+    # `parts` in the current layout, `parts_sent` the highest fetched, `layout_hash` the sha256
+    # of the content they were cut from - a later part cut from other content is refused.
+    Column(
+        "parts",
+        Integer,
+        CheckConstraint("parts >= 1", name="parts_min"),
+        server_default=text("1"),
+        nullable=False,
+    ),
+    Column(
+        "parts_sent",
+        Integer,
+        CheckConstraint("parts_sent >= 0", name="parts_sent_min"),
+        server_default=text("0"),
+        nullable=False,
+    ),
+    Column(
+        "layout_hash",
+        Text,
+        CheckConstraint("length(layout_hash) = 64", name="layout_hash_len"),
+        nullable=True,
+    ),
+    CheckConstraint("parts_sent <= parts", name="parts_sent_max"),
     enum_col("status", ["open", "closed", "partial", "superseded", "invalidated"], default="open"),
     fk("superseded_by", "generation_task", nullable=True),
     iff("superseded_by_status", "superseded_by IS NOT NULL", "status = 'superseded'"),

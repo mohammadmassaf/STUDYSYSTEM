@@ -31,7 +31,7 @@ from studysystem.db.tables import (
     user,
 )
 
-HEAD = "0009"
+HEAD = "0010"
 
 
 def stamp() -> str | None:
@@ -510,7 +510,7 @@ def test_downgrade_takes_a_relative_target():
     result = runner.invoke(study, ["downgrade", "head-1"])
 
     assert result.exit_code == 0, result.output
-    assert stamp() == "0008"
+    assert stamp() == "0009"
 
 
 def test_a_failed_daily_snapshot_does_not_stop_the_server(monkeypatch, caplog):
@@ -811,3 +811,43 @@ def test_study_serve_refuses_a_database_ahead_of_head():
     assert "study migrate" not in proc.stderr
     assert stamp() == "ffff"
     assert not (data_dir() / "snapshots").exists()
+
+
+# --- 0010 with rows present (his database holds 52 tasks, one open) ---------------------------
+
+
+def _task(task_id: str, status: str) -> dict:
+    return {
+        "id": task_id,
+        "user_id": UID,
+        "kind": "tagging",
+        "scope_type": "material",
+        "scope_id": "9" * 26,
+        "route": "host",
+        "status": status,
+        "closed_at": None if status == "open" else AT,
+        "created_at": AT,
+    }
+
+
+def test_0010_counts_a_closed_task_fetched_and_an_open_one_not(empty_engine):
+    """Every task so far went out as one reply: a closed one got it, the open one (I3304's
+    tagging, cut by Cowork) must fetch again before its submit (D-145)."""
+    command.upgrade(migrate.alembic_config(empty_engine), "0009")
+    with empty_engine.begin() as conn:
+        conn.execute(insert(user).values(id=UID, created_at=AT))
+        conn.execute(insert(generation_task).values(**_task("a" * 26, "closed")))
+        conn.execute(insert(generation_task).values(**_task("b" * 26, "open")))
+
+    migrate.upgrade(empty_engine)
+
+    with empty_engine.connect() as conn:
+        rows = conn.execute(
+            select(
+                generation_task.c.status,
+                generation_task.c.parts,
+                generation_task.c.parts_sent,
+                generation_task.c.layout_hash,
+            ).order_by(generation_task.c.id)
+        ).all()
+    assert [tuple(r) for r in rows] == [("closed", 1, 1, None), ("open", 1, 0, None)]
