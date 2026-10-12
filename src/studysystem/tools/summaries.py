@@ -15,7 +15,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         name="study_get_summary_task",
         description=(
             "Get what you need to write a short summary of one course material: returns "
-            "{material_id, material, content, exam, rules}. Read content - a content page with "
+            "{material_id, part, parts, content, exam, rules}. A material too big for one reply "
+            "comes in parts: when parts is more than 1, call again with part=2, 3... up to "
+            "parts, and read every part before writing - each later part carries only its "
+            "pages. Read content - a content page with "
             "image: n comes with picture n after the JSON, the whole page, figures included. "
             "exam is what the past papers ask of it: its topics' exam shares and past "
             "questions, the lines its note marked as exam targets, and its note's To-Memorize "
@@ -27,8 +30,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "material_id is the id study_add_material returned."
         ),
     )
-    def study_get_summary_task(material_id: str) -> CallToolResult:
-        return run_task(lambda: summaries.summary_task(engine, current_user(engine), material_id))
+    def study_get_summary_task(material_id: str, part: str | float = 1) -> CallToolResult:
+        return run_task(
+            lambda: summaries.summary_task(engine, current_user(engine), material_id, part)
+        )
 
     @mcp.tool(
         name="study_save_summary",
