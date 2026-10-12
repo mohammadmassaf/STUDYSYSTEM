@@ -33,7 +33,14 @@ from studysystem.db.tables import (
 )
 from studysystem.errors import StudyError
 from studysystem.services import notes, values
-from studysystem.services.generation import Task, _find_material, _pages
+from studysystem.services.generation import (
+    Task,
+    _find_material,
+    _pages,
+    in_range,
+    layout,
+    part_number,
+)
 from studysystem.services.pdf_render import render_pdf
 from studysystem.services.units import read_unit
 
@@ -79,10 +86,11 @@ SUMMARY_STEPS = [
 RESEND = "then call study_save_summary again with the same text - nothing was saved"
 
 
-def summary_task(engine: Engine, user_id: str, material_id: str | None) -> Task:
-    """The material's pages, what the exams ask of it and the summary rules: {"material_id",
-    "material", "content", "exam", "rules"}, then the page pictures. Writes nothing - asking
-    twice hands back the same thing."""
+def summary_task(engine: Engine, user_id: str, material_id: str | None, part: object = 1) -> Task:
+    """Part `part` of the material's pages, what the exams ask of it and the summary rules:
+    {"material_id", "part", "parts", "content", "exam", "rules"}, then that part's page pictures;
+    a later part carries only "material_id", "part", "parts" and its pages (D-145). Writes
+    nothing - asking twice hands back the same thing."""
     if material_id is None:
         raise values.invalid(
             "material_id", "is missing", "send the material_id that study_add_material returned"
@@ -98,6 +106,12 @@ def summary_task(engine: Engine, user_id: str, material_id: str | None) -> Task:
         "exam": exam,
         "rules": {"steps": SUMMARY_STEPS},
     }
+    # Paged like a task (D-145), pages only: the exam evidence is small and rides in part 1.
+    # No row, so nothing checks the order - the tool text asks for every part.
+    n = part_number(part)
+    cut = layout(Task(payload=payload, pictures=pictures), None, ("material_id",))
+    in_range(n, cut)
+    sent = cut.build(n)
     log.info(
         json.dumps(
             {
@@ -108,10 +122,12 @@ def summary_task(engine: Engine, user_id: str, material_id: str | None) -> Task:
                 "topics": len(exam["topics"]),
                 "note_targets": len(exam["note_targets"]),
                 "to_memorize": exam["note_memorize"] is not None,
+                "part": n,
+                "parts": len(cut.parts),
             }
         )
     )
-    return Task(payload=payload, pictures=pictures)
+    return sent
 
 
 def _exam_weight(conn: Connection, user_id: str, material_id: str) -> dict:

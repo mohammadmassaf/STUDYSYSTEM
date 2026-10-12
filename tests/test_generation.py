@@ -80,7 +80,8 @@ def task_count(engine) -> int:
 def test_paper_1_leaves_as_its_pages_text(service_engine, user_id, paper1):
     payload = start(service_engine, user_id, paper1)
 
-    assert set(payload) == {"task_id", "content", "schema", "rules"}
+    assert set(payload) == {"task_id", "part", "parts", "content", "schema", "rules"}
+    assert (payload["part"], payload["parts"]) == (1, 1)  # a small paper is one part (D-145)
     assert [p["page"] for p in payload["content"]] == [1, 2, 3]
     assert [p["text"] for p in payload["content"]] == PAGES
     assert [p["image"] for p in payload["content"]] == [None, None, None]  # no figures
@@ -223,6 +224,8 @@ def test_each_call_logs_one_json_line(service_engine, user_id, figured, caplog):
         "pages": 3,
         "pictures": 1,
         "topics": 0,
+        "part": 1,
+        "parts": 1,
         "bytes": measure(first.payload, first.pictures),
     }
 

@@ -566,3 +566,27 @@ def test_the_weighting_steps_are_the_settled_ones():
 
     assert "put each one's numbers beside its heading" in steps
     assert "older profile: where they disagree with exam.topics, exam.topics wins" in steps
+
+
+# --- in parts (D-145) ----------------------------------------------------------------------
+
+
+def test_a_summary_too_big_for_one_reply_comes_in_parts(service_engine, user_id, ch6, monkeypatch):
+    """Paged by its pages alone - the exam evidence rides in part 1. One page a part here; where
+    the cut falls is `split`'s job (test_parts). No row, so any order is served."""
+    from studysystem.services import generation
+    from studysystem.services.parts import Part
+
+    monkeypatch.setattr(
+        generation, "split", lambda head, pages, extras: [Part(pages=[i]) for i in range(3)]
+    )
+
+    third = summary_task(service_engine, user_id, ch6, part=3).payload
+    first = summary_task(service_engine, user_id, ch6, part=1).payload
+
+    assert set(first) == {"material_id", "material", "part", "parts", "content", "exam", "rules"}
+    assert set(third) == {"material_id", "part", "parts", "content"}
+    assert (third["part"], third["parts"], [p["page"] for p in third["content"]]) == (3, 3, [3])
+    with pytest.raises(StudyError) as excinfo:
+        summary_task(service_engine, user_id, ch6, part=4)
+    assert excinfo.value.field_errors[0]["field"] == "part"

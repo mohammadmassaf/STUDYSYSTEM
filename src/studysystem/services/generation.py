@@ -1,6 +1,7 @@
 """The generation contract, outbound (D-11, D-18, D-45 - D-49): the server hands the host a task -
-`{task_id, content, schema, rules}`, followed by a picture of each page that has an image on it -
-and never calls a model itself. `study_submit_generation` (1.10) checks what comes back against
+`{task_id, part, parts, content, schema, rules}`, followed by a picture of each page that has an
+image on it - and never calls a model itself. A task too big for one reply goes out in parts,
+fetched in order (D-145). `study_submit_generation` (1.10) checks what comes back against
 the same `schema`.
 
 Three kinds are built, each for a PDF with a text layer - each page leaves as its text, plus a
@@ -11,13 +12,14 @@ picture when a figure sits on it (D-49); a scan or a set of photos waits for 2.6
 - `tagging` (1.15b, D-93, D-102, D-104): a material is linked to the course's `active` topics it
   teaches, as `inferred` topic -> material coverage edges the scheduler reads (D-90, D-91).
 
-Start writes one row, the task (D-45); starting again while it is open hands back the same task
-and adds the resend to its `bytes_sent` (D-46). Submit checks the envelope once, then each item
-alone against the kind's schema, keeps the valid ones and returns the rest as item errors - one
-write unit per submission, at most three per task.
+Start writes one row, the task (D-45); starting again while it is open hands back a part of the
+same task and adds it to its `bytes_sent` (D-46, D-145). Submit checks the envelope once, then
+each item alone against the kind's schema, keeps the valid ones and returns the rest as item
+errors - one write unit per submission, at most three per task.
 """
 
 import base64
+import hashlib
 import json
 import logging
 from collections import Counter
@@ -44,6 +46,7 @@ from studysystem.db.tables import (
 from studysystem.errors import StudyError
 from studysystem.services import intake, notes, topics, values
 from studysystem.services.ids import new_id, now
+from studysystem.services.parts import Part, split
 from studysystem.services.units import write_unit
 
 # One JSON line per call, after its write commits - enough to answer "what went out?" without a
@@ -293,16 +296,165 @@ def measure(payload: dict, pictures: list[Picture]) -> int:
     return len(json.dumps(payload).encode("utf-8")) + sum(len(p.data) for p in pictures)
 
 
+# --- parts (D-145) ---------------------------------------------------------------------------
+
+# Room in part 1's text for the "part" and "parts" fields the split's head does not see.
+PART_FIELDS = len(', "part": 999, "parts": 999')
+
+
+@dataclass(frozen=True)
+class Layout:
+    """A whole task cut into parts: `split`'s answer, kept with the task it was cut from so any
+    part can be built from it. `extras_at` names the long list that pages alongside the pages -
+    ("rules", "topics") for a tagging - and `keep` the fields every later part repeats so the
+    host knows what it belongs to."""
+
+    whole: Task
+    parts: list[Part]
+    extras_at: tuple[str, str] | None
+    keep: tuple[str, ...]
+    layout_hash: str
+
+    def build(self, part: int) -> Task:
+        """Part `part` (from 1) as it travels: its pages, their pictures numbered from 1 within
+        this reply, and its slice of the long list. Part 1 carries everything else as well."""
+        chosen = self.parts[part - 1]
+        pictures = []
+        content = []
+        for i in chosen.pages:
+            page = dict(self.whole.payload["content"][i])
+            if page["image"] is not None:
+                pictures.append(self.whole.pictures[page["image"] - 1])
+                page["image"] = len(pictures)
+            content.append(page)
+
+        whole = self.whole.payload
+        payload = {k: whole[k] for k in self.keep} | {"part": part, "parts": len(self.parts)}
+        if part == 1:
+            payload |= {k: v for k, v in whole.items() if k not in self.keep}
+        payload["content"] = content
+        if self.extras_at is not None:
+            outer, inner = self.extras_at
+            entries = [whole[outer][inner][j] for j in chosen.extras]
+            payload[outer] = (dict(whole[outer]) if part == 1 else {}) | {inner: entries}
+        return Task(payload=payload, pictures=pictures)
+
+
+def layout(whole: Task, extras_at: tuple[str, str] | None, keep: tuple[str, ...]) -> Layout:
+    """Cut a whole task into parts under the measured budget (D-145), sizes as they travel: a
+    page is its JSON plus its picture's base64, an entry its JSON. The hash covers every byte of
+    the whole task, so any change to the content - a topic accepted, a question rejected -
+    changes it."""
+    payload = whole.payload
+    extras = payload[extras_at[0]][extras_at[1]] if extras_at is not None else []
+    bare = payload | {"content": []}
+    if extras_at is not None:
+        outer, inner = extras_at
+        bare[outer] = payload[outer] | {inner: []}
+    pages = [
+        (
+            len(json.dumps(p)),
+            len(whole.pictures[p["image"] - 1].data) if p["image"] is not None else 0,
+        )
+        for p in payload["content"]
+    ]
+    head = len(json.dumps(bare)) + PART_FIELDS
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8"))
+    for p in whole.pictures:
+        digest.update(p.data.encode("ascii"))
+    return Layout(
+        whole=whole,
+        parts=split(head, pages, [len(json.dumps(e)) for e in extras]),
+        extras_at=extras_at,
+        keep=keep,
+        layout_hash=digest.hexdigest(),
+    )
+
+
+def part_number(part: object) -> int:
+    """`part` as a whole number from 1."""
+    nb = values.number("part", part, ge=1)
+    if nb != int(nb):
+        raise values.invalid("part", f"{nb:g} is not a whole number", "send 1, 2, 3...")
+    return int(nb)
+
+
+def in_range(n: int, cut: Layout) -> None:
+    """Refuse a part the layout does not have."""
+    if n > len(cut.parts):
+        raise values.invalid(
+            "part",
+            f"there is no part {n} - this task has {len(cut.parts)}",
+            f"send a part from 1 to {len(cut.parts)}",
+        )
+
+
+def _send(conn: Connection, open_task, cut: Layout, part: object, row: dict) -> tuple[Task, int]:
+    """Record one part going out and return it with its size. A new task is written with its
+    layout; an open one takes the parts in order - part 1 any time, part n once n - 1 went out -
+    and refuses a later part cut from changed content, which part 1 restarts (D-145)."""
+    n = part_number(part)
+    changed = open_task is not None and cut.layout_hash != open_task.layout_hash
+    if open_task is None and n != 1:
+        raise values.invalid(
+            "part", "this task has not started yet", "fetch part 1 first, then the others"
+        )
+    if n != 1 and changed:
+        raise StudyError(
+            code="task_changed",
+            message="the task's content changed since part 1 went out, so its parts moved",
+            fix="fetch part 1 again, then every part after it in order",
+            field_errors=[{"field": "part", "problem": "cut from content that has changed"}],
+        )
+    in_range(n, cut)
+    if open_task is not None and n > open_task.parts_sent + 1:
+        raise StudyError(
+            code="part_out_of_order",
+            message=f"part {n} asked before part {open_task.parts_sent + 1}",
+            fix=f"fetch part {open_task.parts_sent + 1} next - parts go out in order",
+            field_errors=[{"field": "part", "problem": "an earlier part was not fetched"}],
+        )
+    sent = cut.build(n)
+    size = measure(sent.payload, sent.pictures)
+
+    if open_task is None:
+        conn.execute(
+            insert(generation_task).values(
+                **row,
+                route="host",
+                parts=len(cut.parts),
+                parts_sent=1,
+                layout_hash=cut.layout_hash,
+                bytes_sent=size,
+                created_at=now(),
+            )
+        )
+        return sent, size
+
+    changes: dict = {"bytes_sent": generation_task.c.bytes_sent + size}
+    if changed:  # only part 1 gets here changed: it restarts the count on the new layout
+        changes |= {"parts": len(cut.parts), "parts_sent": 1, "layout_hash": cut.layout_hash}
+    else:
+        changes["parts_sent"] = max(open_task.parts_sent, n)
+    conn.execute(
+        update(generation_task).where(generation_task.c.id == open_task.id).values(**changes)
+    )
+    return sent, size
+
+
 def start_generation(
     engine: Engine,
     user_id: str,
     kind: str,
     past_exam_id: str | None = None,
     material_id: str | None = None,
+    part: object = 1,
 ) -> Task:
-    """Hand the host a generation task: the payload {"task_id", "content", "schema", "rules"}
-    and the page pictures that follow it. Each kind takes the parameter named for its subject
-    (D-47): `past_exam_id` for a transcription, `material_id` for a note or a tagging."""
+    """Hand the host part `part` of a generation task: the payload {"task_id", "part", "parts",
+    "content", "schema", "rules"} and the page pictures that follow it - later parts carry only
+    their pages and their slice of the long list (D-145). Each kind takes the parameter named
+    for its subject (D-47): `past_exam_id` for a transcription, `material_id` for a note or a
+    tagging."""
 
     kind = values.choice("kind", kind, KINDS)
     if kind not in BUILT:
@@ -313,13 +465,15 @@ def start_generation(
             field_errors=[{"field": "kind", "problem": "not available yet"}],
         )
     if kind == "note":
-        return _start_note(engine, user_id, material_id)
+        return _start_note(engine, user_id, material_id, part)
     if kind == "tagging":
-        return _start_tagging(engine, user_id, material_id)
-    return _start_transcription(engine, user_id, kind, past_exam_id)
+        return _start_tagging(engine, user_id, material_id, part)
+    return _start_transcription(engine, user_id, kind, past_exam_id, part)
 
 
-def _start_transcription(engine: Engine, user_id: str, kind: str, past_exam_id: str | None) -> Task:
+def _start_transcription(
+    engine: Engine, user_id: str, kind: str, past_exam_id: str | None, part: object
+) -> Task:
     """One paper's transcription task, written alone - or the same open task again (D-45, D-46)."""
     if past_exam_id is None:
         raise values.invalid(
@@ -365,26 +519,15 @@ def _start_transcription(engine: Engine, user_id: str, kind: str, past_exam_id: 
         ).one_or_none()
         task_id = open_task.id if open_task else new_id()
         task = _transcription_task(conn, paper, task_id)
-        size = measure(task.payload, task.pictures)
-        if open_task is not None:
-            conn.execute(
-                update(generation_task)
-                .where(generation_task.c.id == open_task.id)
-                .values(bytes_sent=generation_task.c.bytes_sent + size)
-            )
-        else:
-            conn.execute(
-                insert(generation_task).values(
-                    id=task_id,
-                    user_id=user_id,
-                    kind="transcription",
-                    scope_type="past-exam",
-                    scope_id=paper.id,
-                    route="host",
-                    bytes_sent=size,
-                    created_at=now(),
-                )
-            )
+        cut = layout(task, ("rules", "topics"), ("task_id",))
+        row = dict(
+            id=task_id,
+            user_id=user_id,
+            kind="transcription",
+            scope_type="past-exam",
+            scope_id=paper.id,
+        )
+        sent, size = _send(conn, open_task, cut, part, row)
 
     log.info(
         json.dumps(
@@ -397,11 +540,13 @@ def _start_transcription(engine: Engine, user_id: str, kind: str, past_exam_id: 
                 "pages": len(task.payload["content"]),
                 "pictures": len(task.pictures),
                 "topics": len(task.payload["rules"]["topics"]),
+                "part": sent.payload["part"],
+                "parts": sent.payload["parts"],
                 "bytes": size,
             }
         )
     )
-    return task
+    return sent
 
 
 def _transcription_task(conn: Connection, paper, task_id: str) -> Task:
@@ -430,7 +575,7 @@ def _transcription_task(conn: Connection, paper, task_id: str) -> Task:
     return Task(payload=payload, pictures=pictures)
 
 
-def _start_note(engine: Engine, user_id: str, material_id: str | None) -> Task:
+def _start_note(engine: Engine, user_id: str, material_id: str | None, part: object) -> Task:
     """One material's note task, written alone - or the same open task again (D-46, D-71,
     D-73, D-74). A material with a `note` row is refused, whatever its task's status: a task
     can keep a note and still end `partial` or `invalidated` (section 1 accepted, section 2 an
@@ -468,27 +613,16 @@ def _start_note(engine: Engine, user_id: str, material_id: str | None) -> Task:
         profile = _current_profile(conn, user_id, found.course_id)
         # Built before any write: a missing file copy fails here, with nothing written.
         task = _note_task(conn, found, task_id, profile)
-        size = measure(task.payload, task.pictures)
-        if open_task is not None:
-            conn.execute(
-                update(generation_task)
-                .where(generation_task.c.id == open_task.id)
-                .values(bytes_sent=generation_task.c.bytes_sent + size)
-            )
-        else:
-            conn.execute(
-                insert(generation_task).values(
-                    id=task_id,
-                    user_id=user_id,
-                    kind="note",
-                    scope_type="material",
-                    scope_id=found.id,
-                    exam_profile_id=profile.id if profile else None,
-                    route="host",
-                    bytes_sent=size,
-                    created_at=now(),
-                )
-            )
+        row = dict(
+            id=task_id,
+            user_id=user_id,
+            kind="note",
+            scope_type="material",
+            scope_id=found.id,
+            exam_profile_id=profile.id if profile else None,
+        )
+        cut = layout(task, ("rules", "past_exam_items"), ("task_id",))
+        sent, size = _send(conn, open_task, cut, part, row)
 
     log.info(
         json.dumps(
@@ -503,11 +637,13 @@ def _start_note(engine: Engine, user_id: str, material_id: str | None) -> Task:
                 "pictures": len(task.pictures),
                 "topics": len(task.payload["rules"]["topics"]),
                 "past_exam_items": len(task.payload["rules"]["past_exam_items"]),
+                "part": sent.payload["part"],
+                "parts": sent.payload["parts"],
                 "bytes": size,
             }
         )
     )
-    return task
+    return sent
 
 
 def _find_material(conn: Connection, user_id: str, material_id: str):
@@ -601,7 +737,7 @@ def _note_task(conn: Connection, found, task_id: str, profile) -> Task:
     return Task(payload=payload, pictures=pictures)
 
 
-def _start_tagging(engine: Engine, user_id: str, material_id: str | None) -> Task:
+def _start_tagging(engine: Engine, user_id: str, material_id: str | None, part: object) -> Task:
     """One material's tagging task, written alone - or the same open task again (D-46, D-93).
     A material tagged before is not refused: a re-run sends the course's topics as they are now,
     and its submit links only the pairs still missing (D-102). A course with no `active` topic
@@ -640,27 +776,16 @@ def _start_tagging(engine: Engine, user_id: str, material_id: str | None) -> Tas
         task_id = open_task.id if open_task else new_id()
         # Built before any write: a missing file copy fails here, with nothing written.
         task = _tagging_task(conn, found, task_id)
-        size = measure(task.payload, task.pictures)
-        if open_task is not None:
-            conn.execute(
-                update(generation_task)
-                .where(generation_task.c.id == open_task.id)
-                .values(bytes_sent=generation_task.c.bytes_sent + size)
-            )
-        else:
-            conn.execute(
-                insert(generation_task).values(
-                    id=task_id,
-                    user_id=user_id,
-                    kind="tagging",
-                    scope_type="material",
-                    scope_id=found.id,
-                    exam_profile_id=None,  # a tagging reads no weights (D-104)
-                    route="host",
-                    bytes_sent=size,
-                    created_at=now(),
-                )
-            )
+        row = dict(
+            id=task_id,
+            user_id=user_id,
+            kind="tagging",
+            scope_type="material",
+            scope_id=found.id,
+            exam_profile_id=None,  # a tagging reads no weights (D-104)
+        )
+        cut = layout(task, ("rules", "topics"), ("task_id",))
+        sent, size = _send(conn, open_task, cut, part, row)
 
     topics_sent = task.payload["rules"]["topics"]
     log.info(
@@ -675,11 +800,13 @@ def _start_tagging(engine: Engine, user_id: str, material_id: str | None) -> Tas
                 "pictures": len(task.pictures),
                 "topics": len(topics_sent),
                 "questions": sum(len(t["past_exam_questions"]) for t in topics_sent),
+                "part": sent.payload["part"],
+                "parts": sent.payload["parts"],
                 "bytes": size,
             }
         )
     )
-    return task
+    return sent
 
 
 def _tagging_task(conn: Connection, found, task_id: str) -> Task:
@@ -772,6 +899,16 @@ def submit_generation(engine: Engine, user_id: str, task_id: str, payload: Any) 
 
     with write_unit(engine) as conn:
         task = _open_task(conn, user_id, task_id)
+        if task.parts_sent < task.parts:
+            # Refused before it counts as a submission: a skipped part is pages never read (D-145).
+            missing = list(range(task.parts_sent + 1, task.parts + 1))
+            raise StudyError(
+                code="parts_missing",
+                message=f"part {', '.join(map(str, missing))} of {task.parts} never went out",
+                fix=f"fetch part {missing[0]} with study_start_generation(part={missing[0]}), "
+                "then the rest in order, and submit after reading them all",
+                field_errors=[{"field": "task_id", "problem": f"parts {missing} not fetched"}],
+            )
         if task.kind == "note":
             reply, event = _submit_note(conn, user_id, task, payload)
         elif task.kind == "tagging":
