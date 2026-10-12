@@ -44,6 +44,11 @@ schedules.
 
 ## Git
 
+- Every task works on its own branch, never on `main`. `main` changes only through a pull
+  request with both CI jobs green, merged by rebase (the branch's commits land one by one, no
+  merge commit). So each commit passes the tests on its own, and a PR is rebased onto the
+  latest `main` before it can merge.
 - Small commits with an imperative subject ("add write-unit wrapper").
 - Mohammad is the sole author of every commit: the message ends at its own body, with no
-  `Co-Authored-By` or "generated with" trailer. The repo is public.
+  `Co-Authored-By` or "generated with" trailer - and the same holds for PR titles and bodies.
+  The repo is public.
