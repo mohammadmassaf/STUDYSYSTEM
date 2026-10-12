@@ -22,6 +22,9 @@ schedules.
 - **Two engines, one test suite:** SQLite at runtime, Postgres in CI running the same tests.
   Every SQL construct runs on both - e.g. write an exactly-one check as a sum of
   `CASE WHEN x IS NULL THEN 0 ELSE 1 END` terms, the portable form.
+- **Cowork cuts big replies silently:** past ~25,000 tokens of text, or ~760 KB of pictures.
+  Generation tasks page under 50,000 chars / 600 KB (D-145, `services/parts.py`); a new tool
+  that may return more must stay under it.
 
 ## Architecture rules
 
