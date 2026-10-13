@@ -4,13 +4,15 @@ image on it - and never calls a model itself. A task too big for one reply goes 
 fetched in order (D-145). `study_submit_generation` (1.10) checks what comes back against
 the same `schema`.
 
-Three kinds are built, each for a PDF with a text layer - each page leaves as its text, plus a
+Four kinds are built, each for a PDF with a text layer - each page leaves as its text, plus a
 picture when a figure sits on it (D-49); a scan or a set of photos waits for 2.6:
 - `transcription` (1.9 - 1.10, D-50 - D-55): a past paper becomes `practice_item` rows.
 - `note` (1.14, D-70 - D-74): a material becomes one `note`, aimed by the course's profile - its
   weights and the past-exam items behind them - then copied into the vault (`notes.py`, D-72).
 - `tagging` (1.15b, D-93, D-102, D-104): a material is linked to the course's `active` topics it
   teaches, as `inferred` topic -> material coverage edges the scheduler reads (D-90, D-91).
+- `observation` (2.1a, D-149, D-154): a past paper's format and instructor claims become
+  `observation` rows, the input of claim-class routing (2.1b).
 
 Start writes one row, the task (D-45); starting again while it is open hands back a part of the
 same task and adds it to its `bytes_sent` (D-46, D-145). Submit checks the envelope once, then
@@ -37,6 +39,7 @@ from studysystem.db.tables import (
     generation_task,
     material,
     note,
+    observation,
     past_exam,
     practice_item,
     submission,
@@ -44,7 +47,7 @@ from studysystem.db.tables import (
     topic_weight,
 )
 from studysystem.errors import StudyError
-from studysystem.services import intake, notes, topics, values
+from studysystem.services import claims, intake, notes, topics, values
 from studysystem.services.ids import new_id, now
 from studysystem.services.parts import Part, split
 from studysystem.services.units import write_unit
@@ -53,8 +56,8 @@ from studysystem.services.units import write_unit
 # debugger (build plan: logs, not tables).
 log = logging.getLogger(__name__)
 
-KINDS = ("note", "practice", "memory", "transcription", "timetable", "tagging")
-BUILT = ("transcription", "note", "tagging")  # the rest arrive with their tasks (D-47)
+KINDS = ("note", "practice", "memory", "transcription", "timetable", "tagging", "observation")
+BUILT = ("transcription", "note", "tagging", "observation")  # the rest arrive with their tasks
 
 MAX_POSITION = 200  # no paper has this many questions (live maximum 24); `missing` walks 1..max
 
@@ -272,6 +275,106 @@ TAGGING_STEPS = [
 ]
 
 
+# An observation task's answer (2.1a, D-149, D-154): one paper's format and instructor claims.
+# Each key fixes its value's shape; `topic-marks` is not offered - weights come from the
+# transcribed questions (D-151).
+CLAIM_VALUE_SCHEMAS = {
+    "duration-minutes": {
+        "type": "object",
+        "required": ["minutes"],
+        "additionalProperties": False,
+        "properties": {"minutes": {"type": "integer", "minimum": 1, "maximum": 600}},
+    },
+    "total-marks": {
+        "type": "object",
+        "required": ["marks"],
+        "additionalProperties": False,
+        "properties": {"marks": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000}},
+    },
+    "question-count": {
+        "type": "object",
+        "required": ["count"],
+        "additionalProperties": False,
+        "properties": {"count": {"type": "integer", "minimum": 1, "maximum": MAX_POSITION}},
+    },
+    "has-mcq": {
+        "type": "object",
+        "required": ["value"],
+        "additionalProperties": False,
+        "properties": {"value": {"type": "boolean"}},
+    },
+    **{
+        key: {
+            "type": "object",
+            "required": ["text"],
+            "additionalProperties": False,
+            "properties": {"text": {"type": "string", "pattern": r"\S"}},
+        }
+        for key in ("archetype", "phrasing", "trap")
+    },
+}
+OBSERVATION_SCHEMA = {
+    "type": "object",
+    "required": ["claims"],
+    "additionalProperties": False,
+    "properties": {
+        "claims": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "required": ["claim_key", "claim_value"],
+                "additionalProperties": False,
+                "properties": {
+                    "claim_key": {"enum": list(CLAIM_VALUE_SCHEMAS)},
+                    "claim_value": {
+                        "type": "object",
+                        "description": "its shape is fixed by claim_key",
+                    },
+                    "citation": {
+                        "type": "string",
+                        "pattern": r"\S",
+                        "description": "where on the paper: 'header', 'Q3b'",
+                    },
+                },
+                "allOf": [
+                    {
+                        "if": {"properties": {"claim_key": {"const": key}}},
+                        "then": {"properties": {"claim_value": shape}},
+                    }
+                    for key, shape in CLAIM_VALUE_SCHEMAS.items()
+                ],
+            },
+        }
+    },
+}
+
+# Inbound, as for the other kinds (D-54): the envelope once, then each claim alone.
+CLAIM_SCHEMA = OBSERVATION_SCHEMA["properties"]["claims"]["items"]
+_CLAIM_CHECK = Draft202012Validator(CLAIM_SCHEMA)
+_OBSERVATION_ENVELOPE_CHECK = Draft202012Validator(
+    {**OBSERVATION_SCHEMA, "properties": {"claims": {"type": "array", "minItems": 1}}}
+)
+
+OBSERVATION_STEPS = [
+    "Read every page of this past exam paper and record what it shows about the exam, as claims.",
+    "Format claims - only what the paper itself prints or shows; when it does not show one, leave "
+    "that claim out, never guess: duration-minutes (the printed duration, in minutes), "
+    "total-marks (the printed total), question-count (the numbered questions, counted), has-mcq "
+    "(true when any question is multiple choice, false when none is). Each at most once.",
+    "Instructor claims - how this paper examines, one claim per distinct point: archetype (a "
+    "kind of task the paper sets, e.g. 'write a script that validates a form and stores it with "
+    "a prepared statement'), phrasing (a wording habit of its questions), trap (a detail that "
+    "catches a student who knows the topic only roughly). Several of each are fine; never send "
+    "the same one twice - a point seen on several questions is one claim citing them all.",
+    "citation: where on the paper the claim comes from - 'header', 'Q2', 'Q3b', or 'Q2, Q4' "
+    "for a point seen on both.",
+    "Never send topic-marks: topic weights come from the transcribed questions.",
+    "Submit with study_submit_generation(task_id, payload): "
+    '{"claims": [{"claim_key": ..., "claim_value": {...}, "citation": ...}, ...]}.',
+]
+
+
 @dataclass(frozen=True)
 class Picture:
     """One page picture as it travels: an MCP image block's two fields."""
@@ -453,8 +556,8 @@ def start_generation(
     """Hand the host part `part` of a generation task: the payload {"task_id", "part", "parts",
     "content", "schema", "rules"} and the page pictures that follow it - later parts carry only
     their pages and their slice of the long list (D-145). Each kind takes the parameter named
-    for its subject (D-47): `past_exam_id` for a transcription, `material_id` for a note or a
-    tagging."""
+    for its subject (D-47): `past_exam_id` for a transcription or an observation, `material_id`
+    for a note or a tagging."""
 
     kind = values.choice("kind", kind, KINDS)
     if kind not in BUILT:
@@ -468,6 +571,8 @@ def start_generation(
         return _start_note(engine, user_id, material_id, part)
     if kind == "tagging":
         return _start_tagging(engine, user_id, material_id, part)
+    if kind == "observation":
+        return _start_observation(engine, user_id, past_exam_id, part)
     return _start_transcription(engine, user_id, kind, past_exam_id, part)
 
 
@@ -475,25 +580,8 @@ def _start_transcription(
     engine: Engine, user_id: str, kind: str, past_exam_id: str | None, part: object
 ) -> Task:
     """One paper's transcription task, written alone - or the same open task again (D-45, D-46)."""
-    if past_exam_id is None:
-        raise values.invalid(
-            "past_exam_id", "is missing", "send the past_exam_id that study_add_past_exam returned"
-        )
-
     with write_unit(engine) as conn:
-        paper = conn.execute(
-            select(past_exam).where(
-                past_exam.c.id == past_exam_id,
-                past_exam.c.owner_id == user_id,
-            )
-        ).one_or_none()
-        if paper is None:
-            raise StudyError(
-                code="not_found",
-                message=f"no past exam {past_exam_id}",
-                fix="use a past_exam_id that study_add_past_exam returned",
-                field_errors=[{"field": "past_exam_id", "problem": "no such paper"}],
-            )
+        paper = _find_paper(conn, user_id, past_exam_id)
         if paper.transcript_task_id is not None:
             raise StudyError(
                 code="already_transcribed",
@@ -501,13 +589,7 @@ def _start_transcription(
                 fix="nothing to do - its questions are already in the pool",
                 field_errors=[{"field": "past_exam_id", "problem": "already transcribed"}],
             )
-        if paper.has_text_layer == 0:
-            raise StudyError(
-                code="not_supported_yet",
-                message="this paper is a scan with no text layer",
-                fix="scanned papers are read from page images, which are not available yet",
-                field_errors=[{"field": "past_exam_id", "problem": "no text layer"}],
-            )
+        _refuse_scan(paper)
         open_task = conn.execute(
             select(generation_task).where(
                 generation_task.c.user_id == user_id,
@@ -547,6 +629,109 @@ def _start_transcription(
         )
     )
     return sent
+
+
+def _start_observation(
+    engine: Engine, user_id: str, past_exam_id: str | None, part: object
+) -> Task:
+    """One paper's observation task, written alone - or the same open task again, even after it
+    kept claims, so a lost payload can be fetched (D-46, D-149). With no open task, a paper with
+    an `observation` row is refused: rows are insert-only, so a second task would add every claim
+    again (D-154)."""
+    with write_unit(engine) as conn:
+        paper = _find_paper(conn, user_id, past_exam_id)
+        open_task = conn.execute(
+            select(generation_task).where(
+                generation_task.c.user_id == user_id,
+                generation_task.c.kind == "observation",
+                generation_task.c.scope_type == "past-exam",
+                generation_task.c.scope_id == paper.id,
+                generation_task.c.status == "open",
+            )
+        ).one_or_none()
+        if open_task is None:
+            kept = conn.execute(
+                select(func.count())
+                .select_from(observation)
+                .where(observation.c.past_exam_id == paper.id)
+            ).scalar_one()
+            if kept:
+                raise StudyError(
+                    code="already_observed",
+                    message=f"this paper already holds {kept} observations",
+                    fix="nothing to do - its claims are already stored",
+                    field_errors=[{"field": "past_exam_id", "problem": "already observed"}],
+                )
+        _refuse_scan(paper)
+        task_id = open_task.id if open_task else new_id()
+        content, pictures = _pages(paper.file_ref)
+        task = Task(
+            payload={
+                "task_id": task_id,
+                "content": content,
+                "schema": OBSERVATION_SCHEMA,
+                "rules": {"steps": OBSERVATION_STEPS},
+            },
+            pictures=pictures,
+        )
+        cut = layout(task, None, ("task_id",))
+        row = dict(
+            id=task_id,
+            user_id=user_id,
+            kind="observation",
+            scope_type="past-exam",
+            scope_id=paper.id,
+            exam_profile_id=None,  # a claim is about one paper, not a ranking
+        )
+        sent, size = _send(conn, open_task, cut, part, row)
+
+    log.info(
+        json.dumps(
+            {
+                "event": "start_generation",
+                "task_id": task_id,
+                "kind": "observation",
+                "past_exam_id": paper.id,
+                "resend": open_task is not None,
+                "pages": len(task.payload["content"]),
+                "pictures": len(task.pictures),
+                "part": sent.payload["part"],
+                "parts": sent.payload["parts"],
+                "bytes": size,
+            }
+        )
+    )
+    return sent
+
+
+def _find_paper(conn: Connection, user_id: str, past_exam_id: str | None):
+    """This user's paper `past_exam_id`, or the refusal: missing or not found."""
+    if past_exam_id is None:
+        raise values.invalid(
+            "past_exam_id", "is missing", "send the past_exam_id that study_add_past_exam returned"
+        )
+    paper = conn.execute(
+        select(past_exam).where(past_exam.c.id == past_exam_id, past_exam.c.owner_id == user_id)
+    ).one_or_none()
+    if paper is None:
+        raise StudyError(
+            code="not_found",
+            message=f"no past exam {past_exam_id}",
+            fix="use a past_exam_id that study_add_past_exam returned",
+            field_errors=[{"field": "past_exam_id", "problem": "no such paper"}],
+        )
+    return paper
+
+
+def _refuse_scan(paper) -> None:
+    """A paper with no text layer waits for the image path (2.6)."""
+    if paper.has_text_layer == 0:
+        raise StudyError(
+            code="not_supported_yet",
+            message="this paper is a scan with no text layer",
+            fix="scanned papers are read from page images, which are not available yet",
+            field_errors=[{"field": "past_exam_id", "problem": "no text layer"}],
+        )
 
 
 def _transcription_task(conn: Connection, paper, task_id: str) -> Task:
@@ -913,6 +1098,8 @@ def submit_generation(engine: Engine, user_id: str, task_id: str, payload: Any) 
             reply, event = _submit_note(conn, user_id, task, payload)
         elif task.kind == "tagging":
             reply, event = _submit_tagging(conn, user_id, task, payload)
+        elif task.kind == "observation":
+            reply, event = _submit_observation(conn, user_id, task, payload)
         else:
             reply, event = _submit_transcription(conn, user_id, task, payload)
 
@@ -1202,6 +1389,126 @@ def _submit_tagging(conn: Connection, user_id: str, task, payload: Any) -> tuple
         "bytes": received,
     }
     return reply, event
+
+
+def _submit_observation(conn: Connection, user_id: str, task, payload: Any) -> tuple[dict, dict]:
+    """One submission for an observation task, inside the caller's write unit (D-149, D-154). The
+    envelope is checked once, then each claim alone - `topic-marks` refused (D-151), then the
+    schema - then the survivors together against the claims already on the paper
+    (`claims.judge_claims`). Each accepted claim is one `observation` (class fixed by its key, E1)
+    and its `evidence` row. Returns the reply - places in this payload in place of positions,
+    `missing` always empty - and its log line's fields."""
+    slot_id = conn.execute(
+        select(past_exam.c.slot_id).where(past_exam.c.id == task.scope_id)
+    ).scalar_one()
+    stored = [
+        {"claim_key": r.claim_key, "claim_value": json.loads(r.claim_value)}
+        for r in conn.execute(
+            select(observation.c.claim_key, observation.c.claim_value).where(
+                observation.c.past_exam_id == task.scope_id
+            )
+        )
+    ]
+
+    errors: list[dict] = []
+    survivors: list[tuple[int, dict]] = []
+    env_error = _envelope_error(payload, _OBSERVATION_ENVELOPE_CHECK, "claims")
+    if env_error is not None:
+        errors.append(env_error)
+    else:
+        for place, claim in enumerate(payload["claims"], start=1):
+            if isinstance(claim, dict) and claim.get("claim_key") == "topic-marks":
+                errors.append(
+                    _item_error(
+                        place,
+                        "topic_marks_refused",
+                        "claim_key",
+                        "topic weights come from the transcribed questions (D-151) - leave "
+                        "topic-marks out",
+                    )
+                )
+                continue
+            invalid = _schema_errors(place, claim, _CLAIM_CHECK, CLAIM_SCHEMA)
+            if invalid:
+                errors.extend(invalid)
+            else:
+                survivors.append((place, claim))
+    judged = claims.judge_claims(survivors, stored)
+    errors = sorted(errors + judged.errors, key=lambda e: e["item_ordinal"] or 0)
+
+    by_place = dict(survivors)
+    for place in judged.accepted:
+        _write_claim(conn, user_id, slot_id, task.scope_id, by_place[place])
+
+    ordinal = _next_ordinal(conn, task.id)
+    if not errors:
+        status = "closed"
+    elif ordinal == MAX_SUBMISSIONS:
+        status = "partial"
+    else:
+        status = "open"
+    if status != "open":
+        conn.execute(
+            update(generation_task)
+            .where(generation_task.c.id == task.id)
+            .values(status=status, closed_at=now())
+        )
+
+    reply = {
+        "task_id": task.id,
+        "submission": ordinal,
+        "status": status,
+        "accepted": sorted(judged.accepted),
+        "skipped": sorted(judged.skipped),
+        "missing": [],
+        "item_errors": errors,
+        "submissions_left": MAX_SUBMISSIONS - ordinal if status == "open" else 0,
+    }
+    # an envelope error names no claim, so it rejects none (D-52)
+    rejected = len({e["item_ordinal"] for e in errors} - {None})
+    received = _record_submission(
+        conn, user_id, task, ordinal, payload, reply, len(judged.accepted), rejected
+    )
+    event = {
+        "submission": ordinal,
+        "status": status,
+        "accepted": len(judged.accepted),
+        "rejected": rejected,
+        "skipped": len(judged.skipped),
+        "bytes": received,
+    }
+    return reply, event
+
+
+def _write_claim(conn: Connection, user_id: str, slot_id: str, paper_id: str, claim: dict) -> None:
+    """One accepted claim: its `observation` row, E1 from the paper itself, and the `evidence`
+    row pointing at it (D-149)."""
+    observation_id = new_id()
+    conn.execute(
+        insert(observation).values(
+            id=observation_id,
+            owner_id=user_id,
+            slot_id=slot_id,
+            past_exam_id=paper_id,
+            claim_key=claim["claim_key"],
+            claim_class=claims.CLASS_OF[claim["claim_key"]],
+            topic_id=None,
+            claim_value=json.dumps(claim["claim_value"]),
+            study_tier="E1",
+            citation=claim.get("citation"),
+            created_at=now(),
+        )
+    )
+    conn.execute(
+        insert(evidence).values(
+            id=new_id(),
+            user_id=user_id,
+            observation_id=observation_id,
+            study_tier="E1",
+            locator=claim.get("citation"),
+            created_at=now(),
+        )
+    )
 
 
 def _next_ordinal(conn: Connection, task_id: str) -> int:
