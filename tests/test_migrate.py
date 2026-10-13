@@ -31,7 +31,7 @@ from studysystem.db.tables import (
     user,
 )
 
-HEAD = "0010"
+HEAD = "0011"
 
 
 def stamp() -> str | None:
@@ -510,7 +510,7 @@ def test_downgrade_takes_a_relative_target():
     result = runner.invoke(study, ["downgrade", "head-1"])
 
     assert result.exit_code == 0, result.output
-    assert stamp() == "0009"
+    assert stamp() == f"{int(HEAD) - 1:04d}"
 
 
 def test_a_failed_daily_snapshot_does_not_stop_the_server(monkeypatch, caplog):
@@ -851,3 +851,27 @@ def test_0010_counts_a_closed_task_fetched_and_an_open_one_not(empty_engine):
             ).order_by(generation_task.c.id)
         ).all()
     assert [tuple(r) for r in rows] == [("closed", 1, 1, None), ("open", 1, 0, None)]
+
+
+# --- 0011: the observation kind (D-149) ---------------------------------------------------------
+
+
+def test_0011_takes_an_observation_task_and_keeps_the_ones_before(empty_engine):
+    """A transcription task made before 0011 survives the rebuild that widens `kind`, the widened
+    CHECK takes an observation task, and the downgrade is refused while one exists."""
+    command.upgrade(migrate.alembic_config(empty_engine), "0010")
+    paper = {**_task("a" * 26, "closed"), "kind": "transcription", "scope_type": "past-exam"}
+    with empty_engine.begin() as conn:
+        conn.execute(insert(user).values(id=UID, created_at=AT))
+        conn.execute(insert(generation_task).values(**paper))
+
+    migrate.upgrade(empty_engine)
+
+    with empty_engine.begin() as conn:
+        conn.execute(
+            insert(generation_task).values(**{**paper, "id": "b" * 26, "kind": "observation"})
+        )
+        kinds = conn.execute(select(generation_task.c.kind).order_by(generation_task.c.id))
+        assert kinds.scalars().all() == ["transcription", "observation"]
+    with pytest.raises(IntegrityError):
+        command.downgrade(migrate.alembic_config(empty_engine), "0010")
