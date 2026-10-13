@@ -593,7 +593,10 @@ generation_task = Table(
     metadata,
     ulid_pk(),
     owner(),
-    enum_col("kind", ["note", "practice", "memory", "transcription", "timetable", "tagging"]),
+    enum_col(
+        "kind",
+        ["note", "practice", "memory", "transcription", "timetable", "tagging", "observation"],
+    ),
     # documented discriminator exception: target existence is checked by the service
     enum_col("scope_type", ["course", "material", "topic", "past-exam", "user"]),
     Column("scope_id", Text, nullable=False),
