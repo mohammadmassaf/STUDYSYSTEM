@@ -20,6 +20,8 @@ dependencies = [
     "pypdfium2>=5.13.0",
     "python-ulid>=4.0.1",
     "sqlalchemy>=2.0.54",
+    "starlette>=1.6.0",
+    "uvicorn>=0.52.4",
 ]
 
 [project.scripts]

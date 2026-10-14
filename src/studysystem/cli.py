@@ -1,4 +1,4 @@
-"""The `study` command: migrate, downgrade, serve. The only process allowed to alter the
+"""The `study` command: migrate, downgrade, serve, dashboard. The only process allowed to alter the
 database schema (D-22)."""
 
 import datetime
@@ -46,7 +46,7 @@ def _busy(e: OperationalError, path: Path) -> click.ClickException:
 
 @click.group()
 def study() -> None:
-    """Plan and track a semester: migrate the database, or serve MCP."""
+    """Plan and track a semester: migrate the database, serve MCP, or serve the dashboard."""
 
 
 @study.command("migrate")
@@ -114,3 +114,12 @@ def serve() -> None:
     from studysystem.server import main
 
     main()
+
+
+@study.command()
+@click.option("--port", default=8765, show_default=True, help="The port on 127.0.0.1.")
+def dashboard(port: int) -> None:
+    """Serve the dashboard's HTTP route on 127.0.0.1, beside the MCP server."""
+    from studysystem.dashboard import main  # imported here for the reason serve gives
+
+    main(port)
