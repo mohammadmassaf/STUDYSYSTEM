@@ -761,10 +761,11 @@ def _transcription_task(conn: Connection, paper, task_id: str) -> Task:
 
 
 def _start_note(engine: Engine, user_id: str, material_id: str | None, part: object) -> Task:
-    """One material's note task, written alone - or the same open task again (D-46, D-71,
-    D-73, D-74). A material with a `note` row is refused, whatever its task's status: a task
-    can keep a note and still end `partial` or `invalidated` (section 1 accepted, section 2 an
-    error). A task that kept no note lets the material start again (D-76)."""
+    """One material's note task, written alone - or the same open task again, even after it
+    kept a note, so a lost payload can be fetched (D-46, D-71, D-73, D-74, D-155). With no open
+    task, a material with a `note` row is refused: a task can keep a note and still end
+    `partial` or `invalidated` (section 1 accepted, section 2 an error). A task that kept no
+    note lets the material start again (D-76)."""
     if material_id is None:
         raise values.invalid(
             "material_id", "is missing", "send the material_id that study_add_material returned"
@@ -772,16 +773,6 @@ def _start_note(engine: Engine, user_id: str, material_id: str | None, part: obj
 
     with write_unit(engine) as conn:
         found = _find_material(conn, user_id, material_id)
-        noted = conn.execute(
-            select(note.c.id).where(note.c.material_id == found.id).limit(1)
-        ).first()
-        if noted is not None:
-            raise StudyError(
-                code="already_noted",
-                message=f"{found.filename} already has its note",
-                fix="nothing to do - its note is saved in the database",
-                field_errors=[{"field": "material_id", "problem": "already has a note"}],
-            )
         # At most one open task per material: start reuses it, so a second one is a bug -
         # `one_or_none` raises on it rather than picking one quietly.
         open_task = conn.execute(
@@ -793,6 +784,17 @@ def _start_note(engine: Engine, user_id: str, material_id: str | None, part: obj
                 generation_task.c.status == "open",
             )
         ).one_or_none()
+        if open_task is None:
+            noted = conn.execute(
+                select(note.c.id).where(note.c.material_id == found.id).limit(1)
+            ).first()
+            if noted is not None:
+                raise StudyError(
+                    code="already_noted",
+                    message=f"{found.filename} already has its note",
+                    fix="nothing to do - its note is saved in the database",
+                    field_errors=[{"field": "material_id", "problem": "already has a note"}],
+                )
 
         task_id = open_task.id if open_task else new_id()
         profile = _current_profile(conn, user_id, found.course_id)

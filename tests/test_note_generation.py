@@ -205,7 +205,7 @@ def test_a_material_with_its_note_is_already_noted(service_engine, user_id, ch6)
 @pytest.mark.parametrize("ended", ["partial", "invalidated"])
 def test_a_task_that_kept_a_note_still_blocks_a_second(service_engine, user_id, ch6, ended):
     """QA's path: section 1 lands, section 2 errs, so the task stays open holding a note - then
-    ends partial or invalidated. The note row, not the task's status, decides (D-73, D-76)."""
+    ends partial or invalidated. With no open task, the note row decides (D-73, D-76, D-155)."""
     task_id = start(service_engine, user_id, ch6).payload["task_id"]
     reply = submit_generation(
         service_engine,
