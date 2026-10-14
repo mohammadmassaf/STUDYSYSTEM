@@ -1,5 +1,6 @@
 """Exam profiles (1.13; D-14, D-21, D-67 - D-69): a slot's transcribed papers become the next
-`exam_profile` version and its topic weights. Weights only in v1 - claim classes are M2.
+`exam_profile` version, its topic weights, and the format and instructor-driven observations it
+keeps - each class routed by its own rule (2.1b; D-156 - D-159).
 
 `study_derive_profile` is one write unit (physical-schema.md, *Write units*). The weight math is
 a separate pure function over a list of papers, so the M2 eval can hand it older papers only.
@@ -11,14 +12,18 @@ from collections.abc import Sequence
 from sqlalchemy import Engine, func, insert, select, update
 
 from studysystem.db.tables import (
+    course,
     exam_profile,
     generation_task,
+    observation,
     past_exam,
     practice_item,
+    profile_claim,
     topic,
     topic_weight,
 )
 from studysystem.errors import StudyError
+from studysystem.services.claims import route_claims
 from studysystem.services.ids import new_id, now
 from studysystem.services.lookups import find_course, find_slot
 from studysystem.services.units import write_unit
@@ -104,11 +109,14 @@ def derive_profile(
     Reads the slot's transcribed papers (newest first) and their `live` items; a `rejected`
     item is not evidence, and a paper with no live item is not in the set. Refuses
     `too_few_papers` below MIN_PAPERS, and `topics_unconfirmed` while a live item sits on a
-    `proposed` topic. Writes the profile row, one `topic_weight` row per topic, and moves open
-    tasks built on an older profile of this slot to `invalidated`.
+    `proposed` topic. Writes the profile row, one `topic_weight` row per topic, one
+    `profile_claim` row per format or instructor-driven observation of the same papers that
+    `route_claims` keeps against `course.instructor` (D-156, D-159), and moves open tasks built
+    on an older profile of this slot to `invalidated`.
 
     Returns {"exam_profile_id", "version", "papers", "weights": [{"topic_id", "name",
-    "weight"}], "invalidated"} - weights heaviest first, `invalidated` the number of tasks.
+    "weight"}], "claims": {"format", "instructor-driven"}, "invalidated"} - weights heaviest
+    first, `claims` the observations kept per class, `invalidated` the number of tasks.
     """
     with write_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
@@ -168,6 +176,41 @@ def derive_profile(
                 per_paper.append((row.topic_id, row.marks))
             items.append(per_paper)
         totals = topic_weights(items)
+
+        # The same papers' claims, routed by class (D-159). An instructor statement has no
+        # paper, so none is read here - 2.4's override.
+        course_instructor = conn.execute(
+            select(course.c.instructor).where(course.c.id == course_id)
+        ).scalar_one()
+        instructors = dict(
+            conn.execute(
+                select(past_exam.c.id, past_exam.c.instructor).where(
+                    past_exam.c.id.in_(past_exam_ids)
+                )
+            )
+            .tuples()
+            .all()
+        )
+        claims_of = defaultdict(list)  # paper id -> [(observation id, class)]
+        class_of = {}
+        for obs in conn.execute(
+            select(observation.c.id, observation.c.past_exam_id, observation.c.claim_class)
+            .where(
+                observation.c.owner_id == user_id,
+                observation.c.slot_id == slot_id,
+                observation.c.past_exam_id.in_(past_exam_ids),
+                observation.c.claim_class.in_(["format", "instructor-driven"]),
+            )
+            .order_by(observation.c.id)
+        ):
+            claims_of[obs.past_exam_id].append((obs.id, obs.claim_class))
+            class_of[obs.id] = obs.claim_class
+        papers = [(instructors[p_id], claims_of[p_id]) for p_id in past_exam_ids]
+        kept = route_claims(papers, course_instructor)
+        kept_per_class = {"format": 0, "instructor-driven": 0}
+        for obs_id in kept:
+            kept_per_class[class_of[obs_id]] += 1
+
         version = conn.execute(
             select(func.max(exam_profile.c.version)).where(exam_profile.c.slot_id == slot_id)
         ).scalar_one_or_none()
@@ -189,8 +232,8 @@ def derive_profile(
                 recency_weight_next_two=NEXT_TWO,
                 recency_weight_older=OLDER,
                 evidence_count_syllabus=sum(len(paper) for paper in items),
-                evidence_count_instructor=0,
-                evidence_count_format=0,
+                evidence_count_instructor=kept_per_class["instructor-driven"],  # D-158
+                evidence_count_format=kept_per_class["format"],
             )
         )
 
@@ -201,6 +244,16 @@ def derive_profile(
                     exam_profile_id=profile_id,
                     topic_id=topic_id,
                     weight=weight,
+                    created_at=now(),
+                )
+            )
+
+        for obs_id in kept:
+            conn.execute(
+                insert(profile_claim).values(
+                    id=new_id(),
+                    exam_profile_id=profile_id,
+                    observation_id=obs_id,
                     created_at=now(),
                 )
             )
@@ -232,5 +285,6 @@ def derive_profile(
             {"topic_id": topic_id, "name": names[topic_id], "weight": weight}
             for topic_id, weight in sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
         ],
+        "claims": kept_per_class,
         "invalidated": invalidated,
     }
