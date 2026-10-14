@@ -9,14 +9,16 @@ from sqlalchemy import func, insert, select, update
 from studysystem.db.tables import (
     exam_profile,
     generation_task,
+    observation,
     past_exam,
     practice_item,
+    profile_claim,
     topic,
     topic_weight,
 )
 from studysystem.errors import StudyError
 from studysystem.services.assessments import add_assessment
-from studysystem.services.courses import add_course
+from studysystem.services.courses import add_course, set_course_input
 from studysystem.services.generation import start_generation, submit_generation
 from studysystem.services.ids import new_id, now
 from studysystem.services.past_exams import add_past_exam
@@ -427,3 +429,160 @@ def test_another_students_papers_never_count_toward_a_profile(
     assert err.value.code == "too_few_papers"
     assert count(service_engine, exam_profile) == 0
     assert count(service_engine, topic_weight) == 0
+
+
+# --- claims routed by class (2.1b; D-150, D-156 - D-159) ----------------------------------------
+
+DUR, COUNT, TRAP = "duration-minutes", "question-count", "trap"
+
+
+def observe(engine, user_id, paper_id, key, value) -> str:
+    """One observation on a paper, as an observation task's submit stores it (E1, D-149)."""
+    obs_id = new_id()
+    claim_class = "format" if key in (DUR, COUNT) else "instructor-driven"
+    with write_unit(engine) as conn:
+        slot_id = conn.execute(
+            select(past_exam.c.slot_id).where(past_exam.c.id == paper_id)
+        ).scalar_one()
+        conn.execute(
+            insert(observation).values(
+                id=obs_id,
+                owner_id=user_id,
+                slot_id=slot_id,
+                past_exam_id=paper_id,
+                claim_key=key,
+                claim_class=claim_class,
+                claim_value=json.dumps(value),
+                study_tier="E1",
+                created_at=now(),
+            )
+        )
+    return obs_id
+
+
+def name_instructor(engine, paper_id, name) -> None:
+    with write_unit(engine) as conn:
+        conn.execute(
+            update(past_exam)
+            .where(past_exam.c.id == paper_id)
+            .values(instructor=name, instructor_tier="declared")
+        )
+
+
+def kept_by(engine, profile_id) -> set[str]:
+    with engine.connect() as conn:
+        return set(
+            conn.execute(
+                select(profile_claim.c.observation_id).where(
+                    profile_claim.c.exam_profile_id == profile_id
+                )
+            ).scalars()
+        )
+
+
+@pytest.fixture
+def claims(service_engine, user_id, i3302):
+    """The three papers with an instructor and claims each - names stand-ins, his live 2021-09
+    is Hamze's: 2021-09 Ghorayeb (90 min, a trap), 2020-09 Hamze (120 min, a trap), 2020-02
+    unnamed (5 questions). The course: "A. Ghrayeb"."""
+    newest, resit, first = (
+        paper_on(service_engine, d) for d in ("2021-09-20", "2020-09-14", "2020-02-17")
+    )
+    name_instructor(service_engine, newest, "Dr. Ali Ghorayeb")
+    name_instructor(service_engine, resit, "Dr. Mohamad Hamze")
+    set_course_input(service_engine, user_id, "I3302", "instructor", "A. Ghrayeb")
+    return {
+        "dur_90": observe(service_engine, user_id, newest, DUR, {"minutes": 90}),
+        "ghorayeb_trap": observe(service_engine, user_id, newest, TRAP, {"text": "== vs ==="}),
+        "dur_120": observe(service_engine, user_id, resit, DUR, {"minutes": 120}),
+        "hamze_trap": observe(service_engine, user_id, resit, TRAP, {"text": "$_GET in a query"}),
+        "count_5": observe(service_engine, user_id, first, COUNT, {"count": 5}),
+    }
+
+
+def test_a_profile_keeps_each_class_by_its_own_rule(service_engine, user_id, claims):
+    """Format from the newest paper only; instructor claims from papers by who teaches now."""
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    with service_engine.connect() as conn:
+        profile = conn.execute(select(exam_profile)).one()
+    assert kept_by(service_engine, profile.id) == {claims["dur_90"], claims["ghorayeb_trap"]}
+    assert (profile.evidence_count_instructor, profile.evidence_count_format) == (1, 1)
+    assert (profile.provisional_instructor, profile.provisional_format) == (1, 1)  # 2.2
+    assert result["claims"] == {"format": 1, "instructor-driven": 1}
+
+
+def test_an_instructor_change_excludes_the_old_instructors_claims(service_engine, user_id, claims):
+    """2.1's Done when, on the database: Hamze declared as teaching now, the next version keeps
+    his trap and drops Ghorayeb's; format does not move, and v1 still says what it kept."""
+    v1 = derive_profile(service_engine, user_id, "I3302", FINAL)
+    set_course_input(service_engine, user_id, "I3302", "instructor", "M. Hamze")
+    v2 = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    assert kept_by(service_engine, v2["exam_profile_id"]) == {
+        claims["dur_90"],
+        claims["hamze_trap"],
+    }
+    assert kept_by(service_engine, v1["exam_profile_id"]) == {
+        claims["dur_90"],
+        claims["ghorayeb_trap"],
+    }
+
+
+def test_a_paper_outside_the_weights_set_lends_no_claim(service_engine, user_id, claims, tmp_path):
+    """A newer paper with observations but no transcription sits out until transcribed (D-159):
+    its 75 minutes do not displace the newest transcribed paper's 90."""
+    untranscribed = register(service_engine, user_id, tmp_path, "2023-09-13", "second")
+    name_instructor(service_engine, untranscribed, "Dr. Ali Ghorayeb")
+    observe(service_engine, user_id, untranscribed, DUR, {"minutes": 75})
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    assert kept_by(service_engine, result["exam_profile_id"]) == {
+        claims["dur_90"],
+        claims["ghorayeb_trap"],
+    }
+    assert result["papers"] == 3
+
+
+def test_a_course_with_no_instructor_keeps_format_only(service_engine, user_id, i3302):
+    """No one declared as teaching now: no paper is by them (D-150)."""
+    paper = paper_on(service_engine, "2021-09-20")
+    name_instructor(service_engine, paper, "Dr. Ali Ghorayeb")
+    dur = observe(service_engine, user_id, paper, DUR, {"minutes": 90})
+    observe(service_engine, user_id, paper, TRAP, {"text": "== vs ==="})
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    assert kept_by(service_engine, result["exam_profile_id"]) == {dur}
+    assert result["claims"] == {"format": 1, "instructor-driven": 0}
+
+
+def test_a_profile_links_only_its_owners_observations_of_its_own_slot(
+    service_engine, user_id, other_user_id, claims, tmp_path
+):
+    """physical-schema "Ownership" and "Same course": a link's observation has the profile's
+    owner and slot. Three rows that must never be linked - another student's observation on
+    this paper, an observation on another slot's paper, and one whose slot is not its paper's."""
+    newest = paper_on(service_engine, "2021-09-20")
+    foreign = observe(service_engine, other_user_id, newest, TRAP, {"text": "not his"})
+    add_assessment(service_engine, user_id, "I3302", "Midterm", "exam")
+    midterm = add_paper(
+        service_engine, user_id, tmp_path, "2022-11-10", "first", [("forms", 10.0)], "Midterm"
+    )
+    accept_all(service_engine, user_id)
+    on_midterm = observe(service_engine, user_id, midterm, TRAP, {"text": "midterm trap"})
+    stray = observe(service_engine, user_id, newest, TRAP, {"text": "filed on the midterm"})
+    with write_unit(service_engine) as conn:
+        midterm_slot = conn.execute(
+            select(past_exam.c.slot_id).where(past_exam.c.id == midterm)
+        ).scalar_one()
+        conn.execute(
+            update(observation).where(observation.c.id == stray).values(slot_id=midterm_slot)
+        )
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    kept = kept_by(service_engine, result["exam_profile_id"])
+    assert kept == {claims["dur_90"], claims["ghorayeb_trap"]}
+    assert not kept & {foreign, on_midterm, stray}
