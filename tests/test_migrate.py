@@ -1,9 +1,7 @@
 import datetime
-import shutil
 import sqlite3
 import subprocess
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -31,6 +29,7 @@ from studysystem.db.tables import (
     submission,
     user,
 )
+from tests._study import run_study
 
 HEAD = "0013"
 
@@ -704,12 +703,7 @@ def test_migrate_twice_leaves_exactly_one_user():
 
 
 def serve() -> subprocess.CompletedProcess:
-    """Run the installed `study` script's `serve` as its own process, stdin closed."""
-    script = shutil.which("study", path=str(Path(sys.executable).parent))
-    assert script is not None, "the study console script is not installed in this environment"
-    return subprocess.run(
-        [script, "serve"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60
-    )
+    return run_study("serve")
 
 
 def test_study_serve_refuses_an_empty_database():
