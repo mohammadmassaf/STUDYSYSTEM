@@ -29,11 +29,11 @@ def uid(tag: str) -> str:
     return (tag.upper() + "0" * 26)[:26]
 
 
-U, C, SLOT, A, T, T2, M, PE, OBS, EP, GT, SUB, N, MI, PI, PI2, REJ, RQ, SS, PL = (
+U, C, SLOT, A, T, T2, M, PE, OBS, OBS2, EP, GT, SUB, N, MI, PI, PI2, REJ, RQ, SS, PL = (
     uid(x)
     for x in [
-        "user", "i3302", "slot", "assess", "topic1", "topic2", "mat", "paper", "obs", "prof",
-        "task", "sub", "note", "mem", "item", "item2", "rej", "rq", "sess", "plan",
+        "user", "i3302", "slot", "assess", "topic1", "topic2", "mat", "paper", "obs", "obs2",
+        "prof", "task", "sub", "note", "mem", "item", "item2", "rej", "rq", "sess", "plan",
     ]
 )  # fmt: skip
 
@@ -74,11 +74,15 @@ SEED: list[tuple[str, dict]] = [
                          claim_key="topic-marks", claim_class="syllabus-driven", topic_id=T,
                          claim_value='{"marks":12,"of_total":100}', study_tier="E1",
                          citation="Q3", created_at=X)),
+    ("observation", dict(id=OBS2, owner_id=U, slot_id=SLOT, past_exam_id=PE, claim_key="trap",
+                         claim_class="instructor-driven", claim_value='{"text":"== vs ==="}',
+                         study_tier="E1", citation="Q2", created_at=X)),
     ("exam_profile", dict(id=EP, owner_id=U, slot_id=SLOT, version=1, derived_at=X,
                           provisional_syllabus=1, evidence_count_syllabus=1,
                           evidence_count_instructor=0, evidence_count_format=0)),
     ("topic_weight", dict(id=uid("tw"), exam_profile_id=EP, topic_id=T, weight=100,
                           created_at=X)),
+    ("profile_claim", dict(id=uid("pc"), exam_profile_id=EP, observation_id=OBS2, created_at=X)),
     ("generation_task", dict(id=GT, user_id=U, kind="practice", scope_type="topic", scope_id=T,
                              exam_profile_id=EP, route="host", created_at=X)),
     ("capacity_suggestion", dict(id=uid("cs"), user_id=U, hours_per_week=18, source_task_id=GT,
@@ -125,7 +129,8 @@ SEED: list[tuple[str, dict]] = [
                        estimated_minutes=60, exam_profile_id=EP)),
 ]  # fmt: skip
 
-# The first row of each table is its template; `topic` and `practice_item` seed a second one.
+# The first row of each table is its template; `topic`, `observation` and `practice_item` seed
+# a second one.
 TEMPLATE: dict[str, dict] = {}
 for _name, _row in SEED:
     TEMPLATE.setdefault(_name, _row)
@@ -143,6 +148,7 @@ UNIQUE_PATCH: dict[str, dict] = {
     "past_exam": dict(content_sha256="b" * 64),
     "exam_profile": dict(version=2),
     "topic_weight": dict(topic_id=T2),
+    "profile_claim": dict(observation_id=OBS),
     "submission": dict(ordinal=2),
     "note": dict(section_ordinal=2),
     "memory_item": dict(item_ordinal=2),
@@ -471,9 +477,9 @@ def test_exactly_one_of_the_fks(db, table):
 # --- ownership ------------------------------------------------------------
 
 OWNER_COLUMNS = ("user_id", "owner_id")
-# The two tables that carry no owner column: their owner is reached through their FKs, and the
+# The three tables that carry no owner column: their owner is reached through their FKs, and the
 # service layer proves the two sides agree (physical-schema.md, "Ownership").
-OWNERLESS = {"topic_weight", "topic_state"}
+OWNERLESS = {"topic_weight", "topic_state", "profile_claim"}
 
 
 def _owner_column(table) -> str | None:
