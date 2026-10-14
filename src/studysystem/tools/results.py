@@ -17,7 +17,7 @@ from collections.abc import Callable
 from mcp.types import CallToolResult, ImageContent, TextContent
 from sqlalchemy.exc import OperationalError
 
-from studysystem.errors import StudyError
+from studysystem.errors import StudyError, busy
 from studysystem.services.generation import Task
 
 
@@ -33,17 +33,6 @@ def error_result(err: StudyError) -> CallToolResult:
     return _result(err.to_dict(), is_error=True)
 
 
-def _busy(err: OperationalError) -> StudyError:
-    """The locked-database case as a `StudyError`; any other database error re-raises."""
-    if "database is locked" not in str(err.orig):
-        raise err
-    return StudyError(
-        code="database_busy",
-        message="the database stayed locked: another study program is writing",
-        fix="retry in a few seconds",
-    )
-
-
 def run(call: Callable[[], dict]) -> CallToolResult:
     """Every tool body goes through this: `return run(lambda: service(...))`. The lambda keeps
     `current_user()` inside the try, so `no_user` reaches the host in the same shape."""
@@ -52,7 +41,7 @@ def run(call: Callable[[], dict]) -> CallToolResult:
     except StudyError as err:
         return error_result(err)
     except OperationalError as err:
-        return error_result(_busy(err))
+        return error_result(busy(err))
 
 
 def run_task(call: Callable[[], Task]) -> CallToolResult:
@@ -63,7 +52,7 @@ def run_task(call: Callable[[], Task]) -> CallToolResult:
     except StudyError as err:
         return error_result(err)
     except OperationalError as err:
-        return error_result(_busy(err))
+        return error_result(busy(err))
     pictures = [
         ImageContent(type="image", data=p.data, mime_type=p.mime_type) for p in task.pictures
     ]
