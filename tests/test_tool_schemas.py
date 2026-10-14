@@ -26,3 +26,10 @@ def test_retag_is_a_list_of_objects_or_nothing():
     # anyOf, the form pydantic gives every other optional parameter (`session_id`, ...)
     assert retag["anyOf"] == [{"type": "array", "items": {"type": "object"}}, {"type": "null"}]
     assert retag["default"] is None
+
+
+def test_payload_is_an_object():
+    payload = schemas()["study_submit_generation"]["payload"]
+
+    # every kind's schema is an object at the top (items, notes, topics, claims)
+    assert payload["type"] == "object"

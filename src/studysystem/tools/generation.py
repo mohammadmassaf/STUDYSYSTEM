@@ -1,10 +1,11 @@
 """The generation contract (D-11, D-47): the host asks, the server hands it a task; the host
 submits, the server keeps what is valid (D-52, D-53)."""
 
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
+from pydantic import WithJsonSchema
 from sqlalchemy import Engine
 
 from studysystem.services import generation
@@ -76,7 +77,11 @@ def register(mcp: MCPServer, engine: Engine) -> None:
     )
     # payload is Any, not dict: a wrong shape (a JSON string, a list) reaches the service's
     # envelope check and comes back as item_errors, not as the SDK's validation text (D-36).
-    def study_submit_generation(task_id: str, payload: Any) -> CallToolResult:
+    # The schema still tells the host it is an object - every built kind's answer is one, and a
+    # task in parts is still submitted whole (D-145).
+    def study_submit_generation(
+        task_id: str, payload: Annotated[Any, WithJsonSchema({"type": "object"})]
+    ) -> CallToolResult:
         return run(
             lambda: generation.submit_generation(engine, current_user(engine), task_id, payload)
         )
