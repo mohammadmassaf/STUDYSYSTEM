@@ -516,6 +516,7 @@ def test_downgrade_takes_a_relative_target():
 
 def test_a_failed_daily_snapshot_does_not_stop_the_server(monkeypatch, caplog):
     import studysystem.server as server
+    import studysystem.startup as startup
 
     migrate.upgrade(make_engine(db_path()))
     started = []
@@ -527,7 +528,7 @@ def test_a_failed_daily_snapshot_does_not_stop_the_server(monkeypatch, caplog):
         def run(self):
             started.append(True)
 
-    monkeypatch.setattr(server, "snapshot", disk_full)
+    monkeypatch.setattr(startup, "snapshot", disk_full)
     monkeypatch.setattr(server, "create_server", lambda engine: Server())
 
     server.main()
