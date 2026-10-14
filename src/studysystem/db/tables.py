@@ -1,4 +1,4 @@
-"""The 32 tables of physical-schema.md as SQLAlchemy Core metadata.
+"""The 33 tables of physical-schema.md as SQLAlchemy Core metadata.
 
 This is what the code believes the database looks like. Migration 0001 is the frozen copy of it;
 `alembic revision --autogenerate` diffs the two. Every construct here must run on SQLite and
@@ -583,6 +583,18 @@ exam_profile = Table(
         nullable=False,
     ),
     UniqueConstraint("slot_id", "version"),
+)
+
+# One row per observation a profile version kept by its class's rule (D-156). No owner column,
+# as `topic_weight`: an explicit ownership test case.
+profile_claim = Table(
+    "profile_claim",
+    metadata,
+    ulid_pk(),
+    fk("exam_profile_id", "exam_profile"),
+    fk("observation_id", "observation"),
+    ts(),
+    UniqueConstraint("exam_profile_id", "observation_id"),
 )
 
 

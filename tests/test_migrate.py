@@ -31,7 +31,7 @@ from studysystem.db.tables import (
     user,
 )
 
-HEAD = "0011"
+HEAD = "0012"
 
 
 def stamp() -> str | None:
@@ -875,3 +875,21 @@ def test_0011_takes_an_observation_task_and_keeps_the_ones_before(empty_engine):
         assert kinds.scalars().all() == ["transcription", "observation"]
     with pytest.raises(IntegrityError):
         command.downgrade(migrate.alembic_config(empty_engine), "0010")
+
+
+# --- 0012: profile_claim (D-156) ----------------------------------------------------------------
+
+
+def test_0012_adds_profile_claim_and_its_downgrade_drops_only_it(empty_engine):
+    """The table's shape is proved by the every-table / every-check / restrict tests above; here,
+    the step itself: 0011 has no `profile_claim`, 0012 adds it, and down to 0011 removes it alone
+    - its rows are derived, the next derive writes them again (D-156)."""
+    command.upgrade(migrate.alembic_config(empty_engine), "0011")
+    before = set(inspect(empty_engine).get_table_names())
+    assert "profile_claim" not in before
+
+    migrate.upgrade(empty_engine)
+    assert set(inspect(empty_engine).get_table_names()) == before | {"profile_claim"}
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0011")
+    assert set(inspect(empty_engine).get_table_names()) == before
