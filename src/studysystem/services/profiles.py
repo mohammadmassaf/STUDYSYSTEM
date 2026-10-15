@@ -23,7 +23,7 @@ from studysystem.db.tables import (
     topic_weight,
 )
 from studysystem.errors import StudyError
-from studysystem.services.claims import route_claims
+from studysystem.services.claims import instructor_provisional, route_claims
 from studysystem.services.ids import new_id, now
 from studysystem.services.lookups import find_course, find_slot
 from studysystem.services.units import write_unit
@@ -115,8 +115,10 @@ def derive_profile(
     on an older profile of this slot to `invalidated`.
 
     Returns {"exam_profile_id", "version", "papers", "weights": [{"topic_id", "name",
-    "weight"}], "claims": {"format", "instructor-driven"}, "invalidated"} - weights heaviest
-    first, `claims` the observations kept per class, `invalidated` the number of tasks.
+    "weight"}], "claims": {"format", "instructor-driven"}, "provisional": {"syllabus",
+    "instructor-driven", "format"}, "invalidated"} - weights heaviest first, `claims` the
+    observations kept per class, `provisional` each class's flag as the row stores it with its
+    reason (2.2; D-164 - D-167), `invalidated` the number of tasks.
     """
     with write_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
@@ -211,6 +213,18 @@ def derive_profile(
         for obs_id in kept:
             kept_per_class[class_of[obs_id]] += 1
 
+        # Per class, as the row stores it and the reply states it (D-164 - D-167).
+        provisional_by_class = {
+            "syllabus": {
+                "provisional": False,  # below MIN_PAPERS derive refuses (D-164)
+                "why": f"{len(past_exam_ids)} papers; {MIN_PAPERS} needed",
+            },
+            "instructor-driven": instructor_provisional(
+                [instructors[p_id] for p_id in past_exam_ids], course_instructor
+            ),
+            "format": {"provisional": True, "why": "the session match comes in 2.3"},  # D-166
+        }
+
         version = conn.execute(
             select(func.max(exam_profile.c.version)).where(exam_profile.c.slot_id == slot_id)
         ).scalar_one_or_none()
@@ -225,9 +239,11 @@ def derive_profile(
                 slot_id=slot_id,
                 version=version,
                 derived_at=now(),
-                provisional_syllabus=0,  # >= MIN_PAPERS, refused otherwise
-                provisional_instructor=1,  # M2 derives it
-                provisional_format=1,  # M2 derives it
+                provisional_syllabus=int(provisional_by_class["syllabus"]["provisional"]),
+                provisional_instructor=int(
+                    provisional_by_class["instructor-driven"]["provisional"]
+                ),
+                provisional_format=int(provisional_by_class["format"]["provisional"]),
                 recency_weight_newest=NEWEST,
                 recency_weight_next_two=NEXT_TWO,
                 recency_weight_older=OLDER,
@@ -286,5 +302,6 @@ def derive_profile(
             for topic_id, weight in sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
         ],
         "claims": kept_per_class,
+        "provisional": provisional_by_class,
         "invalidated": invalidated,
     }

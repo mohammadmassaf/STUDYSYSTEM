@@ -1,4 +1,5 @@
-"""Exam profiles (D-67 - D-69, D-156): derive a slot's topic weights and the claims it keeps."""
+"""Exam profiles (D-67 - D-69, D-156, D-167): derive a slot's topic weights, the claims it keeps
+and how provisional each class is."""
 
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
@@ -21,9 +22,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "after a new paper's topics are. Open generation tasks built on the older profile "
             "are invalidated - start them again. It also keeps the papers' format claims (from "
             "the newest paper that has any) and the instructor-driven claims of papers by the "
-            "course's instructor; claims counts them per class. Derive again after the course's "
-            "instructor changes. semester_name is needed only if the code exists in two "
-            "semesters."
+            "course's instructor; claims counts them per class. provisional states, per class, "
+            "whether the evidence is thin and why - tell the student. Derive again after the "
+            "course's instructor changes. semester_name is needed only if the code exists in "
+            "two semesters."
         ),
     )
     def study_derive_profile(
