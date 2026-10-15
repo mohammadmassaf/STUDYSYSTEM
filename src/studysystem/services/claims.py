@@ -5,6 +5,8 @@
   and the claims already stored for the paper.
 - A slot's claims, routed by class into a profile version (2.1b; D-14, D-150, D-152, D-157) -
   `derive_profile` hands them the papers and the course's instructor.
+- A profile's instructor-driven `provisional` flag and its reason (2.2; D-165, D-167) - from the
+  instructor of each paper in its set.
 """
 
 from collections import Counter
@@ -164,3 +166,37 @@ def route_claims(papers: Sequence[PaperClaims], course_instructor: str | None) -
         if take_format:
             format_taken = True
     return kept
+
+
+# --- a profile's provisional flags (2.2) ------------------------------------------------------
+
+SAME_INSTRUCTOR_PAPERS = 2  # D-14: instructor-driven claims clear provisional at >= 2
+
+
+def instructor_provisional(
+    instructors: Sequence[str | None], course_instructor: str | None
+) -> dict:
+    """Whether a profile's instructor-driven claims are provisional, and why (D-14, D-165,
+    D-167). `instructors`: the `instructor` text of each paper in the profile's set.
+
+    Returns {"provisional": bool, "why": str}.
+
+    I3302 Final: 1 Ghorayeb paper of 8, course "A. Ghrayeb" ->
+    {"provisional": True, "why": "1 of 8 papers by A. Ghrayeb; 2 needed"}
+    """
+    if course_instructor is None:
+        return {
+            "provisional": True,
+            "why": (
+                f"the course names no instructor; {SAME_INSTRUCTOR_PAPERS} papers by them needed"
+            ),
+        }
+    count = 0
+    for instructor in instructors:
+        if same_person(instructor, course_instructor):
+            count += 1
+    why = (
+        f"{count} of {len(instructors)} papers by {course_instructor}; "
+        f"{SAME_INSTRUCTOR_PAPERS} needed"
+    )
+    return {"provisional": count < SAME_INSTRUCTOR_PAPERS, "why": why}

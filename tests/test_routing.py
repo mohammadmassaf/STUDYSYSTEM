@@ -1,4 +1,5 @@
-"""Routing a slot's claims into a profile (2.1b; D-14, D-150, D-152, D-157). Pure: no database.
+"""Routing a slot's claims into a profile (2.1b; D-14, D-150, D-152, D-157), and the instructor
+bar on its `provisional` flag (2.2; D-165). Pure: no database.
 
 The names are his live ones: I3302's course reads "A. Ghrayeb", its 2023-09 paper "Dr. Ali
 Ghorayeb", its 2019-2021 papers "Dr. Mohamad Hamze"; I3305's papers are co-taught.
@@ -6,7 +7,7 @@ Ghorayeb", its 2019-2021 papers "Dr. Mohamad Hamze"; I3305's papers are co-taugh
 
 import pytest
 
-from studysystem.services.claims import route_claims, same_person
+from studysystem.services.claims import instructor_provisional, route_claims, same_person
 
 SAME_PERSON = [
     ("Dr. Ali Ghorayeb", "A. Ghrayeb", True),  # spelling drift, 0.93
@@ -90,3 +91,58 @@ def test_route_with_an_unknown_course_instructor_keeps_format_only():
 
 def test_route_of_no_papers_keeps_nothing():
     assert route_claims([], NOW) == []
+
+
+# --- instructor_provisional (2.2; D-14, D-165, D-167) -----------------------------------------
+
+
+def test_instructor_change_leaves_one_paper_by_who_teaches_now():
+    """(a) I3302 Final: Hamze set 2019-2021, Ghorayeb 2023-09, two papers name no one."""
+    instructors = [GHORAYEB] + [HAMZE] * 5 + [None] * 2
+    assert instructor_provisional(instructors, NOW) == {
+        "provisional": True,
+        "why": "1 of 8 papers by A. Ghrayeb; 2 needed",
+    }
+
+
+def test_many_papers_by_the_same_instructor_clear_it():
+    """(b) I3306 Final: Dbouk on 7 of 8, one paper names no one."""
+    instructors = ["M. DBOUK"] * 7 + [None]
+    assert instructor_provisional(instructors, "M. Dbouk") == {
+        "provisional": False,
+        "why": "7 of 8 papers by M. Dbouk; 2 needed",
+    }
+
+
+def test_exactly_two_papers_clear_it():
+    """(c) the bar itself: two Ghorayeb papers, spelled two ways."""
+    instructors = [GHORAYEB, HAMZE, "Dr. A. Ghorayeb"]
+    assert instructor_provisional(instructors, NOW) == {
+        "provisional": False,
+        "why": "2 of 3 papers by A. Ghrayeb; 2 needed",
+    }
+
+
+def test_a_course_naming_no_instructor_is_provisional():
+    """(d) like DHR300: no one declared as teaching now, so no paper is by them (D-150)."""
+    assert instructor_provisional([GHORAYEB, GHORAYEB], None) == {
+        "provisional": True,
+        "why": "the course names no instructor; 2 papers by them needed",
+    }
+
+
+def test_papers_naming_no_one_never_count():
+    """(e) I3301 Final: five papers, none names an instructor."""
+    assert instructor_provisional([None] * 5, "K. Beydoun") == {
+        "provisional": True,
+        "why": "0 of 5 papers by K. Beydoun; 2 needed",
+    }
+
+
+def test_a_co_taught_paper_counts_for_either_name():
+    """(f) I3305: 2019-09 names Hamze and Safadi - it is a Safadi paper too (D-152)."""
+    instructors = ["Dr. Mohamad Hamze, Dr. Abed EL Safadi", "Dr. Abed El Safadi"]
+    assert instructor_provisional(instructors, "A. Safadi") == {
+        "provisional": False,
+        "why": "2 of 2 papers by A. Safadi; 2 needed",
+    }
