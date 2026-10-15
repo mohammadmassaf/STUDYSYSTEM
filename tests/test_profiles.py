@@ -1,5 +1,6 @@
 """Exam profiles (1.13; D-14, D-67 - D-69). The weight math first: a pure function over papers
-given newest first - no database. Then `derive_profile`, the write unit around it."""
+given newest first - no database. Then `derive_profile`, the write unit around it, its routed
+claims (2.1b) and its per-class `provisional` (2.2)."""
 
 import json
 
@@ -412,6 +413,7 @@ def test_derive_through_the_tool(call, service_engine, user_id, i3302):
     assert body["version"] == 1
     assert weights == sorted(weights, reverse=True)
     assert body["weights"][0]["name"] == NAMES["files"]
+    assert body["provisional"]["syllabus"] == {"provisional": False, "why": "3 papers; 3 needed"}
 
 
 # --- another student (Conventions: ownership) ---------------------------------
@@ -586,3 +588,42 @@ def test_a_profile_links_only_its_owners_observations_of_its_own_slot(
     kept = kept_by(service_engine, result["exam_profile_id"])
     assert kept == {claims["dur_90"], claims["ghorayeb_trap"]}
     assert not kept & {foreign, on_midterm, stray}
+
+
+# --- provisional per class, and the reply says why (2.2; D-164 - D-167) ------------------------
+
+
+def flags(engine, profile_id) -> tuple[int, int, int]:
+    with engine.connect() as conn:
+        row = conn.execute(select(exam_profile).where(exam_profile.c.id == profile_id)).one()
+    return (row.provisional_syllabus, row.provisional_instructor, row.provisional_format)
+
+
+def test_a_profile_states_each_class_provisional_and_why(service_engine, user_id, claims):
+    """(g) 2.2's Done when on the fixture: one Ghorayeb paper of three is below the instructor
+    bar; syllabus is cleared by the refusal (D-164); format waits for 2.3 (D-166)."""
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    assert flags(service_engine, result["exam_profile_id"]) == (0, 1, 1)
+    assert result["provisional"] == {
+        "syllabus": {"provisional": False, "why": "3 papers; 3 needed"},
+        "instructor-driven": {"provisional": True, "why": "1 of 3 papers by A. Ghrayeb; 2 needed"},
+        "format": {"provisional": True, "why": "the session match comes in 2.3"},
+    }
+
+
+def test_the_instructor_flag_follows_who_teaches_now(service_engine, user_id, claims):
+    """(h) Hamze declared as teaching now, and he set two of the three papers: the next version
+    clears the instructor flag; v1, derived under Ghrayeb, still reads provisional."""
+    name_instructor(service_engine, paper_on(service_engine, "2020-02-17"), "Dr. Mohamad Hamze")
+    v1 = derive_profile(service_engine, user_id, "I3302", FINAL)
+    set_course_input(service_engine, user_id, "I3302", "instructor", "M. Hamze")
+
+    v2 = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    assert flags(service_engine, v1["exam_profile_id"])[1] == 1
+    assert flags(service_engine, v2["exam_profile_id"])[1] == 0
+    assert v2["provisional"]["instructor-driven"] == {
+        "provisional": False,
+        "why": "2 of 3 papers by M. Hamze; 2 needed",
+    }
