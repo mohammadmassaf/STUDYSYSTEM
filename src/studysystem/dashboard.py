@@ -8,6 +8,7 @@ never given it; and every request must name our own host, so a site that re-poin
 127.0.0.1 is refused too.
 """
 
+import datetime
 import importlib.metadata
 import logging
 import sys
@@ -26,7 +27,7 @@ from starlette.routing import Route
 
 from studysystem.db.migrate import current_revision
 from studysystem.errors import StudyError, busy
-from studysystem.services import study_loop, values
+from studysystem.services import state, study_loop, values
 from studysystem.services.users import current_user
 from studysystem.startup import open_database
 
@@ -122,6 +123,15 @@ def create_app(engine: Engine) -> Starlette:
             lambda: {"server_version": version, "schema_revision": current_revision(engine)},
         )
 
+    async def get_state(request: Request) -> JSONResponse:
+        # Today in this machine's zone, as study_get_plan takes it.
+        return await run_in_threadpool(
+            _answer,
+            lambda: state.get_state(
+                engine, current_user(engine), datetime.datetime.now().astimezone().date(), version
+            ),
+        )
+
     async def hours(request: Request) -> JSONResponse:
         try:
             args = _hours_args(await _json_body(request))
@@ -135,6 +145,7 @@ def create_app(engine: Engine) -> Starlette:
     return Starlette(
         routes=[
             Route("/health", health, methods=["GET"]),
+            Route("/state", get_state, methods=["GET"]),
             Route("/hours", hours, methods=["POST"]),
         ],
         middleware=[Middleware(BaseHTTPMiddleware, dispatch=_own_host)],

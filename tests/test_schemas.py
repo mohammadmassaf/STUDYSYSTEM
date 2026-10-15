@@ -1,13 +1,14 @@
-"""The JSON Schemas the host reads (D-11, D-54): each is a well-formed Draft 2020-12 schema, and
-every keyword in it is one the validator knows. `check_schema` alone ignores an unknown keyword,
-so a typo like `minimun` would pass it and the rule would silently do nothing."""
+"""The JSON Schemas the host and the dashboard read (D-11, D-54, D-163): each is a well-formed
+Draft 2020-12 schema, and every keyword in it is one the validator knows. `check_schema` alone
+ignores an unknown keyword, so a typo like `minimun` would pass it and the rule would silently do
+nothing."""
 
 import pytest
 from jsonschema import Draft202012Validator
 
-from studysystem.services import generation
+from studysystem.services import generation, state
 
-# The three outbound schemas, then the six inbound pieces cut from them (D-54).
+# The three outbound schemas, the six inbound pieces cut from them (D-54), then /state's.
 SCHEMAS = {
     "transcription": generation.TRANSCRIPTION_SCHEMA,
     "transcription item": generation.ITEM_SCHEMA,
@@ -18,6 +19,8 @@ SCHEMAS = {
     "tagging": generation.TAGGING_SCHEMA,
     "tagging entry": generation.TAGGING_ENTRY_SCHEMA,
     "tagging envelope": generation._TAGGING_ENVELOPE_CHECK.schema,  # inline in its validator only
+    # GET /state's sections (D-163): the dashboard reads them, so a typo there is as silent.
+    **{f"state {name}": schema for name, (_, schema) in state.SECTIONS.items()},
 }
 
 # What a keyword may be: one the validator checks, or one of 2020-12's other keywords - those
