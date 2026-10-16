@@ -9,6 +9,7 @@ from sqlalchemy import func, insert, select, update
 
 from studysystem.db.tables import (
     assessment,
+    evidence,
     exam_profile,
     generation_task,
     observation,
@@ -24,7 +25,13 @@ from studysystem.services.courses import add_course, set_course_input
 from studysystem.services.generation import start_generation, submit_generation
 from studysystem.services.ids import new_id, now
 from studysystem.services.past_exams import add_past_exam
-from studysystem.services.profiles import derive_profile, topic_weights
+from studysystem.services.profiles import (
+    derive_profile,
+    fit_statements,
+    pin_weights,
+    topic_weights,
+)
+from studysystem.services.statements import add_instructor_statement
 from studysystem.services.topics import confirm_topic_proposal
 from studysystem.services.units import write_unit
 from tests._papers import pdf_pages, write
@@ -104,6 +111,73 @@ def test_papers_past_the_third_get_the_older_vote():
     assert topic_weights(papers) == pytest.approx(
         {"p1": 300 / 9, "p2": 200 / 9, "p3": 200 / 9, "p4": 100 / 9, "p5": 100 / 9}
     )
+
+
+# --- pin_weights: an instructor's share pins a topic (2.4; D-177) ----------------------------
+
+I3302_V5 = {  # I3302 Final v5's weights, his live profile on 2026-10-16
+    "mysql": 39.34,
+    "sessions": 16.68,
+    "files": 13.53,
+    "cookies": 12.66,
+    "strings": 6.50,
+    "forms": 6.22,
+    "regex": 5.07,
+}
+
+
+def test_a_pin_sets_its_topic_and_the_rest_share_what_is_left():
+    """ "MySQL is 40%": the Dr's number as said; the others keep their ratio and fill 60."""
+    pinned = pin_weights(I3302_V5, {"mysql": 40})
+
+    assert pinned["mysql"] == 40
+    assert sum(pinned.values()) == pytest.approx(100)
+    assert pinned["sessions"] == pytest.approx(16.68 * 60 / 60.66)
+    assert pinned["sessions"] / pinned["files"] == pytest.approx(16.68 / 13.53)
+
+
+def test_a_zero_pin_takes_a_topic_off_and_the_rest_grow():
+    """ "Regex is not on the final"."""
+    pinned = pin_weights(I3302_V5, {"regex": 0})
+
+    assert pinned["regex"] == 0
+    assert sum(pinned.values()) == pytest.approx(100)
+    assert pinned["mysql"] == pytest.approx(39.34 * 100 / 94.93)
+
+
+def test_a_pinned_topic_no_paper_examined_is_added():
+    """A new chapter the Dr says is 20%: it appears, the papers' topics share 80."""
+    pinned = pin_weights({"a": 60.0, "b": 40.0}, {"new": 20})
+
+    assert pinned == pytest.approx({"a": 48.0, "b": 32.0, "new": 20})
+
+
+def test_two_pins_on_different_topics_both_stand():
+    pinned = pin_weights({"a": 50.0, "b": 30.0, "c": 20.0}, {"a": 40, "b": 40})
+
+    assert pinned == pytest.approx({"a": 40, "b": 40, "c": 20.0})
+
+
+def test_pins_summing_to_100_leave_the_others_nothing():
+    pinned = pin_weights({"a": 50.0, "b": 30.0, "c": 20.0}, {"a": 70, "b": 30})
+
+    assert pinned == pytest.approx({"a": 70, "b": 30, "c": 0.0})
+
+
+def test_no_pins_leave_the_weights_as_the_papers_gave_them():
+    assert pin_weights(I3302_V5, {}) == pytest.approx(I3302_V5)
+
+
+def test_unpinned_topics_holding_nothing_split_the_rest_evenly():
+    """D-182: the papers gave "b" and "c" 0, so there is no ratio - each takes half of 40."""
+    pinned = pin_weights({"a": 100.0, "b": 0.0, "c": 0.0}, {"a": 60})
+
+    assert pinned == pytest.approx({"a": 60, "b": 20.0, "c": 20.0})
+
+
+def test_every_topic_pinned_keeps_the_pins_as_stated():
+    """Nothing left unpinned to share the rest: the Dr's numbers are not stretched to 100."""
+    assert pin_weights({"a": 60.0, "b": 40.0}, {"a": 50, "b": 30}) == {"a": 50, "b": 30}
 
 
 # --- derive_profile: the write unit (D-69) -------------------------------------------------
@@ -774,3 +848,317 @@ def test_a_slot_with_a_resit_sitting_too_matches_the_first(service_engine, user_
     result = derive_profile(service_engine, user_id, "I3302", FINAL, this_year=2022)
 
     assert claims["count_5"] in kept_by(service_engine, result["exam_profile_id"])
+
+
+# --- instructor statements (2.4; D-172, D-173, D-177 - D-180) --------------------------------
+
+
+def topic_named(engine, key) -> str:
+    with engine.connect() as conn:
+        return conn.execute(select(topic.c.id).where(topic.c.name == NAMES[key])).scalar_one()
+
+
+def state(engine, user_id, key, value, topic=None, **extra) -> dict:
+    """The student reports one thing the instructor said about I3302's Final."""
+    return add_instructor_statement(engine, user_id, "I3302", FINAL, key, value, topic, **extra)
+
+
+def entered_on(engine, obs_id, at) -> None:
+    """Move a statement's `created_at` back, as if entered on `at` (D-179)."""
+    with write_unit(engine) as conn:
+        conn.execute(update(observation).where(observation.c.id == obs_id).values(created_at=at))
+
+
+def test_a_statement_is_stored_as_e2_with_no_paper(service_engine, user_id, i3302):
+    """D-173: one observation, E2, no paper, class fixed by key; its evidence row E2; the reply
+    repeats it."""
+    reply = state(service_engine, user_id, DUR, {"minutes": 120}, citation="lecture 2026-10-16")
+
+    with service_engine.connect() as conn:
+        row = conn.execute(select(observation)).one()
+        ev = conn.execute(select(evidence).where(evidence.c.observation_id == row.id)).one()
+    assert (row.study_tier, row.past_exam_id, row.claim_class) == ("E2", None, "format")
+    assert json.loads(row.claim_value) == {"minutes": 120}
+    assert (ev.study_tier, ev.locator) == ("E2", "lecture 2026-10-16")
+    assert reply["observation_id"] == row.id
+    assert reply["topic"] is None
+    assert reply["stated"] == (
+        "I3302 Final exam, from the instructor: the exam lasts 120 minutes. Derive the profile "
+        "again to use it."
+    )
+
+
+def test_a_topic_share_names_its_topic(service_engine, user_id, i3302):
+    mysql = topic_named(service_engine, "mysql")
+
+    reply = state(service_engine, user_id, "topic-marks", {"marks": 40, "of_total": 100}, mysql)
+
+    assert reply["topic"] == {"id": mysql, "name": NAMES["mysql"]}
+    with service_engine.connect() as conn:
+        assert conn.execute(select(observation.c.topic_id)).scalar_one() == mysql
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "topic_key", "field"),
+    [
+        (TRAP, {"text": "== vs ==="}, None, "claim_key"),  # instructor-driven: not a statement
+        ("pages", {"count": 3}, None, "claim_key"),  # no such key
+        (DUR, {"minutes": "two hours"}, None, "claim_value"),  # wrong shape
+        ("topic-marks", {"marks": 40}, "mysql", "claim_value"),  # no total
+        ("topic-marks", {"marks": 120, "of_total": 100}, "mysql", "claim_value"),  # past it
+        ("topic-marks", {"marks": 40, "of_total": 100}, None, "topic_id"),  # no topic
+        (DUR, {"minutes": 120}, "mysql", "topic_id"),  # a format fact names no topic
+    ],
+)
+def test_a_bad_statement_is_refused_and_writes_nothing(
+    service_engine, user_id, i3302, key, value, topic_key, field
+):
+    topic_id = topic_named(service_engine, topic_key) if topic_key else None
+
+    with pytest.raises(StudyError) as err:
+        state(service_engine, user_id, key, value, topic_id)
+
+    assert err.value.code == "invalid_value"
+    assert err.value.field_errors[0]["field"] == field
+    assert count(service_engine, observation) == 0
+
+
+def test_a_topic_not_confirmed_in_this_course_is_not_found(service_engine, user_id, i3302):
+    with pytest.raises(StudyError) as err:
+        state(service_engine, user_id, "topic-marks", {"marks": 40, "of_total": 100}, "9" * 26)
+
+    assert err.value.code == "not_found"
+    assert count(service_engine, observation) == 0
+
+
+def test_shares_past_100_are_refused(service_engine, user_id, i3302):
+    """D-180: MySQL 60 stands; sessions 50 would make 110."""
+    mysql, sessions = topic_named(service_engine, "mysql"), topic_named(service_engine, "sessions")
+    state(service_engine, user_id, "topic-marks", {"marks": 60, "of_total": 100}, mysql)
+
+    with pytest.raises(StudyError) as err:
+        state(service_engine, user_id, "topic-marks", {"marks": 50, "of_total": 100}, sessions)
+
+    assert err.value.code == "pins_over_100"
+    assert count(service_engine, observation) == 1
+
+
+def test_a_correction_replaces_the_older_share_in_the_sum(service_engine, user_id, i3302):
+    """MySQL 60 corrected to 30: the newer replaces the older (D-177), so sessions 50 fits."""
+    mysql, sessions = topic_named(service_engine, "mysql"), topic_named(service_engine, "sessions")
+    first = state(service_engine, user_id, "topic-marks", {"marks": 60, "of_total": 100}, mysql)
+    entered_on(service_engine, first["observation_id"], "2022-01-10T09:00:00Z")  # after 2021-09
+    state(service_engine, user_id, "topic-marks", {"marks": 30, "of_total": 100}, mysql)
+
+    state(service_engine, user_id, "topic-marks", {"marks": 50, "of_total": 100}, sessions)
+
+    assert count(service_engine, observation) == 3
+
+
+def test_a_retired_share_does_not_count_toward_100(service_engine, user_id, i3302):
+    """MySQL 60 entered before the newest paper (2021-09-20) is retired (D-179)."""
+    mysql, sessions = topic_named(service_engine, "mysql"), topic_named(service_engine, "sessions")
+    old = state(service_engine, user_id, "topic-marks", {"marks": 60, "of_total": 100}, mysql)
+    entered_on(service_engine, old["observation_id"], "2021-01-10T09:00:00Z")
+
+    state(service_engine, user_id, "topic-marks", {"marks": 50, "of_total": 100}, sessions)
+
+    assert count(service_engine, observation) == 2
+
+
+def test_a_stated_duration_outranks_the_papers(service_engine, user_id, claims):
+    """2.4's Done when, on the fixture: format comes from the 2021-09 resit (90 min); "the final
+    is 2 hours" replaces its duration, keeps its other keys' rule, and clears the flag (D-172,
+    D-178)."""
+    stated = state(service_engine, user_id, DUR, {"minutes": 120})
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL, this_year=2026)
+
+    kept = kept_by(service_engine, result["exam_profile_id"])
+    assert stated["observation_id"] in kept
+    assert claims["dur_90"] not in kept
+    assert result["statements"] == [
+        {"claim_key": DUR, "claim_value": {"minutes": 120}, "topic_id": None}
+    ]
+    assert result["claims"]["format"] == 1
+    assert result["provisional"]["format"] == {
+        "provisional": False,
+        "why": "duration-minutes from the instructor; format from the 2021-09-20 second-session "
+        "paper: the newest first-session paper, 2020-02-17, is more than 5 years old",
+    }
+    assert flags(service_engine, result["exam_profile_id"])[2] == 0
+
+
+def test_a_stated_share_pins_its_topic(service_engine, user_id, i3302):
+    """ "MySQL is 40%": its weight is 40, marked as the instructor's; the rest fill 60 (D-177)."""
+    mysql = topic_named(service_engine, "mysql")
+    before = by_name(derive_profile(service_engine, user_id, "I3302", FINAL))
+    state(service_engine, user_id, "topic-marks", {"marks": 40, "of_total": 100}, mysql)
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    after = by_name(result)
+    assert after[NAMES["mysql"]] == pytest.approx(40)
+    assert sum(after.values()) == pytest.approx(100)
+    rest = 100 - before[NAMES["mysql"]]
+    assert after[NAMES["files"]] == pytest.approx(before[NAMES["files"]] * 60 / rest)
+    sources = {w["name"]: w["source"] for w in result["weights"]}
+    assert sources[NAMES["mysql"]] == "instructor"
+    assert sources[NAMES["files"]] == "papers"
+    with service_engine.connect() as conn:
+        stored = conn.execute(
+            select(topic_weight.c.weight).where(
+                topic_weight.c.exam_profile_id == result["exam_profile_id"],
+                topic_weight.c.topic_id == mysql,
+            )
+        ).scalar_one()
+    assert stored == pytest.approx(40)
+
+
+def test_a_paper_dated_after_a_statement_retires_it(service_engine, user_id, claims):
+    """Entered before the newest paper (2021-09-20): that exam has come and gone (D-179)."""
+    stated = state(service_engine, user_id, DUR, {"minutes": 120})
+    entered_on(service_engine, stated["observation_id"], "2021-01-10T09:00:00Z")
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL, this_year=2026)
+
+    assert result["statements"] == []
+    assert claims["dur_90"] in kept_by(service_engine, result["exam_profile_id"])
+    assert result["provisional"]["format"]["provisional"] is True
+
+
+def test_a_share_is_repeated_in_words(service_engine, user_id, i3302):
+    mysql = topic_named(service_engine, "mysql")
+
+    reply = state(service_engine, user_id, "topic-marks", {"marks": 0, "of_total": 100}, mysql)
+
+    assert reply["stated"].startswith(
+        f"I3302 Final exam, from the instructor: {NAMES['mysql']} is not on the exam."
+    )
+
+
+def test_a_statement_through_the_tool(call, service_engine, user_id, i3302):
+    result = call(
+        "study_add_instructor_statement",
+        {"code": "I3302", "assessment": FINAL, "claim_key": DUR, "claim_value": {"minutes": 120}},
+    )
+
+    assert not result.is_error
+    body = json.loads(result.content[0].text)
+    assert body["claim_key"] == DUR
+    assert count(service_engine, observation) == 1
+
+
+def test_a_bad_value_through_the_tool_is_structured(call, service_engine, user_id, i3302):
+    """A string where an object belongs reaches the service's check, not the SDK's (D-36)."""
+    result = call(
+        "study_add_instructor_statement",
+        {"code": "I3302", "assessment": FINAL, "claim_key": DUR, "claim_value": "two hours"},
+    )
+
+    assert result.is_error
+    assert json.loads(result.content[0].text)["code"] == "invalid_value"
+
+
+def share(obs_id, topic_id, marks, at) -> dict:
+    """One `topic-marks` statement as `counting_statements` gives it."""
+    return {
+        "id": obs_id,
+        "claim_key": "topic-marks",
+        "claim_class": "syllabus-driven",
+        "topic_id": topic_id,
+        "claim_value": {"marks": marks, "of_total": 100},
+        "created_at": at,
+    }
+
+
+def test_shares_within_100_are_all_used():
+    statements = [share("a", "mysql", 40, "2026-10-16T09:00:00Z"), share("b", "regex", 0, AT2)]
+    assert fit_statements(statements) == (statements, [])
+
+
+AT2 = "2026-10-20T09:00:00Z"
+
+
+def test_shares_past_100_set_the_oldest_aside():
+    """D-183: the older 60 no longer fits beside the newer 50; the format one always stays."""
+    old = share("old", "mysql", 60, "2022-01-10T09:00:00Z")
+    new = share("new", "sessions", 50, AT2)
+    duration = {
+        "id": "dur",
+        "claim_key": DUR,
+        "claim_class": "format",
+        "topic_id": None,
+        "claim_value": {"minutes": 120},
+        "created_at": "2021-01-01T00:00:00Z",
+    }
+
+    assert fit_statements([old, new, duration]) == ([new, duration], [old])
+
+
+def test_thirds_fit_despite_float_error():
+    thirds = [share(str(i), f"t{i}", 100 / 3, f"2026-10-1{i}T09:00:00Z") for i in range(3)]
+    assert fit_statements(thirds) == (thirds, [])
+
+
+def test_a_revived_share_gives_way_at_derive(service_engine, user_id, i3302):
+    """QA's case: MySQL 60% was retired when sessions 50% went in; the paper that retired it
+    leaves the set (here: its date moved after the newest paper, 2021-09-20), so it counts
+    again. Derive keeps the newer sessions 50, sets MySQL aside, and says so (D-183)."""
+    mysql, sessions = topic_named(service_engine, "mysql"), topic_named(service_engine, "sessions")
+    old = state(service_engine, user_id, "topic-marks", {"marks": 60, "of_total": 100}, mysql)
+    entered_on(service_engine, old["observation_id"], "2021-01-10T09:00:00Z")  # retired
+    state(service_engine, user_id, "topic-marks", {"marks": 50, "of_total": 100}, sessions)
+    entered_on(service_engine, old["observation_id"], "2022-01-10T09:00:00Z")  # revived
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    weights = by_name(result)
+    assert weights[NAMES["sessions"]] == pytest.approx(50)
+    assert min(weights.values()) >= 0
+    assert sum(weights.values()) == pytest.approx(100)
+    assert result["statements_set_aside"] == [
+        {
+            "claim_key": "topic-marks",
+            "claim_value": {"marks": 60, "of_total": 100},
+            "topic_id": mysql,
+        }
+    ]
+    assert old["observation_id"] not in kept_by(service_engine, result["exam_profile_id"])
+
+
+def test_shares_a_hair_past_100_in_floats_leave_the_rest_at_0():
+    """115/120 + 5/120 is 100% exactly, 100.00000000000001 in floats: the others get 0, never
+    a tiny negative (QA, 2026-10-16)."""
+    pinned = pin_weights(
+        {"a": 50.0, "b": 30.0, "c": 20.0}, {"a": 115 / 120 * 100, "b": 5 / 120 * 100}
+    )
+
+    assert pinned["c"] == 0
+    assert min(pinned.values()) >= 0
+
+
+def test_shares_making_exactly_100_derive(service_engine, user_id, i3302):
+    """The same pair through the tool and derive: both stored, the profile written, every other
+    topic at 0 - before the fix, the weight CHECK refused the insert."""
+    mysql, regex = topic_named(service_engine, "mysql"), topic_named(service_engine, "regex")
+    state(service_engine, user_id, "topic-marks", {"marks": 115, "of_total": 120}, mysql)
+    state(service_engine, user_id, "topic-marks", {"marks": 5, "of_total": 120}, regex)
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    weights = by_name(result)
+    assert weights[NAMES["mysql"]] == pytest.approx(115 / 120 * 100)
+    assert weights[NAMES["regex"]] == pytest.approx(5 / 120 * 100)
+    assert min(weights.values()) >= 0
+    assert sum(weights.values()) == pytest.approx(100)
+
+
+def test_a_sole_unpinned_topic_never_passes_100():
+    """Every other topic "not on the exam": the last one takes all 100 - in floats
+    0.0244... x 100 / 0.0244... is 100.00000000000001, which the weight CHECK refuses (QA,
+    2026-10-16; seen on I3304, I3305 and I3350 Final)."""
+    small = 0.024477102685254104
+    pinned = pin_weights({"a": 100 - small, "b": small}, {"a": 0})
+
+    assert pinned == {"a": 0, "b": 100.0}
