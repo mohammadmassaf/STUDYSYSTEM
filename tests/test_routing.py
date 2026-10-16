@@ -1,5 +1,7 @@
 """Routing a slot's claims into a profile (2.1b; D-14, D-150, D-152, D-157), and the instructor
-bar on its `provisional` flag (2.2; D-165). Pure: no database.
+bar on its `provisional` flag (2.2; D-165), and the paper that sets format with its flag (2.3;
+D-168 - D-170).
+Pure: no database.
 
 The names are his live ones: I3302's course reads "A. Ghrayeb", its 2023-09 paper "Dr. Ali
 Ghorayeb", its 2019-2021 papers "Dr. Mohamad Hamze"; I3305's papers are co-taught.
@@ -7,7 +9,13 @@ Ghorayeb", its 2019-2021 papers "Dr. Mohamad Hamze"; I3305's papers are co-taugh
 
 import pytest
 
-from studysystem.services.claims import instructor_provisional, route_claims, same_person
+from studysystem.services.claims import (
+    format_paper,
+    format_provisional,
+    instructor_provisional,
+    route_claims,
+    same_person,
+)
 
 SAME_PERSON = [
     ("Dr. Ali Ghorayeb", "A. Ghrayeb", True),  # spelling drift, 0.93
@@ -145,4 +153,165 @@ def test_a_co_taught_paper_counts_for_either_name():
     assert instructor_provisional(instructors, "A. Safadi") == {
         "provisional": False,
         "why": "2 of 2 papers by A. Safadi; 2 needed",
+    }
+
+
+# --- format_paper (2.3; D-14, D-168, D-169) ---------------------------------------------------
+
+YEAR = 2026  # today's year when these were written; 5-year cap -> 2021 in, 2020 out
+
+
+def test_a_first_session_past_the_cap_gives_way_to_a_newer_resit():
+    """(1) I3302 Final: newest first is 2020-02 (6 years), the 2023-09 resit is newer."""
+    papers = [
+        ("second", "2023-09-13", True),
+        ("second", "2021-09-20", True),
+        ("second", "2020-09-14", False),
+        ("first", "2020-02-17", False),
+        ("second", "2019-09-06", False),
+        ("first", "2019-01-24", False),
+        ("second", "2018-07-21", False),
+        ("first", "2018-01-23", False),
+    ]
+    assert format_paper(papers, "first", YEAR) == 0
+
+
+def test_the_matching_session_beats_a_newer_resit():
+    """(2) I3306 Final: the 2025-07 resit is newest, the 2025-03 first session sets format."""
+    papers = [
+        ("second", "2025-07-24", False),
+        ("first", "2025-03-07", True),
+        ("first", "2022-04-13", False),
+    ]
+    assert format_paper(papers, "first", YEAR) == 1
+
+
+def test_an_unobserved_newest_match_is_still_the_one():
+    """(3) the newest first is not observed: it is picked anyway, never an older observed one -
+    its format is empty until its observation task runs."""
+    papers = [("first", "2025-03-07", False), ("first", "2022-04-13", True)]
+    assert format_paper(papers, "first", YEAR) == 0
+
+
+def test_no_paper_of_the_matching_session_takes_the_newest_other():
+    """(4) only resits in the set."""
+    papers = [("second", "2024-07-18", True), ("second", "2023-09-13", True)]
+    assert format_paper(papers, "first", YEAR) == 0
+
+
+def test_an_old_match_stays_when_the_other_session_is_older_still():
+    """(5) both past the cap: the newer of the two, here the first session."""
+    papers = [("first", "2019-01-24", True), ("second", "2018-07-21", True)]
+    assert format_paper(papers, "first", YEAR) == 0
+
+
+@pytest.mark.parametrize(("date", "expected"), [("2021-01-10", 1), ("2020-12-30", 0)])
+def test_the_cap_counts_whole_years(date, expected):
+    """(6) in 2026 a 2021 first session is 5 years old - in, it beats the newer resit; a 2020 one
+    is 6 - out, the resit sets format. The month never counts."""
+    papers = [("second", "2023-06-01", True), ("first", date, True)]
+    assert format_paper(papers, "first", YEAR) == expected
+
+
+def test_no_papers_set_no_format():
+    assert format_paper([], "first", YEAR) is None
+
+
+def test_the_matching_session_is_an_input():
+    """A student sitting the resit matches `second`: the same papers, the other answer."""
+    papers = [("first", "2025-03-07", True), ("second", "2024-07-18", True)]
+    assert format_paper(papers, "second", YEAR) == 1
+
+
+# --- format_provisional (2.3; D-14, D-167, D-169, D-170) --------------------------------------
+
+I3302 = [  # his live I3302 Final, newest first: two resits observed, no first session
+    ("second", "2023-09-13", True),
+    ("second", "2021-09-20", True),
+    ("second", "2020-09-14", False),
+    ("first", "2020-02-17", False),
+    ("second", "2019-09-06", False),
+    ("first", "2019-01-24", False),
+]
+I3306 = [  # I3306 Final after the observation task on 2025-03, newest first
+    ("second", "2025-07-24", False),
+    ("first", "2025-03-07", True),
+    ("first", "2022-04-13", False),
+    ("first", "2021-08-06", False),
+    ("first", "2019-01-25", False),
+]
+
+
+def test_a_resit_setting_format_is_provisional_and_says_why():
+    """(7) I3302: the fallback (D-169) never clears the bar, whatever the count."""
+    assert format_provisional(I3302, "first", YEAR, 0) == {
+        "provisional": True,
+        "why": "format from the 2023-09-13 second-session paper: the newest first-session paper, "
+        "2020-02-17, is more than 5 years old",
+    }
+
+
+def test_one_read_paper_of_the_session_is_provisional():
+    """(8) I3306: 2025-03 read; 2022-04 and 2021-08 in the cap but not read; 2019 outside it."""
+    assert format_provisional(I3306, "first", YEAR, 1) == {
+        "provisional": True,
+        "why": "format from 2025-03-07; 1 of 3 first-session papers since 2021 read; 2 needed",
+    }
+
+
+def test_two_read_papers_of_the_session_clear_it():
+    """(9) the bar itself: 2022-04 read too."""
+    papers = list(I3306)
+    papers[2] = ("first", "2022-04-13", True)
+    assert format_provisional(papers, "first", YEAR, 1) == {
+        "provisional": False,
+        "why": "format from 2025-03-07; 2 of 3 first-session papers since 2021 read; 2 needed",
+    }
+
+
+def test_a_read_paper_past_the_cap_does_not_count():
+    """(10) 2019-01 read: more than 5 years old, so still one."""
+    papers = list(I3306)
+    papers[4] = ("first", "2019-01-25", True)
+    assert format_provisional(papers, "first", YEAR, 1)["provisional"] is True
+    assert "1 of 3" in format_provisional(papers, "first", YEAR, 1)["why"]
+
+
+def test_a_picked_paper_never_observed_names_the_task_to_run():
+    papers = [("first", "2025-03-07", False), ("first", "2022-04-13", True)]
+    assert format_provisional(papers, "first", YEAR, 0) == {
+        "provisional": True,
+        "why": "format from 2025-03-07; not observed yet - run its observation task",
+    }
+
+
+def test_an_old_match_with_nothing_newer_says_so():
+    papers = [("first", "2019-01-24", True), ("second", "2018-07-21", True)]
+    assert format_provisional(papers, "first", YEAR, 0) == {
+        "provisional": True,
+        "why": "format from 2019-01-24, more than 5 years old - no newer paper",
+    }
+
+
+def test_no_paper_of_the_session_says_so():
+    papers = [("second", "2024-07-18", False)]
+    assert format_provisional(papers, "first", YEAR, 0) == {
+        "provisional": True,
+        "why": "format from the 2024-07-18 second-session paper: no first-session paper; "
+        "not observed yet - run its observation task",
+    }
+
+
+def test_no_session_to_match_says_so():
+    papers = [("first", "2025-03-07", True)]
+    assert format_provisional(papers, None, YEAR, 0) == {
+        "provisional": True,
+        "why": "format from 2025-03-07: the assessment records no session to match",
+    }
+
+
+def test_no_paper_at_all():
+    assert format_provisional([], "first", YEAR, None) == {
+        "provisional": True,
+        "why": "no paper to take format from",
     }
