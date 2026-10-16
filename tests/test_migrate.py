@@ -20,6 +20,7 @@ from studysystem.db.tables import (
     assessment,
     assessment_slot,
     course,
+    exam_profile,
     generation_task,
     hours_entry,
     metadata,
@@ -31,7 +32,7 @@ from studysystem.db.tables import (
     user,
 )
 
-HEAD = "0012"
+HEAD = "0013"
 
 
 def stamp() -> str | None:
@@ -893,3 +894,71 @@ def test_0012_adds_profile_claim_and_its_downgrade_drops_only_it(empty_engine):
 
     command.downgrade(migrate.alembic_config(empty_engine), "0011")
     assert set(inspect(empty_engine).get_table_names()) == before
+
+
+# --- 0013: the assumed-instructor count (D-176) -------------------------------------------------
+
+
+def test_0013_keeps_a_profile_and_its_task_and_reads_it_as_assuming_none(empty_engine):
+    """The rebuild of `exam_profile`, a parent table, keeps a profile made before it and the task
+    built on it; the new count reads 0 - true, derive assumed no instructor before 2.4 (D-176) -
+    and down to 0012 drops the column alone."""
+    command.upgrade(migrate.alembic_config(empty_engine), "0012")
+    profile = "6" * 26
+    with empty_engine.begin() as conn:
+        conn.execute(insert(user).values(id=UID, created_at=AT))
+        conn.execute(
+            insert(course).values(
+                id=COURSE,
+                user_id=UID,
+                code="I3302",
+                name="Server-Side Web Development",
+                semester_name="Semester 1",
+                instructor_tier="unknown",
+                credits_tier="unknown",
+                created_at=AT,
+            )
+        )
+        conn.execute(
+            insert(assessment_slot).values(
+                id=SLOT,
+                owner_id=UID,
+                course_id=COURSE,
+                name="Final exam",
+                kind="exam",
+                created_at=AT,
+            )
+        )
+        conn.execute(
+            insert(exam_profile).values(
+                id=profile,
+                owner_id=UID,
+                slot_id=SLOT,
+                version=1,
+                derived_at=AT,
+                provisional_syllabus=0,
+                provisional_instructor=1,
+                provisional_format=1,
+                evidence_count_syllabus=5,
+                evidence_count_instructor=0,
+                evidence_count_format=0,
+            )
+        )
+        conn.execute(
+            insert(generation_task).values(
+                **{**_task("a" * 26, "open"), "exam_profile_id": profile}
+            )
+        )
+
+    migrate.upgrade(empty_engine)
+
+    with empty_engine.connect() as conn:
+        assert conn.execute(
+            select(exam_profile.c.id, exam_profile.c.assumed_instructor_papers)
+        ).all() == [(profile, 0)]
+        assert conn.execute(select(generation_task.c.exam_profile_id)).scalars().all() == [profile]
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0012")
+    columns = {c["name"] for c in inspect(empty_engine).get_columns("exam_profile")}
+    assert "assumed_instructor_papers" not in columns
+    assert "provisional_instructor" in columns

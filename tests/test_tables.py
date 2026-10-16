@@ -331,6 +331,7 @@ RULE_CASES: list[tuple[str, str, dict]] = [
     ("ck_exam_profile_count_syllabus_min", "exam_profile", dict(evidence_count_syllabus=-1)),
     ("ck_exam_profile_count_instructor_min", "exam_profile", dict(evidence_count_instructor=-1)),
     ("ck_exam_profile_count_format_min", "exam_profile", dict(evidence_count_format=-1)),
+    ("ck_exam_profile_count_assumed_min", "exam_profile", dict(assumed_instructor_papers=-1)),
     # generation_task
     ("ck_generation_task_bytes_sent_min", "generation_task", dict(bytes_sent=-1)),
     ("ck_generation_task_bytes_returned_min", "generation_task", dict(bytes_returned=-1)),

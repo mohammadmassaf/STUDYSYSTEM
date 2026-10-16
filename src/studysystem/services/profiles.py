@@ -27,6 +27,7 @@ from studysystem.db.tables import (
 )
 from studysystem.errors import StudyError
 from studysystem.services.claims import (
+    assume_instructors,
     format_paper,
     format_provisional,
     instructor_provisional,
@@ -120,7 +121,8 @@ def derive_profile(
     `too_few_papers` below MIN_PAPERS, and `topics_unconfirmed` while a live item sits on a
     `proposed` topic. Writes the profile row, one `topic_weight` row per topic, one
     `profile_claim` row per format or instructor-driven observation of the same papers that
-    `route_claims` keeps against `course.instructor` (D-156, D-159) - format from the paper
+    `route_claims` keeps against `course.instructor` (D-156, D-159), a paper naming no one
+    counted as its nearest named paper's (D-174) - format from the paper
     `format_paper` picks for the session of the slot's `assessment` row (D-168, D-169) - and
     moves open tasks built on an older profile of this slot to `invalidated`. `this_year` ages
     the papers for D-169's cap; None is the student's local year.
@@ -129,7 +131,8 @@ def derive_profile(
     "weight"}], "claims": {"format", "instructor-driven"}, "provisional": {"syllabus",
     "instructor-driven", "format"}, "invalidated"} - weights heaviest first, `claims` the
     observations kept per class, `provisional` each class's flag as the row stores it with its
-    reason (2.2; D-164 - D-167), `invalidated` the number of tasks.
+    reason (2.2; D-164 - D-167; assumed papers named in the instructor reason, D-175), `invalidated`
+    the number of tasks.
     """
     with write_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
@@ -203,10 +206,24 @@ def derive_profile(
                     past_exam.c.instructor,
                     past_exam.c.session_type,
                     past_exam.c.session_date,
+                    past_exam.c.session_date_approx,
                 ).where(past_exam.c.id.in_(past_exam_ids))
             )
         }
-        instructors = {p_id: row.instructor for p_id, row in paper_rows.items()}
+        # Each paper's date as the reasons print it: a month-only paper as YYYY-MM, not the 1st
+        # it is stored as (D-137, D-181).
+        shown = {
+            p_id: row.session_date[:7] if row.session_date_approx else row.session_date
+            for p_id, row in paper_rows.items()
+        }
+        # Who each paper counts as: a paper naming no one takes its nearest named one's (D-174).
+        counted_as = assume_instructors(
+            [paper_rows[p_id].instructor for p_id in past_exam_ids], course_instructor
+        )
+        instructor_of = [  # (name, was assumed, date) per paper, for the instructor reason (D-175)
+            (name, was_assumed, shown[p_id])
+            for (name, was_assumed), p_id in zip(counted_as, past_exam_ids, strict=True)
+        ]
         # The session he sits next: the slot's sitting, `first` when it has a resit too (D-168).
         session = conn.execute(
             select(assessment.c.session_type)
@@ -228,11 +245,14 @@ def derive_profile(
         ):
             claims_of[obs.past_exam_id].append((obs.id, obs.claim_class))
             class_of[obs.id] = obs.claim_class
-        papers = [(instructors[p_id], claims_of[p_id]) for p_id in past_exam_ids]
+        papers = [
+            (name, claims_of[p_id])
+            for (name, _), p_id in zip(counted_as, past_exam_ids, strict=True)
+        ]
         format_papers = [
             (
                 paper_rows[p_id].session_type,
-                paper_rows[p_id].session_date,
+                shown[p_id],
                 any(claim_class == "format" for _, claim_class in claims_of[p_id]),
             )
             for p_id in past_exam_ids
@@ -251,9 +271,7 @@ def derive_profile(
                 "provisional": False,  # below MIN_PAPERS derive refuses (D-164)
                 "why": f"{len(past_exam_ids)} papers; {MIN_PAPERS} needed",
             },
-            "instructor-driven": instructor_provisional(
-                [instructors[p_id] for p_id in past_exam_ids], course_instructor
-            ),
+            "instructor-driven": instructor_provisional(instructor_of, course_instructor),  # D-175
             "format": format_provisional(format_papers, session, this_year, format_at),  # D-170
         }
 
@@ -282,6 +300,7 @@ def derive_profile(
                 evidence_count_syllabus=sum(len(paper) for paper in items),
                 evidence_count_instructor=kept_per_class["instructor-driven"],  # D-158
                 evidence_count_format=kept_per_class["format"],
+                assumed_instructor_papers=sum(was for _, was, _ in instructor_of),  # D-176
             )
         )
 

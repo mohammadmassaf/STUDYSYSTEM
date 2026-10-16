@@ -610,7 +610,11 @@ def test_a_profile_states_each_class_provisional_and_why(service_engine, user_id
     assert flags(service_engine, result["exam_profile_id"]) == (0, 1, 1)
     assert result["provisional"] == {
         "syllabus": {"provisional": False, "why": "3 papers; 3 needed"},
-        "instructor-driven": {"provisional": True, "why": "1 of 3 papers by A. Ghrayeb; 2 needed"},
+        "instructor-driven": {
+            "provisional": True,
+            "why": "1 of 3 papers by A. Ghrayeb; 2 needed - 2020-02-17 names no instructor, "
+            "assumed by its nearest named paper's",
+        },
         "format": {
             "provisional": True,
             "why": "format from the 2021-09-20 second-session paper: the newest first-session "
@@ -634,6 +638,75 @@ def test_the_instructor_flag_follows_who_teaches_now(service_engine, user_id, cl
         "provisional": False,
         "why": "2 of 3 papers by M. Hamze; 2 needed",
     }
+
+
+# --- a paper naming no instructor counts as its nearest named one's (2.4; D-174 - D-176) --------
+
+
+def assumed_count(engine, profile_id) -> int:
+    with engine.connect() as conn:
+        return conn.execute(
+            select(exam_profile.c.assumed_instructor_papers).where(exam_profile.c.id == profile_id)
+        ).scalar_one()
+
+
+def test_a_profile_stores_how_many_papers_it_assumed(service_engine, user_id, claims):
+    """2020-02 names no one: it is assumed Hamze's (the newer 2020-09), and the row says 1
+    (D-176) - so the dashboard sees the assumption without the reply."""
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    assert assumed_count(service_engine, result["exam_profile_id"]) == 1
+
+
+def test_an_unnamed_papers_traps_count_as_its_neighbours(service_engine, user_id, claims):
+    """Hamze declared as teaching now: 2020-02 names no one but sits after his 2020-09, so its
+    trap is kept as his, and it counts toward his bar (D-174, D-175); Ghorayeb's is not."""
+    first_trap = observe(
+        service_engine, user_id, paper_on(service_engine, "2020-02-17"), TRAP, {"text": "isset"}
+    )
+    set_course_input(service_engine, user_id, "I3302", "instructor", "M. Hamze")
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    kept = kept_by(service_engine, result["exam_profile_id"])
+    assert {claims["hamze_trap"], first_trap} <= kept
+    assert claims["ghorayeb_trap"] not in kept
+    assert result["provisional"]["instructor-driven"] == {
+        "provisional": False,
+        "why": "2 of 3 papers by M. Hamze; 2 needed - 2020-02-17 names no instructor, assumed "
+        "by its nearest named paper's",
+    }
+
+
+def test_a_profile_derived_with_every_paper_named_assumes_none(service_engine, user_id, claims):
+    name_instructor(service_engine, paper_on(service_engine, "2020-02-17"), "Dr. Mohamad Hamze")
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    assert assumed_count(service_engine, result["exam_profile_id"]) == 0
+
+
+def test_a_month_only_paper_prints_its_month_in_both_reasons(service_engine, user_id, claims):
+    """2020-02-17 marked month-only (stored as the 1st, D-137): both reasons print "2020-02",
+    never a day the paper does not print (D-181)."""
+    first = paper_on(service_engine, "2020-02-17")  # read before the write unit takes the lock
+    with write_unit(service_engine) as conn:
+        conn.execute(
+            update(past_exam)
+            .where(past_exam.c.id == first)
+            .values(session_date="2020-02-01", session_date_approx=1)
+        )
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL, this_year=2026)
+
+    assert result["provisional"]["instructor-driven"]["why"] == (
+        "1 of 3 papers by A. Ghrayeb; 2 needed - 2020-02 names no instructor, assumed by its "
+        "nearest named paper's"
+    )
+    assert result["provisional"]["format"]["why"] == (
+        "format from the 2021-09-20 second-session paper: the newest first-session paper, "
+        "2020-02, is more than 5 years old"
+    )
 
 
 # --- format by the session he sits next (2.3; D-168 - D-170) ---------------------------------

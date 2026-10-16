@@ -10,6 +10,7 @@ Ghorayeb", its 2019-2021 papers "Dr. Mohamad Hamze"; I3305's papers are co-taugh
 import pytest
 
 from studysystem.services.claims import (
+    assume_instructors,
     format_paper,
     format_provisional,
     instructor_provisional,
@@ -109,31 +110,110 @@ def test_route_of_no_papers_keeps_nothing():
     assert route_claims([], NOW, None) == []
 
 
-# --- instructor_provisional (2.2; D-14, D-165, D-167) -----------------------------------------
+# --- assume_instructors (2.4; D-174) ----------------------------------------------------------
+
+DBOUK = "M. DBOUK"
+SAFADI_HAMZE = "Dr. Abed El Safadi, Dr. Mohamad Hamze"  # I3305's 2021-09
+
+
+def test_named_papers_keep_their_own_names():
+    assert assume_instructors([GHORAYEB, HAMZE], NOW) == [(GHORAYEB, False), (HAMZE, False)]
+
+
+def test_a_gap_between_two_papers_of_one_instructor_takes_that_name():
+    """I3306 Final's 2022-04, between Dbouk papers."""
+    instructors = [DBOUK] * 3 + [None] + [DBOUK] * 4
+    assert assume_instructors(instructors, "M. Dbouk")[3] == (DBOUK, True)
+
+
+def test_a_gap_between_two_instructors_takes_the_newer():
+    assert assume_instructors([HAMZE, None, GHORAYEB], NOW) == [
+        (HAMZE, False),
+        (HAMZE, True),
+        (GHORAYEB, False),
+    ]
+
+
+def test_unnamed_papers_at_the_old_end_take_the_newest_name_above_them():
+    """I3302 Final: both 2018 papers are Hamze's - the course's instructor is never reached."""
+    instructors = [GHORAYEB] + [HAMZE] * 5 + [None] * 2
+    assert assume_instructors(instructors, NOW)[6:] == [(HAMZE, True), (HAMZE, True)]
+
+
+def test_unnamed_papers_at_the_new_end_take_the_nearest_older_name():
+    """I3305 Final: its three newest papers name no one; the oldest is spelled differently, so
+    taking it instead of the nearest shows."""
+    instructors = [None] * 3 + [
+        SAFADI_HAMZE,
+        "Dr. Abed El Safadi",
+        "Dr. Mohamad Hamze, Dr. Abed EL Safadi",
+    ]
+    assert assume_instructors(instructors, "A. Safadi")[:3] == [(SAFADI_HAMZE, True)] * 3
+
+
+def test_a_set_with_no_name_takes_the_course_instructor():
+    """I3301 Final: no paper names anyone."""
+    assert assume_instructors([None] * 5, "K. Beydoun") == [("K. Beydoun", True)] * 5
+
+
+def test_no_name_anywhere_stays_unknown_and_is_not_assumed():
+    """No paper names anyone and the course names no one: nothing to assume from."""
+    assert assume_instructors([None] * 3, None) == [(None, False)] * 3
+
+
+def test_no_papers_assume_nothing():
+    assert assume_instructors([], NOW) == []
+
+
+# --- instructor_provisional (2.2, 2.4; D-14, D-165, D-167, D-175) -----------------------------
+
+I3302_FINAL = [  # (instructor, date) per paper, newest first - his live set
+    (GHORAYEB, "2023-09-13"),
+    (HAMZE, "2021-09-20"),
+    (HAMZE, "2020-09-14"),
+    (HAMZE, "2020-02-17"),
+    (HAMZE, "2019-09-06"),
+    (HAMZE, "2019-01-24"),
+    (None, "2018-07-21"),
+    (None, "2018-01-23"),
+]
+
+
+def flag(papers, course_instructor) -> dict:
+    """The flag over (instructor text, date) per paper, newest first: unnamed papers assumed
+    first and their dates handed on, as derive does (D-174, D-175)."""
+    counted_as = assume_instructors([name for name, _ in papers], course_instructor)
+    triples = [(n, a, date) for (n, a), (_, date) in zip(counted_as, papers, strict=True)]
+    return instructor_provisional(triples, course_instructor)
 
 
 def test_instructor_change_leaves_one_paper_by_who_teaches_now():
-    """(a) I3302 Final: Hamze set 2019-2021, Ghorayeb 2023-09, two papers name no one."""
-    instructors = [GHORAYEB] + [HAMZE] * 5 + [None] * 2
-    assert instructor_provisional(instructors, NOW) == {
+    """(a) I3302 Final: Hamze set 2019-2021, Ghorayeb 2023-09; the two 2018 papers name no one
+    and are assumed Hamze's, so they do not lift Ghrayeb's count - the reason lists them."""
+    assert flag(I3302_FINAL, NOW) == {
         "provisional": True,
-        "why": "1 of 8 papers by A. Ghrayeb; 2 needed",
+        "why": "1 of 8 papers by A. Ghrayeb; 2 needed - 2018-07-21, 2018-01-23 name no "
+        "instructor, assumed by their nearest named paper's",
     }
 
 
 def test_many_papers_by_the_same_instructor_clear_it():
-    """(b) I3306 Final: Dbouk on 7 of 8, one paper names no one."""
-    instructors = ["M. DBOUK"] * 7 + [None]
-    assert instructor_provisional(instructors, "M. Dbouk") == {
+    """(b) I3306 Final: Dbouk on 7 of 8; 2022-04 names no one and sits between Dbouk papers."""
+    dates = ["2025-07-24", "2025-03-07", "2024-07-01", "2022-04-13"]
+    dates += ["2021-09-17", "2021-08-06", "2019-09-07", "2019-01-25"]
+    papers = [(None if d == "2022-04-13" else "M. DBOUK", d) for d in dates]
+    assert flag(papers, "M. Dbouk") == {
         "provisional": False,
-        "why": "7 of 8 papers by M. Dbouk; 2 needed",
+        "why": "8 of 8 papers by M. Dbouk; 2 needed - 2022-04-13 names no instructor, assumed "
+        "by its nearest named paper's",
     }
 
 
 def test_exactly_two_papers_clear_it():
-    """(c) the bar itself: two Ghorayeb papers, spelled two ways."""
-    instructors = [GHORAYEB, HAMZE, "Dr. A. Ghorayeb"]
-    assert instructor_provisional(instructors, NOW) == {
+    """(c) the bar itself: two Ghorayeb papers, spelled two ways; nothing assumed, so the reason
+    says nothing of it."""
+    papers = [(GHORAYEB, "2023-09-13"), (HAMZE, "2021-09-20"), ("Dr. A. Ghorayeb", "2018-11-15")]
+    assert flag(papers, NOW) == {
         "provisional": False,
         "why": "2 of 3 papers by A. Ghrayeb; 2 needed",
     }
@@ -141,24 +221,49 @@ def test_exactly_two_papers_clear_it():
 
 def test_a_course_naming_no_instructor_is_provisional():
     """(d) like DHR300: no one declared as teaching now, so no paper is by them (D-150)."""
-    assert instructor_provisional([GHORAYEB, GHORAYEB], None) == {
+    assert flag([(GHORAYEB, "2023-09-13"), (GHORAYEB, "2021-09-20")], None) == {
         "provisional": True,
         "why": "the course names no instructor; 2 papers by them needed",
     }
 
 
-def test_papers_naming_no_one_never_count():
-    """(e) I3301 Final: five papers, none names an instructor."""
-    assert instructor_provisional([None] * 5, "K. Beydoun") == {
+def test_a_course_naming_no_instructor_still_lists_the_assumed_papers():
+    """(d2) the row counts 2 assumed papers, so the reason says which (D-175)."""
+    papers = [(GHORAYEB, "2023-09-13"), (None, "2018-07-21"), (None, "2018-01-23")]
+    assert flag(papers, None) == {
         "provisional": True,
-        "why": "0 of 5 papers by K. Beydoun; 2 needed",
+        "why": "the course names no instructor; 2 papers by them needed - 2018-07-21, "
+        "2018-01-23 name no instructor, assumed by their nearest named paper's",
+    }
+
+
+def test_a_set_naming_no_one_counts_as_the_course_instructors():
+    """(e) I3301 Final: five papers, none names an instructor - each is assumed the course's,
+    and the bar clears on the assumption, said in the reason (D-175)."""
+    dates = ["2025-02-27", "2024-07-22", "2024-01-22", "2023-09-11", "2023-03-16"]
+    assert flag([(None, d) for d in dates], "K. Beydoun") == {
+        "provisional": False,
+        "why": "5 of 5 papers by K. Beydoun; 2 needed - 2025-02-27, 2024-07-22, 2024-01-22, "
+        "2023-09-11, 2023-03-16 name no instructor, assumed by the course's",
+    }
+
+
+def test_one_paper_naming_no_one_takes_the_course_instructors():
+    """(e2) a slot with a single paper, unnamed: the singular reason."""
+    assert flag([(None, "2025-02-27")], "K. Beydoun") == {
+        "provisional": True,
+        "why": "1 of 1 papers by K. Beydoun; 2 needed - 2025-02-27 names no instructor, assumed "
+        "by the course's",
     }
 
 
 def test_a_co_taught_paper_counts_for_either_name():
     """(f) I3305: 2019-09 names Hamze and Safadi - it is a Safadi paper too (D-152)."""
-    instructors = ["Dr. Mohamad Hamze, Dr. Abed EL Safadi", "Dr. Abed El Safadi"]
-    assert instructor_provisional(instructors, "A. Safadi") == {
+    papers = [
+        ("Dr. Mohamad Hamze, Dr. Abed EL Safadi", "2019-09-05"),
+        ("Dr. Abed El Safadi", "2020-02-12"),
+    ]
+    assert flag(papers, "A. Safadi") == {
         "provisional": False,
         "why": "2 of 2 papers by A. Safadi; 2 needed",
     }
