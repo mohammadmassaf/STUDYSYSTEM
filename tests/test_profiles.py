@@ -1,6 +1,6 @@
 """Exam profiles (1.13; D-14, D-67 - D-69). The weight math first: a pure function over papers
 given newest first - no database. Then `derive_profile`, the write unit around it, its routed
-claims (2.1b) and its per-class `provisional` (2.2)."""
+claims (2.1b), its per-class `provisional` (2.2) and format by the session he sits next (2.3)."""
 
 import json
 
@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import func, insert, select, update
 
 from studysystem.db.tables import (
+    assessment,
     exam_profile,
     generation_task,
     observation,
@@ -503,8 +504,9 @@ def claims(service_engine, user_id, i3302):
 
 
 def test_a_profile_keeps_each_class_by_its_own_rule(service_engine, user_id, claims):
-    """Format from the newest paper only; instructor claims from papers by who teaches now."""
-    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+    """Format from one paper only - here the 2021-09 resit, its first session being past the cap
+    (D-169); instructor claims from papers by who teaches now."""
+    result = derive_profile(service_engine, user_id, "I3302", FINAL, this_year=2026)
 
     with service_engine.connect() as conn:
         profile = conn.execute(select(exam_profile)).one()
@@ -601,14 +603,19 @@ def flags(engine, profile_id) -> tuple[int, int, int]:
 
 def test_a_profile_states_each_class_provisional_and_why(service_engine, user_id, claims):
     """(g) 2.2's Done when on the fixture: one Ghorayeb paper of three is below the instructor
-    bar; syllabus is cleared by the refusal (D-164); format waits for 2.3 (D-166)."""
-    result = derive_profile(service_engine, user_id, "I3302", FINAL)
+    bar; syllabus is cleared by the refusal (D-164); format comes from a resit, so it is
+    provisional and says why (D-169, D-170)."""
+    result = derive_profile(service_engine, user_id, "I3302", FINAL, this_year=2026)
 
     assert flags(service_engine, result["exam_profile_id"]) == (0, 1, 1)
     assert result["provisional"] == {
         "syllabus": {"provisional": False, "why": "3 papers; 3 needed"},
         "instructor-driven": {"provisional": True, "why": "1 of 3 papers by A. Ghrayeb; 2 needed"},
-        "format": {"provisional": True, "why": "the session match comes in 2.3"},
+        "format": {
+            "provisional": True,
+            "why": "format from the 2021-09-20 second-session paper: the newest first-session "
+            "paper, 2020-02-17, is more than 5 years old",
+        },
     }
 
 
@@ -627,3 +634,70 @@ def test_the_instructor_flag_follows_who_teaches_now(service_engine, user_id, cl
         "provisional": False,
         "why": "2 of 3 papers by M. Hamze; 2 needed",
     }
+
+
+# --- format by the session he sits next (2.3; D-168 - D-170) ---------------------------------
+
+
+def sit(engine, user_id, session_type) -> None:
+    """Set the Final's sitting to `session_type` - the session he sits next (D-168)."""
+    with write_unit(engine) as conn:
+        conn.execute(
+            update(assessment)
+            .where(assessment.c.user_id == user_id, assessment.c.session_type.is_not(None))
+            .values(session_type=session_type)
+        )
+
+
+def test_the_first_session_sets_format_over_a_newer_resit(service_engine, user_id, claims):
+    """2.3's Done when, on the fixture: seen from 2022, the 2020-02 first session is within the
+    cap, so its 5 questions are kept and the newer resits' minutes are not."""
+    result = derive_profile(service_engine, user_id, "I3302", FINAL, this_year=2022)
+
+    assert kept_by(service_engine, result["exam_profile_id"]) == {
+        claims["count_5"],
+        claims["ghorayeb_trap"],
+    }
+    assert result["provisional"]["format"] == {
+        "provisional": True,
+        "why": "format from 2020-02-17; 1 of 1 first-session papers since 2017 read; 2 needed",
+    }
+
+
+def test_a_student_sitting_the_resit_matches_the_resits(service_engine, user_id, claims):
+    """The sitting reads `second`: format from the newest resit, and two resits read clear it."""
+    sit(service_engine, user_id, "second")
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL, this_year=2022)
+
+    assert kept_by(service_engine, result["exam_profile_id"]) == {
+        claims["dur_90"],
+        claims["ghorayeb_trap"],
+    }
+    assert result["provisional"]["format"] == {
+        "provisional": False,
+        "why": "format from 2021-09-20; 2 of 2 second-session papers since 2017 read; 2 needed",
+    }
+    assert flags(service_engine, result["exam_profile_id"])[2] == 0
+
+
+def test_a_slot_with_a_resit_sitting_too_matches_the_first(service_engine, user_id, claims):
+    """Two sittings on the Final, first and second (unique per slot): `first` (D-168)."""
+    with write_unit(service_engine) as conn:
+        slot_id = conn.execute(
+            select(past_exam.c.slot_id).where(past_exam.c.session_date == "2020-02-17")
+        ).scalar_one()
+        conn.execute(
+            insert(assessment).values(
+                id=new_id(),
+                user_id=user_id,
+                slot_id=slot_id,
+                weight_tier="unknown",
+                session_type="second",
+                created_at=now(),
+            )
+        )
+
+    result = derive_profile(service_engine, user_id, "I3302", FINAL, this_year=2022)
+
+    assert claims["count_5"] in kept_by(service_engine, result["exam_profile_id"])

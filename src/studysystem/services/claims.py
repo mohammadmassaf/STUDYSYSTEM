@@ -141,32 +141,29 @@ def same_person(paper_instructor: str | None, course_instructor: str | None) -> 
     return False
 
 
-def route_claims(papers: Sequence[PaperClaims], course_instructor: str | None) -> list[str]:
+def route_claims(
+    papers: Sequence[PaperClaims], course_instructor: str | None, format_at: int | None
+) -> list[str]:
     """The observation ids a profile version keeps, papers given newest first (D-14).
 
-    - format: only the newest paper that has a format claim keeps them, any session type
-      until 2.3 (D-157).
+    - format: only the paper at `format_at` keeps them - `format_paper` picks it (2.3; D-169);
+      None keeps none.
     - instructor-driven: every paper by the course's instructor keeps them (`same_person`;
       D-150).
     - syllabus-driven: never routed here - weights derive from items (D-151).
 
     I3302 Final, after the 2021-09 observation task:
     [("Dr. Ali Ghorayeb", 3 format + 13 instructor), ("Dr. Mohamad Hamze", its claims), ...]
-    with "A. Ghrayeb" -> the 16 ids of 2023-09; none of 2021-09's.
+    with "A. Ghrayeb" and format_at 0 -> the 16 ids of 2023-09; none of 2021-09's.
     """
     kept = []
-    format_taken = False  # an earlier (newer) paper already gave format
-    for instructor, claims in papers:
-        has_format = any(claim_class == "format" for _, claim_class in claims)
-        take_format = has_format and not format_taken
+    for pos, (instructor, claims) in enumerate(papers):
         by_course_instructor = same_person(instructor, course_instructor)
         for obs_id, claim_class in claims:
-            if claim_class == "format" and take_format:
+            if claim_class == "format" and pos == format_at:
                 kept.append(obs_id)
             elif claim_class == "instructor-driven" and by_course_instructor:
                 kept.append(obs_id)
-        if take_format:
-            format_taken = True
     return kept
 
 

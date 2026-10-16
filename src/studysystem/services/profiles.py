@@ -1,17 +1,20 @@
 """Exam profiles (1.13; D-14, D-21, D-67 - D-69): a slot's transcribed papers become the next
 `exam_profile` version, its topic weights, and the format and instructor-driven observations it
-keeps - each class routed by its own rule (2.1b; D-156 - D-159).
+keeps - each class routed by its own rule (2.1b; D-156 - D-159), format by the session the
+student sits next (2.3; D-168 - D-170).
 
 `study_derive_profile` is one write unit (physical-schema.md, *Write units*). The weight math is
 a separate pure function over a list of papers, so the M2 eval can hand it older papers only.
 """
 
+import datetime
 from collections import defaultdict
 from collections.abc import Sequence
 
 from sqlalchemy import Engine, func, insert, select, update
 
 from studysystem.db.tables import (
+    assessment,
     course,
     exam_profile,
     generation_task,
@@ -23,7 +26,12 @@ from studysystem.db.tables import (
     topic_weight,
 )
 from studysystem.errors import StudyError
-from studysystem.services.claims import instructor_provisional, route_claims
+from studysystem.services.claims import (
+    format_paper,
+    format_provisional,
+    instructor_provisional,
+    route_claims,
+)
 from studysystem.services.ids import new_id, now
 from studysystem.services.lookups import find_course, find_slot
 from studysystem.services.units import write_unit
@@ -102,6 +110,7 @@ def derive_profile(
     code: str,
     assessment_name: str,
     semester_name: str | None = None,
+    this_year: int | None = None,
 ) -> dict:
     """Derive the next `exam_profile` version for this course's slot `assessment_name`, as one
     write unit (D-69).
@@ -111,8 +120,10 @@ def derive_profile(
     `too_few_papers` below MIN_PAPERS, and `topics_unconfirmed` while a live item sits on a
     `proposed` topic. Writes the profile row, one `topic_weight` row per topic, one
     `profile_claim` row per format or instructor-driven observation of the same papers that
-    `route_claims` keeps against `course.instructor` (D-156, D-159), and moves open tasks built
-    on an older profile of this slot to `invalidated`.
+    `route_claims` keeps against `course.instructor` (D-156, D-159) - format from the paper
+    `format_paper` picks for the session of the slot's `assessment` row (D-168, D-169) - and
+    moves open tasks built on an older profile of this slot to `invalidated`. `this_year` ages
+    the papers for D-169's cap; None is the student's local year.
 
     Returns {"exam_profile_id", "version", "papers", "weights": [{"topic_id", "name",
     "weight"}], "claims": {"format", "instructor-driven"}, "provisional": {"syllabus",
@@ -184,15 +195,25 @@ def derive_profile(
         course_instructor = conn.execute(
             select(course.c.instructor).where(course.c.id == course_id)
         ).scalar_one()
-        instructors = dict(
-            conn.execute(
-                select(past_exam.c.id, past_exam.c.instructor).where(
-                    past_exam.c.id.in_(past_exam_ids)
-                )
+        paper_rows = {
+            row.id: row
+            for row in conn.execute(
+                select(
+                    past_exam.c.id,
+                    past_exam.c.instructor,
+                    past_exam.c.session_type,
+                    past_exam.c.session_date,
+                ).where(past_exam.c.id.in_(past_exam_ids))
             )
-            .tuples()
-            .all()
-        )
+        }
+        instructors = {p_id: row.instructor for p_id, row in paper_rows.items()}
+        # The session he sits next: the slot's sitting, `first` when it has a resit too (D-168).
+        session = conn.execute(
+            select(assessment.c.session_type)
+            .where(assessment.c.user_id == user_id, assessment.c.slot_id == slot_id)
+            .order_by(assessment.c.session_type)
+            .limit(1)
+        ).scalar_one_or_none()
         claims_of = defaultdict(list)  # paper id -> [(observation id, class)]
         class_of = {}
         for obs in conn.execute(
@@ -208,12 +229,23 @@ def derive_profile(
             claims_of[obs.past_exam_id].append((obs.id, obs.claim_class))
             class_of[obs.id] = obs.claim_class
         papers = [(instructors[p_id], claims_of[p_id]) for p_id in past_exam_ids]
-        kept = route_claims(papers, course_instructor)
+        format_papers = [
+            (
+                paper_rows[p_id].session_type,
+                paper_rows[p_id].session_date,
+                any(claim_class == "format" for _, claim_class in claims_of[p_id]),
+            )
+            for p_id in past_exam_ids
+        ]
+        if this_year is None:
+            this_year = datetime.datetime.now().astimezone().year  # his local year
+        format_at = format_paper(format_papers, session, this_year)
+        kept = route_claims(papers, course_instructor, format_at)
         kept_per_class = {"format": 0, "instructor-driven": 0}
         for obs_id in kept:
             kept_per_class[class_of[obs_id]] += 1
 
-        # Per class, as the row stores it and the reply states it (D-164 - D-167).
+        # Per class, as the row stores it and the reply states it (D-164, D-165, D-167, D-170).
         provisional_by_class = {
             "syllabus": {
                 "provisional": False,  # below MIN_PAPERS derive refuses (D-164)
@@ -222,7 +254,7 @@ def derive_profile(
             "instructor-driven": instructor_provisional(
                 [instructors[p_id] for p_id in past_exam_ids], course_instructor
             ),
-            "format": {"provisional": True, "why": "the session match comes in 2.3"},  # D-166
+            "format": format_provisional(format_papers, session, this_year, format_at),  # D-170
         }
 
         version = conn.execute(
