@@ -582,6 +582,15 @@ exam_profile = Table(
         CheckConstraint("evidence_count_format >= 0", name="count_format_min"),
         nullable=False,
     ),
+    # Papers in its set whose instructor was assumed (D-174, D-176); 0 on rows from before 0013,
+    # which assumed none.
+    Column(
+        "assumed_instructor_papers",
+        Integer,
+        CheckConstraint("assumed_instructor_papers >= 0", name="count_assumed_min"),
+        server_default=text("0"),
+        nullable=False,
+    ),
     UniqueConstraint("slot_id", "version"),
 )
 

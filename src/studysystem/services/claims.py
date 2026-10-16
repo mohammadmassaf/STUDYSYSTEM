@@ -5,8 +5,9 @@
   and the claims already stored for the paper.
 - A slot's claims, routed by class into a profile version (2.1b; D-14, D-150, D-152, D-157) -
   `derive_profile` hands them the papers and the course's instructor.
+- Who a paper naming no instructor counts as - its nearest named neighbour's (2.4; D-174).
 - A profile's instructor-driven `provisional` flag and its reason (2.2; D-165, D-167) - from the
-  instructor of each paper in its set.
+  instructor each paper in its set counts as, assumed ones included (2.4; D-175).
 - The paper that sets a profile's format, and its format `provisional` flag (2.3; D-168 - D-170) -
   from each paper's session and date, matched against the session the student sits next.
 """
@@ -123,7 +124,8 @@ def same_person(paper_instructor: str | None, course_instructor: str | None) -> 
     several people, split on commas, and so may the course's - any pair matching is enough (D-152).
     Two names match when their
     surnames (last word) score >= SAME_SURNAME by `SequenceMatcher(None, a, b).ratio()`. A
-    missing name on either side never matches - unknown counts as not the same (D-150).
+    missing name on either side never matches - unknown counts as not the same (D-150); derive
+    first gives a paper naming no one its nearest named paper's (`assume_instructors`, D-174).
 
     "Dr. Ali Ghorayeb" vs "A. Ghrayeb" -> True (ghorayeb / ghrayeb 0.93)
     "Dr. Mohamad Hamze" vs "A. Ghrayeb" -> False (0.50)
@@ -139,6 +141,48 @@ def same_person(paper_instructor: str | None, course_instructor: str | None) -> 
             if SequenceMatcher(None, paper_name, course_name).ratio() >= SAME_SURNAME:
                 return True
     return False
+
+
+def assume_instructors(
+    instructors: Sequence[str | None], course_instructor: str | None
+) -> list[tuple[str | None, bool]]:
+    """The instructor each paper counts as, and whether it was assumed (2.4; D-174).
+    `instructors`: each paper's `instructor` text, newest first; None for a paper naming no one.
+
+    A named paper keeps its own name: (name, False). A paper naming no one takes the name of the
+    nearest newer paper that has one; with none newer, the nearest older; with no named paper in
+    the list, `course_instructor` - each (name, True); with no course instructor either, it stays
+    unknown: (None, False).
+
+    I3302 Final: [Ghorayeb, Hamze x5, None, None] -> both Nones ("Dr. Mohamad Hamze", True).
+    I3305 Final: [None x3, "Dr. Abed El Safadi, Dr. Mohamad Hamze", ...] -> the three Nones take
+    that text. I3301 Final: [None x5], "K. Beydoun" -> ("K. Beydoun", True) each.
+    """
+    assumed = []
+
+    for pos, inst in enumerate(instructors):
+        if inst is not None:
+            assumed.append((inst, False))
+            continue
+        found = False
+        for i in range(pos - 1, -1, -1):  # newer papers, nearest first
+            if instructors[i] is not None:
+                found = True
+                assumed.append((instructors[i], True))
+                break
+        if found:
+            continue
+        for i in range(pos + 1, len(instructors)):  # older papers, nearest first
+            if instructors[i] is not None:
+                found = True
+                assumed.append((instructors[i], True))
+                break
+        if not found:  # no named paper either way: the course's, or unknown if it names no one
+            if course_instructor is None:
+                assumed.append((None, False))
+            else:
+                assumed.append((course_instructor, True))
+    return assumed
 
 
 def route_claims(
@@ -173,31 +217,40 @@ SAME_INSTRUCTOR_PAPERS = 2  # D-14: instructor-driven claims clear provisional a
 
 
 def instructor_provisional(
-    instructors: Sequence[str | None], course_instructor: str | None
+    papers: Sequence[tuple[str | None, bool, str]], course_instructor: str | None
 ) -> dict:
     """Whether a profile's instructor-driven claims are provisional, and why (D-14, D-165,
-    D-167). `instructors`: the `instructor` text of each paper in the profile's set.
+    D-167). `papers`: per paper in the profile's set, newest first, who it counts as and whether
+    that was assumed (`assume_instructors`), and its date as printed (D-181). An assumed paper
+    counts as any other; the reason lists the assumed ones by date and where their name came
+    from (D-175).
 
     Returns {"provisional": bool, "why": str}.
 
-    I3302 Final: 1 Ghorayeb paper of 8, course "A. Ghrayeb" ->
-    {"provisional": True, "why": "1 of 8 papers by A. Ghrayeb; 2 needed"}
+    I3302 Final: 1 Ghorayeb paper of 8, its 2018 papers assumed Hamze's, course "A. Ghrayeb" ->
+    {"provisional": True, "why": "1 of 8 papers by A. Ghrayeb; 2 needed - 2018-07-21, 2018-01-23
+    name no instructor, assumed by their nearest named paper's"}
     """
-    if course_instructor is None:
-        return {
-            "provisional": True,
-            "why": (
-                f"the course names no instructor; {SAME_INSTRUCTOR_PAPERS} papers by them needed"
-            ),
-        }
     count = 0
-    for instructor in instructors:
-        if same_person(instructor, course_instructor):
-            count += 1
-    why = (
-        f"{count} of {len(instructors)} papers by {course_instructor}; "
-        f"{SAME_INSTRUCTOR_PAPERS} needed"
-    )
+    if course_instructor is None:
+        why = f"the course names no instructor; {SAME_INSTRUCTOR_PAPERS} papers by them needed"
+    else:
+        for name, _, _ in papers:
+            if same_person(name, course_instructor):
+                count += 1
+        why = f"{count} of {len(papers)} papers by {course_instructor}; "
+        why += f"{SAME_INSTRUCTOR_PAPERS} needed"
+
+    assumed_dates = [date for _, was_assumed, date in papers if was_assumed]
+    if assumed_dates:  # said in both branches, so the row's count and the reason agree (D-175)
+        if len(assumed_dates) == len(papers):  # none named: every paper took the course's (D-174)
+            source = "the course's"
+        elif len(assumed_dates) == 1:
+            source = "its nearest named paper's"
+        else:
+            source = "their nearest named paper's"
+        verb = "names" if len(assumed_dates) == 1 else "name"
+        why += f" - {', '.join(assumed_dates)} {verb} no instructor, assumed by {source}"
     return {"provisional": count < SAME_INSTRUCTOR_PAPERS, "why": why}
 
 
@@ -205,13 +258,15 @@ def instructor_provisional(
 
 FORMAT_MAX_AGE = 5  # D-169: years, counted from today's year - 2021 is in during 2026, 2020 out
 
-# One paper as the format rule sees it: its session type, its date ("YYYY-MM-DD"; a month-only
-# paper is stored as the 1st, D-137) and whether it has a format claim.
+# One paper as the format rule sees it: its session type, its date as the reason prints it
+# ("YYYY-MM-DD", or "YYYY-MM" for a month-only paper - D-137, D-181) and whether it has a format
+# claim.
 FormatPaper = tuple[str, str, bool]
 
 
 def _age(date: str, this_year: int) -> int:
-    """A paper's age in whole years from its date's year: "2020-02-17" in 2026 -> 6."""
+    """A paper's age in whole years from its date's year: "2020-02-17" in 2026 -> 6; "2024-07"
+    reads the same way (D-181)."""
     return this_year - int(date[:4])
 
 
