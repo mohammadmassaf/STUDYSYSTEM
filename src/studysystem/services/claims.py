@@ -10,6 +10,8 @@
   instructor each paper in its set counts as, assumed ones included (2.4; D-175).
 - The paper that sets a profile's format, and its format `provisional` flag (2.3; D-168 - D-170) -
   from each paper's session and date, matched against the session the student sits next.
+- A slot's instructor statements that still count (2.4; D-177, D-179) - derive and the statement
+  tool hand them the slot's E2 rows and the newest paper's date.
 """
 
 from collections import Counter
@@ -348,3 +350,56 @@ def format_provisional(
         )
         return {"provisional": read < SAME_SESSION_PAPERS, "why": why}
     return {"provisional": True, "why": why + unread}
+
+
+def format_with_statements(base: dict, stated_keys: Sequence[str]) -> dict:
+    """The format flag and reason once the instructor stated some format keys (2.4; D-178): any
+    statement clears the flag, and the reason names the stated keys before what the papers give
+    for the rest - or alone, when every format key was stated. `base`: `format_provisional`'s
+    answer. No stated key -> `base` unchanged.
+
+    I3302 Final, "the final is 2 hours" -> {"provisional": False, "why": "duration-minutes from
+    the instructor; format from the 2023-09-13 second-session paper: the newest first-session
+    paper, 2020-02-17, is more than 5 years old"}
+    """
+    if not stated_keys:
+        return base
+    why = f"{', '.join(stated_keys)} from the instructor"
+    if set(stated_keys) != FORMAT_KEYS:  # some keys still come from a paper
+        why += f"; {base['why']}"
+    return {"provisional": False, "why": why}
+
+
+# --- instructor statements (2.4) --------------------------------------------------------------
+
+# One E2 statement as the retire rule sees it: its observation id, its claim key, its topic id
+# (None for a format key) and when it was entered (`created_at`, "YYYY-MM-DDTHH:MM:SSZ").
+Statement = tuple[str, str, str | None, str]
+
+
+def live_statements(statements: Sequence[Statement], newest_paper: str) -> list[str]:
+    """The ids of a slot's instructor statements a derive uses (D-177, D-179), in any order.
+
+    `newest_paper`: the stored date of the newest paper in the profile's set ("YYYY-MM-DD").
+
+    - Retire (D-179): a statement counts while its day - the first 10 characters of
+      `created_at` - is on or after `newest_paper`. A paper dated after it retires it; a paper
+      on the same day does not.
+    - Newest wins (D-177): of those counting, one per (claim key, topic) - a format key has topic
+      None, so one per key - the latest full `created_at`; on an exact tie, the larger id (ULIDs
+      sort by creation).
+
+    I3302 Final, newest paper 2023-09-13: duration 120 (2026-10-16), MySQL 40% (2026-10-16),
+    MySQL 35% (2026-10-20), regex 0% (2026-10-20) -> the duration, MySQL 35%, regex 0%.
+    Once a 2027-01-20 paper is in the set -> [].
+    """
+    survived = {}  # (claim key, topic) -> (created_at, obs_id) of the newest seen
+    for obs_id, claim_key, topic_id, created_at in statements:
+        if created_at[:10] < newest_paper:  # a newer paper retired it (D-179)
+            continue
+        slot = (claim_key, topic_id)
+        candidate = (created_at, obs_id)  # time first, the id breaks an exact tie
+        if slot not in survived or candidate > survived[slot]:
+            survived[slot] = candidate
+
+    return [obs_id for _, obs_id in survived.values()]

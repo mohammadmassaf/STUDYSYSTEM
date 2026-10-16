@@ -13,7 +13,9 @@ from studysystem.services.claims import (
     assume_instructors,
     format_paper,
     format_provisional,
+    format_with_statements,
     instructor_provisional,
+    live_statements,
     route_claims,
     same_person,
 )
@@ -427,4 +429,110 @@ def test_no_paper_at_all():
     assert format_provisional([], "first", YEAR, None) == {
         "provisional": True,
         "why": "no paper to take format from",
+    }
+
+
+# --- live_statements (2.4; D-177, D-179) ------------------------------------------------------
+
+DUR_KEY, MARKS = "duration-minutes", "topic-marks"
+NEWEST_PAPER = "2023-09-13"  # I3302 Final's 2023-09 resit
+
+
+def test_a_statement_newer_than_every_paper_counts():
+    statements = [("s1", DUR_KEY, None, "2026-10-16T09:30:00Z")]
+    assert live_statements(statements, NEWEST_PAPER) == ["s1"]
+
+
+def test_a_paper_dated_after_a_statement_retires_it():
+    """His Jan 2027 paper joins the set: the October statements were about that exam."""
+    statements = [
+        ("s1", DUR_KEY, None, "2026-10-16T09:30:00Z"),
+        ("s2", MARKS, "mysql", "2026-10-16T09:31:00Z"),
+    ]
+    assert live_statements(statements, "2027-01-20") == []
+
+
+def test_a_paper_on_the_same_day_leaves_it_counting():
+    statements = [("s1", DUR_KEY, None, "2027-01-20T18:00:00Z")]
+    assert live_statements(statements, "2027-01-20") == ["s1"]
+
+
+def test_two_statements_on_one_format_key_keep_the_newer():
+    statements = [
+        ("old", DUR_KEY, None, "2026-10-16T09:30:00Z"),
+        ("new", DUR_KEY, None, "2026-10-20T08:00:00Z"),
+    ]
+    assert live_statements(statements, NEWEST_PAPER) == ["new"]
+
+
+def test_the_newer_wins_within_one_day():
+    """Same day, two statements: the time decides - and the newer comes first in the list, so
+    "the last one seen" is not the rule."""
+    statements = [
+        ("new", DUR_KEY, None, "2026-10-16T15:00:00Z"),
+        ("old", DUR_KEY, None, "2026-10-16T09:00:00Z"),
+    ]
+    assert live_statements(statements, NEWEST_PAPER) == ["new"]
+
+
+def test_an_exact_tie_keeps_the_larger_id():
+    """Two statements in the same second: the larger id, whichever comes first in the list."""
+    at = "2026-10-16T09:30:00Z"
+    smaller, larger = ("01A", DUR_KEY, None, at), ("01B", DUR_KEY, None, at)
+    assert live_statements([smaller, larger], NEWEST_PAPER) == ["01B"]
+    assert live_statements([larger, smaller], NEWEST_PAPER) == ["01B"]
+
+
+def test_marks_on_different_topics_both_count():
+    statements = [
+        ("mysql40", MARKS, "mysql", "2026-10-16T09:30:00Z"),
+        ("regex0", MARKS, "regex", "2026-10-16T09:31:00Z"),
+    ]
+    assert sorted(live_statements(statements, NEWEST_PAPER)) == ["mysql40", "regex0"]
+
+
+def test_marks_on_one_topic_keep_the_newer():
+    statements = [
+        ("mysql40", MARKS, "mysql", "2026-10-16T09:30:00Z"),
+        ("mysql35", MARKS, "mysql", "2026-10-20T10:00:00Z"),
+    ]
+    assert live_statements(statements, NEWEST_PAPER) == ["mysql35"]
+
+
+def test_i3302s_statements_keep_one_per_key_and_topic():
+    """The docstring's example: S2 is corrected by S3; the duration and regex stand alone."""
+    statements = [
+        ("S1", DUR_KEY, None, "2026-10-16T09:30:00Z"),
+        ("S2", MARKS, "mysql", "2026-10-16T09:31:00Z"),
+        ("S3", MARKS, "mysql", "2026-10-20T10:00:00Z"),
+        ("S4", MARKS, "regex", "2026-10-20T10:01:00Z"),
+    ]
+    assert sorted(live_statements(statements, NEWEST_PAPER)) == ["S1", "S3", "S4"]
+
+
+def test_no_statements_count_nothing():
+    assert live_statements([], NEWEST_PAPER) == []
+
+
+# --- format_with_statements (2.4; D-178) --------------------------------------------------------
+
+BASE = {"provisional": True, "why": "format from 2023-09-13"}
+
+
+def test_no_format_statement_leaves_the_papers_reason():
+    assert format_with_statements(BASE, []) == BASE
+
+
+def test_a_format_statement_clears_the_flag_and_comes_first_in_the_reason():
+    assert format_with_statements(BASE, ["duration-minutes"]) == {
+        "provisional": False,
+        "why": "duration-minutes from the instructor; format from 2023-09-13",
+    }
+
+
+def test_every_format_key_stated_names_no_paper():
+    keys = ["duration-minutes", "total-marks", "question-count", "has-mcq"]
+    assert format_with_statements(BASE, keys) == {
+        "provisional": False,
+        "why": "duration-minutes, total-marks, question-count, has-mcq from the instructor",
     }
