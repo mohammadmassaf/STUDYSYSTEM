@@ -17,6 +17,7 @@ from studysystem.db.tables import (
     practice_item,
     profile_claim,
     topic,
+    topic_state,
     topic_weight,
 )
 from studysystem.errors import StudyError
@@ -339,6 +340,100 @@ def test_an_open_task_with_no_profile_is_left_alone(service_engine, user_id, i33
 
     assert result["papers"] == 3
     assert result["invalidated"] == 0
+    assert task_row(service_engine, task_id).status == "open"
+
+
+# --- a profile bump on a fourth paper (2.5; D-13, D-184) ------------------------------------
+
+
+def topics(engine) -> dict:
+    """Every topic as {id: (name, status)}."""
+    with engine.connect() as conn:
+        return {
+            row.id: (row.name, row.status)
+            for row in conn.execute(select(topic.c.id, topic.c.name, topic.c.status))
+        }
+
+
+def topic_id_of(engine, name) -> str:
+    with engine.connect() as conn:
+        return conn.execute(select(topic.c.id).where(topic.c.name == name)).scalar_one()
+
+
+def weighed(engine, profile_id) -> set:
+    """The topic ids a profile version has a `topic_weight` row for."""
+    with engine.connect() as conn:
+        return set(
+            conn.execute(
+                select(topic_weight.c.topic_id).where(topic_weight.c.exam_profile_id == profile_id)
+            ).scalars()
+        )
+
+
+def write_review_state(engine, user_id, topic_id):
+    """A `topic_state` row as reviews leave it - written directly, as no derive writes one."""
+    with write_unit(engine) as conn:
+        conn.execute(
+            insert(topic_state).values(
+                user_id=user_id,
+                topic_id=topic_id,
+                stability=3.2,
+                difficulty=5.1,
+                due_at=now(),
+                last_reviewed_at=now(),
+                reps=3,
+                lapses=1,
+                inferred=0,
+                updated_at=now(),
+            )
+        )
+    return state_row(engine, topic_id)
+
+
+def state_row(engine, topic_id):
+    with engine.connect() as conn:
+        return conn.execute(select(topic_state).where(topic_state.c.topic_id == topic_id)).one()
+
+
+def test_a_fourth_paper_with_a_new_topic_bumps_weighs_it_and_invalidates(
+    service_engine, user_id, i3302, tmp_path
+):
+    """The transcription adds AJAX, he confirms it, the bump weighs it (D-184). The old topics,
+    the MySQL review schedule and v1 stay as they were; the task built on v1 is invalidated."""
+    v1 = derive_profile(service_engine, user_id, "I3302", FINAL)
+    task_id = note_task(service_engine, user_id, i3302["course_id"], v1["exam_profile_id"])
+    state = write_review_state(service_engine, user_id, topic_id_of(service_engine, NAMES["mysql"]))
+    before = topics(service_engine)
+    add_paper(
+        service_engine, user_id, tmp_path, "2022-04-13", "first", [("forms", 10.0), ("AJAX", 10.0)]
+    )
+    accept_all(service_engine, user_id)
+
+    v2 = derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    ajax = topic_id_of(service_engine, "AJAX")
+    assert (v2["version"], v2["papers"], v2["invalidated"]) == (2, 4, 1)
+    assert weighed(service_engine, v2["exam_profile_id"]) == set(before) | {ajax}
+    assert weighed(service_engine, v1["exam_profile_id"]) == set(before)
+    after = topics(service_engine)
+    assert {tid: after[tid] for tid in before} == before  # no rename, no retire
+    assert state_row(service_engine, state.topic_id) == state
+    assert task_row(service_engine, task_id).status == "invalidated"
+
+
+def test_a_derive_refused_on_a_proposed_topic_invalidates_nothing(
+    service_engine, user_id, i3302, tmp_path
+):
+    """AJAX still proposed: derive refuses before it writes, so the task built on v1 stays open."""
+    v1 = derive_profile(service_engine, user_id, "I3302", FINAL)
+    task_id = note_task(service_engine, user_id, i3302["course_id"], v1["exam_profile_id"])
+    add_paper(service_engine, user_id, tmp_path, "2022-04-13", "first", [("AJAX", 10.0)])
+
+    with pytest.raises(StudyError) as err:
+        derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    assert err.value.code == "topics_unconfirmed"
+    assert count(service_engine, exam_profile) == 1
     assert task_row(service_engine, task_id).status == "open"
 
 
