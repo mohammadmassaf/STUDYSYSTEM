@@ -349,6 +349,15 @@ a.cnav .ct { font-family:var(--f-data); font-size:10.5px; color:var(--ink-3); }
 .plan-row .live .pulse { width:7px; height:7px; border-radius:50%; background:var(--accent); animation:pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
 .plan-empty { padding:22px 18px; text-align:center; color:var(--ink-3); font-size:13.5px; }
+/* the three lanes of D-15, one tone each (D-191) */
+.lane-review { --lane:var(--warn); --lane-wash:var(--warn-wash); }
+.lane-study { --lane:var(--accent); --lane-wash:var(--accent-wash); }
+.lane-setup { --lane:var(--ink-2); --lane-wash:var(--surface-2); }
+.card.lane { border-left:3px solid var(--lane); }
+.pill.lane { color:var(--lane); background:var(--lane-wash); border-color:transparent; }
+.pill.lane .dot { background:var(--lane); }
+.lane-h { font-family:var(--f-display); font-weight:600; font-size:17px; margin:0; display:flex; align-items:center; gap:8px; }
+.lane-h::before { content:""; width:10px; height:10px; border-radius:3px; background:var(--lane); }
 
 /* add-task form */
 .addbar { display:flex; gap:8px; align-items:center; padding:12px 18px; border-top:1px solid var(--rule-soft); flex-wrap:wrap; }
@@ -741,6 +750,8 @@ const whenLong = a => a.date ? (a.approx ? "~" : "") + fmtLong(a.date) : "TBD";
    ============================================================ */
 const LANES = ["review", "study", "setup"];
 const LANE_LABEL = { review: "Review", study: "Study", setup: "Setup", custom: "Task" };
+const LANE_TITLE = { review: "Reviews", study: "Study", setup: "Setup" };
+const LANE_EMPTY = { review: "No reviews due.", study: "No study items in this plan.", setup: "No setup items in this plan." };
 const CUSTOM_MINS = 30;
 
 function toItem(lane, it) {
@@ -756,10 +767,10 @@ function planItems() {
   if (!DATA.plan) return [];
   return LANES.flatMap(lane => DATA.plan.lanes[lane].items.map(it => toItem(lane, it)));
 }
-function hiddenNote() {
-  if (!DATA.plan) return "";
-  const hid = LANES.filter(l => DATA.plan.lanes[l].hidden > 0).map(l => `${l} ${DATA.plan.lanes[l].hidden}`);
-  return hid.length ? "Held back by the plan: " + hid.join(" · ") : "";
+const laneItems = lane => planItems().filter(i => i.lane === lane);
+function laneCount(lane) {
+  const l = DATA.plan.lanes[lane];
+  return `${l.items.length} shown${l.hidden ? ` · ${l.hidden} held back` : ""}`;
 }
 function planAge() {
   if (!DATA.plan) return null;
@@ -1004,7 +1015,7 @@ function renderPill() {
 /* ============================================================
    SHARED RENDER HELPERS
    ============================================================ */
-const lanePill = it => `<span class="pill ok"><span class="dot"></span>${LANE_LABEL[it.lane]}</span>`;
+const lanePill = it => `<span class="pill ${it.custom ? "plain" : "lane lane-" + it.lane}"><span class="dot"></span>${LANE_LABEL[it.lane]}</span>`;
 function examFactHTML(it) {
   const c = it.course;
   if (!c || !c.next) return `<span class="f">${ICON.clock}No dated exam</span>`;
@@ -1060,12 +1071,9 @@ function focusHero() {
   </section>`;
 }
 
-function planList() {
-  const items = todayList();
-  if (!items.length) return `<div class="plan-empty">${DATA.plan
-    ? "Nothing open. Add a task below, or ask the host for a fresh plan."
-    : "No plan yet. Ask the host to run <code>study_get_plan</code>; this page never makes one."}</div>`;
-  let first = true;
+/* rows of one lane, or of your own tasks; "next" marks the focus item */
+function planRows(items) {
+  const focus = focusItem();
   const rows = items.map(it => {
     const active = SESSION && SESSION.uid === it.uid;
     const st = active ? "active" : itemStatus(it);
@@ -1073,14 +1081,14 @@ function planList() {
     let when;
     if (st === "done") when = ic("check");
     else if (st === "active") when = `<span class="live"><span class="pulse"></span>live</span>`;
-    else { when = first ? "next" : it.custom ? "yours" : "#" + it.rank; first = false; }
+    else when = it.custom ? "yours" : focus && focus.uid === it.uid ? "next" : "#" + it.rank;
     const swatch = c ? `<span class="swatch" style="background:${c.color}"></span>${esc(c.code)}` : `${ic("dot")}Personal`;
-    return `<li class="plan-row ${st}">
+    return `<li class="plan-row ${st}" data-code="${c ? esc(c.code) : ""}">
       <button class="tick" data-action="toggle" data-uid="${esc(it.uid)}" aria-label="${st === "done" ? "Mark not done" : "Mark done"}" aria-pressed="${st === "done"}">${ICON.check}</button>
       <span class="when">${when}</span>
       <span class="body">
         <span class="t">${esc(it.what)}${it.custom ? `<span class="tag">yours</span>` : ""}</span>
-        <span class="m">${swatch}<span>·</span>${LANE_LABEL[it.lane]}</span>
+        <span class="m">${swatch}</span>
       </span>
       <span class="dur" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
         <span>${esc(minsTxt(it))}</span>
@@ -1091,12 +1099,23 @@ function planList() {
   return `<ul class="plan">${rows}</ul>`;
 }
 
+/* one card per lane, stacked in lane order (D-191); rank restarts in each */
+function laneCard(lane) {
+  const all = laneItems(lane), items = all.filter(i => itemStatus(i) !== "skipped");
+  return `<section class="card lane lane-${lane}" data-lane="${lane}">
+    <div class="card-head"><h3>${LANE_TITLE[lane]}</h3><span class="eyebrow">${esc(laneCount(lane))}</span></div>
+    ${items.length ? planRows(items) : `<div class="plan-empty">${all.length ? "All skipped for today." : LANE_EMPTY[lane]}</div>`}
+  </section>`;
+}
+
 function planCard() {
-  const hid = hiddenNote();
-  return `<section class="card"><div class="card-head"><h3>Today's plan</h3><span class="eyebrow">${esc(planAgeLabel())}</span></div>
-    ${planList()}
-    ${hid ? `<div class="strap">${esc(hid)}</div>` : ""}
-    <form class="addbar" id="addForm">
+  const mine = customItems(false);
+  return `<div class="sec-head"><h2>Today's plan</h2><span class="eyebrow">${esc(planAgeLabel())}</span></div>
+    ${DATA.plan ? LANES.map(laneCard).join("")
+      : `<section class="card"><div class="plan-empty">No plan yet. Ask the host to run <code>study_get_plan</code>; this page never makes one.</div></section>`}
+    <section class="card"><div class="card-head"><h3>Your tasks</h3></div>
+    ${mine.length ? planRows(mine) : ""}
+    <form class="addbar" id="addForm"${mine.length ? "" : ` style="border-top:0"`}>
       <input class="field ti" id="addTitle" placeholder="Add your own task…" aria-label="Task title" maxlength="120" autocomplete="off">
       <select class="field mini" id="addCourse" aria-label="Course">
         <option value="">No course</option>
@@ -1295,7 +1314,7 @@ PAGES.queue = () => {
       <button class="btn btn-primary btn-sm" type="submit">${ICON.plus}Add task</button>
     </form></div>
     ${mine.length ? `<div class="tasklist">${mine.map(taskCard).join("")}</div>`
-      : `<p class="none" style="padding:2px 2px">No personal tasks yet — anything you add here rides at the top of today's plan and vanishes when you tick it off.</p>`}
+      : `<p class="none" style="padding:2px 2px">No personal tasks yet — anything you add here shows under Your tasks on Today and vanishes when you tick it off.</p>`}
   </section>
   <section class="section">
     <div class="sec-head"><h2 id="qCount">From the plan</h2>
@@ -1305,7 +1324,7 @@ PAGES.queue = () => {
     </div>
     <div class="row" style="justify-content:space-between"><span class="muted" id="qStrap" style="font-size:12.5px"></span>
       <label class="row" style="gap:6px;font-size:12.5px;color:var(--ink-3);cursor:pointer"><input type="checkbox" id="showDone">show cleared</label></div>
-    <div class="tasklist" id="qList"></div>
+    <div class="stack" id="qList"></div>
   </section>`;
 };
 
@@ -1567,16 +1586,21 @@ function wire(page) {
 
   if (page === "queue") {
     let kind = "all", showDone = false;
+    /* grouped by lane, in lane order (D-191) */
+    const group = lane => {
+      const all = laneItems(lane), items = showDone ? all : all.filter(isOpen);
+      return `<div class="section lane-${lane}" data-lane="${lane}">
+        <div class="sec-head"><h3 class="lane-h">${LANE_TITLE[lane]}</h3><span class="eyebrow">${esc(laneCount(lane))}</span></div>
+        ${items.length ? `<div class="tasklist">${items.map(taskCard).join("")}</div>`
+          : `<p class="none">${all.length ? "All cleared." : LANE_EMPTY[lane]}</p>`}
+      </div>`;
+    };
     const draw = () => {
-      let items = planItems();
-      if (kind !== "all") items = items.filter(i => i.lane === kind);
-      if (!showDone) items = items.filter(isOpen);
-      $("#qList").innerHTML = items.length ? items.map(taskCard).join("")
-        : `<p class="none">${DATA.plan ? "Nothing here." : "No plan yet. Ask the host to run <code>study_get_plan</code>."}</p>`;
+      $("#qList").innerHTML = DATA.plan ? (kind === "all" ? LANES : [kind]).map(group).join("")
+        : `<p class="none">No plan yet. Ask the host to run <code>study_get_plan</code>.</p>`;
       const open = planItems().filter(isOpen).length;
       $("#qCount").textContent = `From the plan · ${open} open`;
-      const hid = hiddenNote();
-      $("#qStrap").textContent = `${items.length} shown · ${planAgeLabel()}${hid ? " · " + hid : ""}`;
+      $("#qStrap").textContent = planAgeLabel();
     };
     $("#qFilter").addEventListener("click", e => { const b = e.target.closest(".chip"); if (!b) return; kind = b.dataset.kind; [...$("#qFilter").children].forEach(ch => ch.setAttribute("aria-pressed", String(ch === b))); draw(); });
     $("#showDone").addEventListener("change", e => { showDone = e.target.checked; draw(); });
