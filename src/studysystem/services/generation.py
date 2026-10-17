@@ -1581,7 +1581,8 @@ def _record_submission(
 
 
 def _open_task(conn: Connection, user_id: str, task_id: str):
-    """The task a submission is for: this user's, and still open."""
+    """The task a submission is for: this user's, and still open. An `invalidated` one that kept
+    no note is told to start again (D-188); any other closed one has nothing to resend."""
     task = conn.execute(
         select(generation_task).where(
             generation_task.c.id == task_id, generation_task.c.user_id == user_id
@@ -1595,10 +1596,22 @@ def _open_task(conn: Connection, user_id: str, task_id: str):
             field_errors=[{"field": "task_id", "problem": "no such task"}],
         )
     if task.status != "open":
+        fix = "nothing to resend - its accepted items are in the pool"
+        if task.status == "invalidated":  # its profile was derived again (D-11)
+            # A kept note blocks a new start (`already_noted`), so only a task that kept
+            # nothing is sent back to start (D-188).
+            kept = conn.execute(select(note.c.id).where(note.c.task_id == task.id).limit(1)).first()
+            if kept is None:
+                fix = (
+                    "start it again with study_start_generation - the exam profile it was built "
+                    "on was derived again, so its weights may have changed (D-11)"
+                )
+            else:
+                fix = "nothing to resend - the note it kept is saved, built on the older profile"
         raise StudyError(
             code="task_closed",
             message=f"this task is {task.status} and takes no more submissions",
-            fix="nothing to resend - its accepted items are in the pool",
+            fix=fix,
             field_errors=[{"field": "task_id", "problem": f"task is {task.status}"}],
         )
     return task

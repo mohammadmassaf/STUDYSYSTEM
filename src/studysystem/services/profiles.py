@@ -478,7 +478,8 @@ def derive_profile(
                 )
             )
 
-        # Tasks built on an older profile of this slot: their target weights just changed (D-11).
+        # Tasks built on an older profile of this slot: their target weights may have changed
+        # (D-11).
         older = select(exam_profile.c.id).where(
             exam_profile.c.slot_id == slot_id, exam_profile.c.id != profile_id
         )
