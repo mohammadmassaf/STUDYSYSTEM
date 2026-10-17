@@ -1,0 +1,1676 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Semester Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Karla:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&display=swap">
+
+<style>
+/* ============================================================
+   1 · DESIGN TOKENS — light is the base; dark redefines tokens.
+   Palette: settled "dusk grey-violet". Never near-black, never warm cream.
+   Series + confidence colours are the validated dataviz ramps.
+   ============================================================ */
+:root {
+  color-scheme: light;
+  /* grounds & surfaces — cool near-white, faint cyan cast */
+  --bg:#EEF3F4; --paper:#EEF3F4;
+  --surface:#FFFFFF; --card:#FFFFFF;
+  --surface-2:#E2ECEE; --sunken:#E2ECEE;
+  --raise:#FFFFFF;
+  --rule:#D2DDE0; --rule-soft:#E5ECEE; --rule-strong:#B6C5CA;
+  /* ink — deep slate on light */
+  --ink:#0B1618; --ink-2:#455A61; --ink-3:#6E828A; --ink-4:#9BABB1;
+  /* accent — cyan identity, DEEPENED for readability on white (cyan-700) */
+  --accent:#0E7490; --accent-strong:#155E75; --accent-soft:#0891B2; --accent-2:#0D9488;
+  --accent-ink:#FFFFFF; --accent-wash:rgba(14,116,144,0.10); --accent-line:rgba(14,116,144,0.28);
+  /* series (courses) — validated categorical ramp, distinct from cyan chrome */
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
+  /* status — spaced hues so none blur together on white; always paired with icon+label */
+  --good:#047857; --good-wash:rgba(4,120,87,0.12);
+  --warn:#946412; --warn-wash:rgba(148,100,18,0.14);
+  --serious:#C2410C; --serious-wash:rgba(194,65,12,0.12);
+  --critical:#BE123C; --critical-wash:rgba(190,18,60,0.10);
+  --done:#5A6B73; --done-wash:rgba(90,107,115,0.12);
+  /* confidence ramp — blue sequential, reads as ordinal against cyan chrome */
+  --c1:#86b6ef; --c2:#5598e7; --c3:#2a78d6; --c4:#1c5cab; --c5:#104281;
+  --c0-line:#B6C5CA; --lost:#CBD7DB;
+  /* radius scale */
+  --r1:8px; --r2:12px; --r3:16px; --rpill:999px;
+  /* elevation — cool shadows */
+  --sh-1:0 1px 2px rgba(11,22,24,.05);
+  --sh-2:0 2px 6px -2px rgba(11,22,24,.10), 0 8px 24px -14px rgba(11,22,24,.20);
+  --sh-3:0 12px 40px -12px rgba(11,22,24,.28);
+  --shadow:var(--sh-2);
+  /* type */
+  --f-display:"Newsreader", Georgia, "Times New Roman", serif;
+  --f-ui:"Karla", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-data:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:#080B0D; --paper:#080B0D;
+    --surface:#101518; --card:#101518;
+    --surface-2:#161D20; --sunken:#161D20;
+    --raise:#1A2327;
+    --rule:#263238; --rule-soft:#192226; --rule-strong:#33454D;
+    --ink:#F1F5F9; --ink-2:#94A3B8; --ink-3:#647585; --ink-4:#475059;
+    --accent:#22D3EE; --accent-strong:#67E8F9; --accent-soft:#0E7490; --accent-2:#14B8A6;
+    --accent-ink:#04171C; --accent-wash:rgba(34,211,238,0.13); --accent-line:rgba(34,211,238,0.32);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+    --good:#34D399; --good-wash:rgba(52,211,153,0.15);
+    --warn:#FBBF24; --warn-wash:rgba(251,191,36,0.15);
+    --serious:#FB923C; --serious-wash:rgba(251,146,60,0.16);
+    --critical:#FB7185; --critical-wash:rgba(251,113,133,0.15);
+    --done:#94A3B8; --done-wash:rgba(148,163,184,0.16);
+    --c1:#1c5cab; --c2:#256abf; --c3:#3987e5; --c4:#6da7ec; --c5:#9ec5f4;
+    --c0-line:#33454D; --lost:#28353B;
+    --sh-1:0 1px 2px rgba(0,0,0,.55);
+    --sh-2:0 2px 8px -2px rgba(0,0,0,.6), 0 10px 30px -16px rgba(0,0,0,.85);
+    --sh-3:0 16px 48px -12px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:#080B0D; --paper:#080B0D;
+  --surface:#101518; --card:#101518;
+  --surface-2:#161D20; --sunken:#161D20;
+  --raise:#1A2327;
+  --rule:#263238; --rule-soft:#192226; --rule-strong:#33454D;
+  --ink:#F1F5F9; --ink-2:#94A3B8; --ink-3:#647585; --ink-4:#475059;
+  --accent:#22D3EE; --accent-strong:#67E8F9; --accent-soft:#0E7490; --accent-2:#14B8A6;
+  --accent-ink:#04171C; --accent-wash:rgba(34,211,238,0.13); --accent-line:rgba(34,211,238,0.32);
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+  --good:#34D399; --good-wash:rgba(52,211,153,0.15);
+  --warn:#FBBF24; --warn-wash:rgba(251,191,36,0.15);
+  --serious:#FB923C; --serious-wash:rgba(251,146,60,0.16);
+  --critical:#FB7185; --critical-wash:rgba(251,113,133,0.15);
+  --done:#94A3B8; --done-wash:rgba(148,163,184,0.16);
+  --c1:#1c5cab; --c2:#256abf; --c3:#3987e5; --c4:#6da7ec; --c5:#9ec5f4;
+  --c0-line:#33454D; --lost:#28353B;
+  --sh-1:0 1px 2px rgba(0,0,0,.55);
+  --sh-2:0 2px 8px -2px rgba(0,0,0,.6), 0 10px 30px -16px rgba(0,0,0,.85);
+  --sh-3:0 16px 48px -12px rgba(0,0,0,.9);
+}
+
+/* ============================================================
+   2 · BASE
+   ============================================================ */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--f-ui); font-size:15px; line-height:1.5;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+}
+::selection { background:var(--accent-wash); }
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:3px; }
+[hidden] { display:none !important; }
+svg { display:block; }
+
+/* ============================================================
+   3 · TYPOGRAPHY HELPERS
+   ============================================================ */
+.eyebrow { font-family:var(--f-data); font-size:10.5px; text-transform:uppercase; letter-spacing:.14em; color:var(--ink-3); font-weight:500; }
+.serif { font-family:var(--f-display); }
+.num { font-family:var(--f-data); font-variant-numeric:tabular-nums; }
+.muted { color:var(--ink-3); }
+.unknown { color:var(--ink-3); font-style:italic; }
+
+/* ============================================================
+   4 · LAYOUT
+   ============================================================ */
+.app {
+  max-width:1440px; margin:0 auto; min-height:100vh;
+  display:grid; grid-template-columns:256px minmax(0,1fr);
+  align-items:start;
+}
+.rail {
+  position:sticky; top:0; height:100vh; overflow-y:auto;
+  padding:22px 16px; display:flex; flex-direction:column; gap:22px;
+  border-right:1px solid var(--rule-soft);
+}
+.content { min-width:0; padding:0 28px 96px; }
+.topbar {
+  position:sticky; top:0; z-index:20;
+  padding:20px 0 16px; margin-bottom:8px;
+  background:linear-gradient(var(--bg) 78%, rgba(238,243,244,0));
+  display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap;
+}
+:root[data-theme="dark"] .topbar, :root:not([data-theme="light"]) .topbar { background:linear-gradient(var(--bg) 78%, rgba(8,11,13,0)); }
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .topbar{ background:linear-gradient(var(--bg) 78%, rgba(27,26,36,0)); } }
+main#view { display:flex; flex-direction:column; gap:22px; min-width:0; }
+.section { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.stack { display:flex; flex-direction:column; gap:22px; min-width:0; }
+.split { display:grid; grid-template-columns:1.15fr .85fr; gap:22px; align-items:start; min-width:0; }
+.split.even { grid-template-columns:1fr 1fr; }
+.row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.spread { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.sec-head { display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+.sec-head h2 { font-family:var(--f-display); font-weight:600; font-size:20px; margin:0; letter-spacing:-.01em; }
+.grow { flex:1; min-width:0; }
+
+/* ============================================================
+   5 · NAVIGATION
+   ============================================================ */
+.brand { padding:2px 8px; display:flex; align-items:center; gap:11px; }
+.brand .mark {
+  width:34px; height:34px; border-radius:10px; flex:none;
+  background:linear-gradient(150deg, var(--accent), var(--accent-2));
+  display:grid; place-items:center; color:var(--accent-ink); box-shadow:var(--sh-1);
+}
+.brand .mark svg { width:19px; height:19px; }
+.brand h1 { font-family:var(--f-display); font-weight:600; font-size:18px; margin:0; letter-spacing:-.01em; line-height:1.1; }
+.brand .sub { font-size:11px; color:var(--ink-3); }
+
+nav.rail-nav { display:flex; flex-direction:column; gap:16px; }
+.nav-group { display:flex; flex-direction:column; gap:2px; }
+.nav-title { font-family:var(--f-data); font-size:9.5px; text-transform:uppercase; letter-spacing:.15em; color:var(--ink-4); padding:2px 10px 6px; }
+a.nav {
+  position:relative; display:flex; align-items:center; gap:10px;
+  padding:8px 10px; border-radius:var(--r1);
+  color:var(--ink-2); text-decoration:none; font-size:14px; font-weight:500;
+  transition:background .14s ease, color .14s ease;
+}
+a.nav .ic { color:var(--ink-3); flex:none; transition:color .14s ease; }
+a.nav .ic svg { width:17px; height:17px; }
+a.nav:hover { background:var(--surface-2); color:var(--ink); }
+a.nav:hover .ic { color:var(--ink-2); }
+a.nav[aria-current="page"] { background:var(--accent-wash); color:var(--ink); font-weight:600; }
+a.nav[aria-current="page"] .ic { color:var(--accent); }
+a.nav[aria-current="page"]::before {
+  content:""; position:absolute; left:-16px; top:50%; transform:translateY(-50%);
+  width:3px; height:18px; border-radius:0 3px 3px 0; background:var(--accent);
+}
+a.nav .n-label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.n-badge {
+  font-family:var(--f-data); font-size:10.5px; padding:1px 7px; border-radius:var(--rpill);
+  background:var(--surface-2); color:var(--ink-2); font-variant-numeric:tabular-nums; min-width:20px; text-align:center;
+}
+a.nav[aria-current="page"] .n-badge { background:var(--accent); color:var(--accent-ink); }
+
+/* course nav rows */
+a.cnav { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:var(--r1); text-decoration:none; color:var(--ink-2); font-size:13.5px; transition:background .14s ease; }
+a.cnav:hover { background:var(--surface-2); color:var(--ink); }
+a.cnav[aria-current="page"] { background:var(--accent-wash); color:var(--ink); }
+a.cnav .swatch { width:9px; height:9px; border-radius:3px; flex:none; }
+a.cnav .code { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+a.cnav .hd { width:8px; height:8px; border-radius:50%; flex:none; }
+a.cnav .ct { font-family:var(--f-data); font-size:10.5px; color:var(--ink-3); }
+
+.rail-foot { margin-top:auto; padding:10px 8px 0; font-size:11px; color:var(--ink-4); border-top:1px solid var(--rule-soft); }
+
+/* ============================================================
+   6 · BUTTONS
+   ============================================================ */
+.btn {
+  font-family:var(--f-ui); font-size:14px; font-weight:600; line-height:1;
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  padding:0 16px; height:40px; border-radius:var(--r1);
+  border:1px solid transparent; cursor:pointer; white-space:nowrap;
+  transition:background .14s ease, border-color .14s ease, transform .06s ease, box-shadow .14s ease;
+  text-decoration:none;
+}
+.btn svg { width:16px; height:16px; }
+.btn:active { transform:translateY(1px); }
+.btn:disabled { opacity:.5; cursor:not-allowed; }
+.btn-primary { background:var(--accent); color:var(--accent-ink); box-shadow:var(--sh-1); }
+.btn-primary:hover { background:var(--accent-strong); }
+.btn-secondary { background:var(--surface); color:var(--ink); border-color:var(--rule-strong); }
+.btn-secondary:hover { background:var(--surface-2); border-color:var(--ink-3); }
+.btn-ghost { background:transparent; color:var(--ink-2); padding:0 10px; }
+.btn-ghost:hover { background:var(--surface-2); color:var(--ink); }
+.btn-danger { background:transparent; color:var(--critical); border-color:transparent; }
+.btn-danger:hover { background:var(--critical-wash); }
+.btn-sm { height:32px; padding:0 12px; font-size:13px; border-radius:var(--r1); }
+.btn-lg { height:46px; padding:0 22px; font-size:15px; }
+.btn-icon { width:36px; height:36px; padding:0; border-radius:var(--r1); }
+.btn-block { width:100%; }
+.linkbtn { background:none; border:0; color:var(--accent); font:inherit; font-weight:600; font-size:13px; cursor:pointer; padding:0; display:inline-flex; align-items:center; gap:4px; }
+.linkbtn:hover { color:var(--accent-strong); }
+.linkbtn svg { width:14px; height:14px; }
+
+/* ============================================================
+   7 · CARDS & SURFACES
+   ============================================================ */
+.card { min-width:0; background:var(--surface); border:1px solid var(--rule-soft); border-radius:var(--r2); box-shadow:var(--sh-1); }
+.card.raise { box-shadow:var(--sh-2); }
+.card-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:15px 18px; border-bottom:1px solid var(--rule-soft); }
+.card-head h3 { font-family:var(--f-display); font-weight:600; font-size:17px; margin:0; letter-spacing:-.005em; }
+.card-head .tools { display:flex; gap:6px; align-items:center; }
+.pad { padding:18px; }
+.pad-sm { padding:14px 18px; }
+.divide > * + * { border-top:1px solid var(--rule-soft); }
+.strap { padding:12px 18px; font-size:12.5px; color:var(--ink-3); background:var(--surface-2); }
+.strap.rt { border-radius:0 0 var(--r2) var(--r2); }
+.strap a, .strap .linkbtn { font-size:12.5px; }
+.flatsec { background:var(--surface-2); border-radius:var(--r2); padding:16px 18px; }
+
+/* stat tiles */
+.tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); }
+.tile { padding:16px 18px; border-right:1px solid var(--rule-soft); }
+.tile:last-child { border-right:0; }
+.tile .v { font-family:var(--f-data); font-size:26px; font-weight:500; line-height:1.1; display:block; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+.tile .v.sm { font-size:20px; }
+.tile .k { font-size:12px; color:var(--ink-2); display:block; margin-top:4px; }
+.tile .sub { font-size:11px; color:var(--ink-3); display:block; margin-top:3px; }
+
+/* ============================================================
+   8 · PILLS / BADGES / CHIPS
+   ============================================================ */
+.pill { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; padding:3px 10px; border-radius:var(--rpill); border:1px solid var(--rule); background:var(--surface); color:var(--ink-2); white-space:nowrap; }
+.pill .dot { width:7px; height:7px; border-radius:50%; flex:none; }
+.pill svg { width:13px; height:13px; }
+.pill.ok { color:var(--good); background:var(--good-wash); border-color:transparent; }
+.pill.watch { color:var(--warn); background:var(--warn-wash); border-color:transparent; }
+.pill.slip { color:var(--serious); background:var(--serious-wash); border-color:transparent; }
+.pill.risk { color:var(--critical); background:var(--critical-wash); border-color:transparent; }
+.pill.ok .dot { background:var(--good); } .pill.watch .dot { background:var(--warn); }
+.pill.slip .dot { background:var(--serious); } .pill.risk .dot { background:var(--critical); }
+.pill.flag { border-style:dashed; color:var(--ink-3); }
+.pill.plain { background:var(--surface-2); border-color:transparent; color:var(--ink-2); }
+.tag { font-family:var(--f-data); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; padding:2px 7px; border-radius:5px; color:var(--ink-2); background:var(--surface-2); white-space:nowrap; }
+
+.chips { display:flex; flex-wrap:wrap; gap:7px; }
+.chip { font-family:var(--f-ui); font-size:12.5px; font-weight:600; padding:6px 13px; border-radius:var(--rpill); border:1px solid var(--rule); background:var(--surface); color:var(--ink-2); cursor:pointer; transition:border-color .14s, background .14s, color .14s; }
+.chip:hover { border-color:var(--ink-3); color:var(--ink); }
+.chip[aria-pressed="true"] { background:var(--accent-wash); border-color:var(--accent-line); color:var(--ink); }
+.tbtn { font-family:var(--f-data); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; background:none; border:1px solid var(--rule); border-radius:var(--r1); padding:6px 11px; color:var(--ink-2); cursor:pointer; }
+.tbtn:hover { border-color:var(--ink-3); color:var(--ink); }
+
+/* ============================================================
+   9 · DASHBOARD — Today's Focus hero
+   ============================================================ */
+.focus { position:relative; overflow:hidden; border-radius:var(--r3); border:1px solid var(--rule); box-shadow:var(--sh-2); background:var(--surface); }
+.focus .accentbar { position:absolute; inset:0 auto 0 0; width:4px; }
+.focus-in { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:26px; padding:24px 26px 24px 30px; align-items:end; }
+.focus .lead { min-width:0; }
+.focus .kicker { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+.focus .kicker .eyebrow { color:var(--accent); }
+.focus .course { display:flex; align-items:center; gap:9px; font-size:13.5px; font-weight:600; color:var(--ink-2); margin-bottom:6px; }
+.focus .course .swatch { width:11px; height:11px; border-radius:4px; flex:none; }
+.focus .task { font-family:var(--f-display); font-weight:600; font-size:29px; line-height:1.15; letter-spacing:-.015em; margin:0 0 14px; text-wrap:balance; }
+.focus .facts { display:flex; gap:22px; flex-wrap:wrap; margin-bottom:16px; }
+.focus .fact .fk { font-size:11px; color:var(--ink-3); display:block; margin-bottom:2px; }
+.focus .fact .fv { font-size:14px; font-weight:600; color:var(--ink); display:flex; align-items:center; gap:6px; }
+.focus .fact .fv .num { font-size:15px; }
+.focus .why { background:var(--surface-2); border-radius:var(--r2); padding:13px 15px; font-size:13.5px; color:var(--ink-2); max-width:52ch; }
+.focus .why b { color:var(--ink); }
+.focus .why .eyebrow { display:block; margin-bottom:5px; }
+.focus .cta { display:flex; flex-direction:column; gap:10px; align-items:stretch; min-width:190px; }
+.focus .cta .exam { text-align:right; }
+.focus .cta .exam .fk { font-size:11px; color:var(--ink-3); }
+.focus .cta .exam .fv { font-family:var(--f-data); font-size:18px; font-weight:500; color:var(--ink); }
+.focus.done .task { text-decoration:line-through; text-decoration-color:var(--ink-4); color:var(--ink-2); }
+
+/* progress ring + daily progress */
+.prog { display:grid; grid-template-columns:auto minmax(0,1fr); gap:20px; align-items:center; }
+.ring { position:relative; width:96px; height:96px; flex:none; }
+.ring svg { width:96px; height:96px; transform:rotate(-90deg); }
+.ring .track { stroke:var(--surface-2); }
+.ring .val { stroke:var(--accent); stroke-linecap:round; transition:stroke-dashoffset .5s cubic-bezier(.4,0,.2,1); }
+.ring .mid { position:absolute; inset:0; display:grid; place-items:center; text-align:center; }
+.ring .mid .p { font-family:var(--f-data); font-size:22px; font-weight:500; line-height:1; }
+.ring .mid .l { font-size:9px; color:var(--ink-3); text-transform:uppercase; letter-spacing:.1em; margin-top:2px; }
+.prog-stats { display:flex; gap:22px; flex-wrap:wrap; }
+.prog-stats .s .v { font-family:var(--f-data); font-size:19px; font-weight:500; display:block; font-variant-numeric:tabular-nums; }
+.prog-stats .s .k { font-size:11px; color:var(--ink-3); }
+.prog-bar { height:8px; border-radius:var(--rpill); background:var(--surface-2); overflow:hidden; margin-top:14px; }
+.prog-bar > i { display:block; height:100%; border-radius:var(--rpill); background:var(--accent); transition:width .5s cubic-bezier(.4,0,.2,1); }
+
+/* today's plan timeline */
+.plan { list-style:none; margin:0; padding:0; }
+.plan-row { display:grid; grid-template-columns:auto auto minmax(0,1fr) auto; gap:0 14px; align-items:center; padding:12px 18px; border-bottom:1px solid var(--rule-soft); transition:background .14s; }
+.plan-row:last-child { border-bottom:0; }
+.plan-row:hover { background:var(--surface-2); }
+.plan-row .tick { width:22px; height:22px; border-radius:7px; border:1.5px solid var(--rule-strong); background:var(--surface); display:grid; place-items:center; cursor:pointer; flex:none; transition:background .14s, border-color .14s; padding:0; }
+.plan-row .tick svg { width:13px; height:13px; color:var(--surface); }
+.plan-row .tick:hover { border-color:var(--accent); }
+.plan-row .when { font-family:var(--f-data); font-size:12px; color:var(--ink-3); font-variant-numeric:tabular-nums; min-width:44px; }
+.plan-row .body { min-width:0; }
+.plan-row .body .t { font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.plan-row .body .m { font-size:12px; color:var(--ink-3); margin-top:2px; display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+.plan-row .body .m .swatch { width:8px; height:8px; border-radius:3px; }
+.plan-row .dur { font-family:var(--f-data); font-size:12px; color:var(--ink-2); font-variant-numeric:tabular-nums; text-align:right; }
+.plan-row .go { display:none; }
+.plan-row:hover .go, .plan-row.active .go { display:inline-flex; }
+.plan-row.done .tick { background:var(--accent); border-color:var(--accent); }
+.plan-row.done .tick svg { color:var(--accent-ink); }
+.plan-row.done .body .t { text-decoration:line-through; text-decoration-color:var(--ink-4); color:var(--ink-3); }
+.plan-row.active { background:var(--accent-wash); }
+.plan-row.active .when { color:var(--accent); }
+.plan-row .live { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; color:var(--accent); }
+.plan-row .live .pulse { width:7px; height:7px; border-radius:50%; background:var(--accent); animation:pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
+.plan-empty { padding:22px 18px; text-align:center; color:var(--ink-3); font-size:13.5px; }
+
+/* add-task form */
+.addbar { display:flex; gap:8px; align-items:center; padding:12px 18px; border-top:1px solid var(--rule-soft); flex-wrap:wrap; }
+.addbar input.ti { flex:1; min-width:160px; }
+.field { font-family:var(--f-ui); font-size:14px; color:var(--ink); background:var(--surface); border:1px solid var(--rule-strong); border-radius:var(--r1); height:38px; padding:0 11px; transition:border-color .14s; }
+.field:hover { border-color:var(--ink-3); }
+.field:focus { outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
+select.field { cursor:pointer; padding-right:26px; }
+.field.mini { height:32px; font-size:13px; }
+
+/* course health cards */
+.health { display:grid; grid-template-columns:repeat(auto-fill, minmax(270px,1fr)); gap:16px; }
+.hcard { display:flex; flex-direction:column; gap:12px; padding:18px; background:var(--surface); border:1px solid var(--rule-soft); border-radius:var(--r2); box-shadow:var(--sh-1); text-decoration:none; color:inherit; transition:box-shadow .16s, transform .1s, border-color .16s; position:relative; overflow:hidden; }
+.hcard::before { content:""; position:absolute; inset:0 auto 0 0; width:3px; background:var(--cc,var(--accent)); opacity:.9; }
+.hcard:hover { box-shadow:var(--sh-2); transform:translateY(-2px); border-color:var(--rule); }
+.hcard:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.hcard .top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.hcard .name { font-family:var(--f-display); font-weight:600; font-size:16.5px; line-height:1.2; letter-spacing:-.005em; }
+.hcard .code { font-family:var(--f-data); font-size:11px; color:var(--ink-3); margin-top:3px; }
+.hcard .grade { text-align:right; font-family:var(--f-data); line-height:1.1; }
+.hcard .grade .n { font-size:23px; font-weight:500; }
+.hcard .grade .d { font-size:10px; color:var(--ink-3); display:block; letter-spacing:.03em; }
+.hcard .cov { }
+.hcard .cov .lab { display:flex; justify-content:space-between; font-size:11.5px; color:var(--ink-3); margin-bottom:5px; }
+.hcard .meter { height:7px; border-radius:var(--rpill); background:var(--surface-2); overflow:hidden; }
+.hcard .meter > i { display:block; height:100%; border-radius:var(--rpill); background:var(--cc,var(--accent)); }
+.hcard .meter.striped > i { background:repeating-linear-gradient(135deg,var(--sunken),var(--sunken) 4px,var(--rule) 4px,var(--rule) 8px); }
+.hcard .foot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding-top:11px; border-top:1px solid var(--rule-soft); }
+.hcard .exam { font-size:12px; color:var(--ink-2); display:flex; align-items:center; gap:6px; }
+.hcard .exam svg { width:13px; height:13px; color:var(--ink-3); }
+.hcard .next { font-size:12px; color:var(--ink-2); }
+.hcard .next .eyebrow { display:block; margin-bottom:2px; }
+
+/* insights feed */
+.feed { display:flex; flex-direction:column; }
+.ins { display:grid; grid-template-columns:auto minmax(0,1fr); gap:12px; padding:14px 18px; border-bottom:1px solid var(--rule-soft); align-items:start; }
+.ins:last-child { border-bottom:0; }
+.ins .ic { width:30px; height:30px; border-radius:9px; display:grid; place-items:center; flex:none; }
+.ins .ic svg { width:16px; height:16px; }
+.ins.warn .ic { background:var(--warn-wash); color:var(--warn); }
+.ins.risk .ic { background:var(--critical-wash); color:var(--critical); }
+.ins.info .ic { background:var(--accent-wash); color:var(--accent); }
+.ins.up .ic { background:var(--serious-wash); color:var(--serious); }
+.ins.ok .ic { background:var(--good-wash); color:var(--good); }
+.ins .h { font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.ins .d { font-size:13px; color:var(--ink-2); margin-top:2px; }
+
+/* ============================================================
+   10 · TASK QUEUE (actionable)
+   ============================================================ */
+.tasklist { display:flex; flex-direction:column; gap:12px; }
+.task { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:0 15px; padding:15px 17px; background:var(--surface); border:1px solid var(--rule-soft); border-radius:var(--r2); box-shadow:var(--sh-1); align-items:center; transition:box-shadow .14s, border-color .14s; }
+.task:hover { box-shadow:var(--sh-2); border-color:var(--rule); }
+.task.done { opacity:.62; }
+.task.done .tt { text-decoration:line-through; text-decoration-color:var(--ink-4); }
+.task .tick { width:24px; height:24px; border-radius:8px; border:1.5px solid var(--rule-strong); background:var(--surface); display:grid; place-items:center; cursor:pointer; flex:none; transition:background .14s, border-color .14s; padding:0; align-self:start; margin-top:2px; }
+.task .tick svg { width:14px; height:14px; color:var(--surface); }
+.task .tick:hover { border-color:var(--accent); }
+.task.done .tick { background:var(--accent); border-color:var(--accent); }
+.task.done .tick svg { color:var(--accent-ink); }
+.task .mid { min-width:0; }
+.task .tc { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink-2); font-weight:600; margin-bottom:3px; }
+.task .tc .swatch { width:9px; height:9px; border-radius:3px; flex:none; }
+.task .tt { font-weight:600; font-size:15px; line-height:1.3; }
+.task .facts { display:flex; gap:8px; flex-wrap:wrap; margin-top:9px; }
+.task .facts .f { font-size:11.5px; color:var(--ink-3); background:var(--surface-2); padding:3px 9px; border-radius:var(--rpill); display:inline-flex; align-items:center; gap:5px; }
+.task .facts .f b { color:var(--ink-2); font-weight:600; }
+.task .facts .f .cd { width:11px; height:11px; border-radius:3px; }
+.task .side { display:flex; flex-direction:column; align-items:flex-end; gap:9px; }
+.task .side .dur { font-family:var(--f-data); font-size:12.5px; color:var(--ink-2); }
+.task .side .acts { display:flex; gap:5px; }
+.task.useradd { border-style:solid; }
+.task.useradd .tc::after { content:"yours"; font-family:var(--f-data); font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); background:var(--accent-wash); padding:1px 6px; border-radius:5px; }
+
+/* ============================================================
+   11 · CHARTS (timeline, workload, projector, coverage strip)
+   ============================================================ */
+.tl { overflow-x:auto; overflow-y:hidden; max-width:100%; }
+.tl-inner { min-width:560px; }
+.tl svg { display:block; width:100%; height:auto; }
+
+.lrow { display:grid; grid-template-columns:130px minmax(0,1fr) 108px; gap:14px; align-items:center; }
+@media (max-width:560px){ .lrow { grid-template-columns:92px minmax(0,1fr) 78px; gap:9px; } }
+.lname { font-size:13.5px; font-weight:600; display:flex; align-items:center; gap:8px; min-width:0; }
+.lname .swatch { width:10px; height:10px; border-radius:3px; flex:none; }
+.lname .t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.track { position:relative; height:22px; background:var(--surface-2); border-radius:var(--r1); overflow:hidden; }
+.track .fill { position:absolute; inset:0 auto 0 0; border-radius:var(--r1); }
+.track .target { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--ink); border-radius:1px; z-index:2; }
+.lnum { font-family:var(--f-data); font-size:12px; text-align:right; font-variant-numeric:tabular-nums; color:var(--ink-2); white-space:nowrap; }
+.lnum b { color:var(--ink); font-weight:600; }
+.stackcol { display:flex; flex-direction:column; gap:15px; }
+
+.capbar { display:flex; align-items:stretch; height:56px; border-radius:var(--r2); overflow:hidden; border:1px solid var(--rule-soft); }
+.capbar .seg { display:flex; flex-direction:column; justify-content:center; padding:0 15px; min-width:0; }
+.capbar .seg .cv { font-family:var(--f-data); font-size:17px; font-weight:500; }
+.capbar .seg .ck { font-size:11px; color:var(--ink-3); }
+
+.strip { display:flex; gap:3px; flex-wrap:wrap; }
+.cell { width:18px; height:18px; border-radius:4px; border:1px solid transparent; }
+.cell.empty { background:transparent; border:1px dashed var(--c0-line); }
+.cell.unprocessed { background:repeating-linear-gradient(135deg,var(--surface-2),var(--surface-2) 3px,var(--rule) 3px,var(--rule) 4px); }
+.key { display:flex; flex-wrap:wrap; gap:7px 15px; }
+.key span { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-3); }
+.key i.cell { width:13px; height:13px; }
+
+/* projector */
+.readout { display:flex; gap:26px; flex-wrap:wrap; }
+.ro .v { font-family:var(--f-data); font-size:24px; font-weight:500; display:block; line-height:1.1; font-variant-numeric:tabular-nums; }
+.ro .k { font-size:11.5px; color:var(--ink-2); }
+.pstack { height:30px; display:flex; border-radius:var(--r1); overflow:hidden; background:var(--surface-2); margin:12px 0; }
+.pstack .seg { height:100%; }
+.pstack .seg + .seg { box-shadow:-2px 0 0 var(--surface); }
+.stack-key { display:flex; gap:15px; flex-wrap:wrap; font-size:11.5px; color:var(--ink-2); }
+.stack-key span { display:inline-flex; align-items:center; gap:6px; }
+.swatch { width:11px; height:11px; border-radius:3px; flex:none; display:inline-block; }
+label.slider-label { display:flex; justify-content:space-between; gap:12px; font-size:13px; color:var(--ink-2); margin:16px 0 6px; }
+label.slider-label b { font-family:var(--f-data); color:var(--ink); font-variant-numeric:tabular-nums; }
+input[type=range] { width:100%; accent-color:var(--accent); height:22px; }
+.verdict { margin-top:11px; padding:12px 14px; border-radius:var(--r1); background:var(--surface-2); font-size:13.5px; color:var(--ink-2); border-left:3px solid var(--rule-strong); }
+.verdict b { color:var(--ink); }
+.verdict.is-risk { border-left-color:var(--critical); background:var(--critical-wash); }
+.verdict.is-ok { border-left-color:var(--good); background:var(--good-wash); }
+
+/* ============================================================
+   12 · TABLES
+   ============================================================ */
+.table-wrap { overflow-x:auto; }
+table.data { width:100%; border-collapse:collapse; font-size:13.5px; font-variant-numeric:tabular-nums; }
+table.data th, table.data td { text-align:right; padding:10px 12px; border-bottom:1px solid var(--rule-soft); }
+table.data th:first-child, table.data td:first-child { text-align:left; }
+table.data tbody tr:last-child td { border-bottom:0; }
+table.data th { font-family:var(--f-data); font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); font-weight:500; white-space:nowrap; }
+table.data td.muted { color:var(--ink-3); }
+table.data th.l, table.data td.l { text-align:left; }
+table.data tbody tr:hover { background:var(--surface-2); }
+table.data a { color:var(--accent); text-decoration:none; font-weight:600; }
+table.data a:hover { text-decoration:underline; }
+.conf-dot { display:inline-block; width:13px; height:13px; border-radius:3px; vertical-align:-2px; margin-right:6px; }
+
+/* generic lists / panels */
+.panels { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px,1fr)); }
+.panels > div { padding:16px 18px; border-right:1px solid var(--rule-soft); border-top:1px solid var(--rule-soft); }
+.panels > div:last-child { border-right:0; }
+.panels h4 { font-family:var(--f-data); font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-3); margin:0 0 10px; font-weight:500; }
+.panels ul { margin:0; padding-left:16px; font-size:13px; color:var(--ink-2); }
+.panels li { margin-bottom:7px; }
+.panels li b { color:var(--ink); }
+.none { font-size:13px; color:var(--ink-3); font-style:italic; margin:0; }
+
+.page-head { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; flex-wrap:wrap; }
+.page-head h2 { font-family:var(--f-display); font-weight:600; font-size:27px; margin:0 0 4px; letter-spacing:-.015em; line-height:1.1; text-wrap:balance; }
+.page-head .lede { color:var(--ink-2); font-size:14px; margin:0; max-width:64ch; }
+.page-head .right { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+
+/* ============================================================
+   13 · STUDY SESSION overlay + floating pill
+   ============================================================ */
+.session-scrim { position:fixed; inset:0; z-index:100; background:rgba(20,19,28,.55); backdrop-filter:blur(3px); display:grid; place-items:center; padding:20px; opacity:0; animation:fade .2s ease forwards; }
+@keyframes fade { to { opacity:1; } }
+.session { width:min(560px,100%); background:var(--surface); border:1px solid var(--rule); border-radius:var(--r3); box-shadow:var(--sh-3); overflow:hidden; transform:translateY(8px) scale(.99); animation:pop .22s cubic-bezier(.34,1.3,.5,1) forwards; }
+@keyframes pop { to { transform:none; } }
+.session .s-top { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--rule-soft); }
+.session .s-top .c { display:flex; align-items:center; gap:9px; font-family:var(--f-data); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-2); }
+.session .s-top .c .swatch { width:11px; height:11px; border-radius:3px; }
+.session .s-body { padding:26px 26px 22px; text-align:center; }
+.session .s-task { font-family:var(--f-display); font-weight:600; font-size:22px; line-height:1.25; margin:0 0 20px; letter-spacing:-.01em; }
+.session .s-timer { font-family:var(--f-data); font-size:58px; font-weight:500; line-height:1; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+.session .s-timer.over { color:var(--serious); }
+.session .s-sub { font-size:12px; color:var(--ink-3); margin-top:6px; }
+.session .s-ring { margin:20px auto 4px; width:100%; height:8px; border-radius:var(--rpill); background:var(--surface-2); overflow:hidden; }
+.session .s-ring > i { display:block; height:100%; background:var(--accent); border-radius:var(--rpill); transition:width 1s linear; }
+.session .s-controls { display:flex; gap:10px; justify-content:center; margin-top:22px; flex-wrap:wrap; }
+.session .s-after { margin-top:22px; padding-top:20px; border-top:1px solid var(--rule-soft); }
+.session .s-after .eyebrow { display:block; margin-bottom:10px; }
+.confset { display:inline-flex; gap:7px; }
+.confset button { width:42px; height:42px; border-radius:var(--r1); border:1.5px solid var(--rule-strong); background:var(--surface); font-family:var(--f-data); font-size:15px; font-weight:500; color:var(--ink-2); cursor:pointer; transition:all .14s; }
+.confset button:hover { border-color:var(--accent); color:var(--ink); }
+.confset button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+.session .s-notes { width:100%; margin-top:16px; min-height:56px; resize:vertical; font-family:var(--f-ui); font-size:13.5px; padding:10px 12px; border-radius:var(--r1); border:1px solid var(--rule-strong); background:var(--surface); color:var(--ink); }
+.session .s-notes:focus { outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
+.session .s-note { font-size:11.5px; color:var(--ink-3); margin-top:14px; text-align:center; }
+
+.float-pill { position:fixed; right:22px; bottom:22px; z-index:60; display:flex; align-items:center; gap:11px; padding:10px 14px 10px 12px; background:var(--surface); border:1px solid var(--rule); border-radius:var(--rpill); box-shadow:var(--sh-3); cursor:pointer; }
+.float-pill .pr { width:34px; height:34px; border-radius:50%; display:grid; place-items:center; background:var(--accent); color:var(--accent-ink); flex:none; }
+.float-pill .pr svg { width:16px; height:16px; }
+.float-pill .txt { min-width:0; }
+.float-pill .txt .a { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:200px; }
+.float-pill .txt .b { font-family:var(--f-data); font-size:12px; color:var(--ink-2); }
+
+/* ============================================================
+   14 · TOP HEADER content
+   ============================================================ */
+.greet { min-width:0; }
+.greet h2 { font-family:var(--f-display); font-weight:600; font-size:24px; margin:0; letter-spacing:-.01em; line-height:1.15; }
+.greet .meta { font-size:13px; color:var(--ink-2); margin-top:3px; }
+.greet .meta b { color:var(--ink); font-weight:600; }
+.head-right { display:flex; align-items:center; gap:14px; }
+.semprog { text-align:right; min-width:150px; }
+.semprog .eyebrow { display:block; margin-bottom:5px; }
+.semprog .bar { height:6px; border-radius:var(--rpill); background:var(--surface-2); overflow:hidden; }
+.semprog .bar > i { display:block; height:100%; background:linear-gradient(90deg,var(--accent-soft),var(--accent)); border-radius:var(--rpill); }
+.semprog .cap { font-family:var(--f-data); font-size:11px; color:var(--ink-3); margin-top:5px; display:block; }
+.searchbox { position:relative; }
+.searchbox input { width:180px; }
+.searchbox svg { position:absolute; left:11px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:var(--ink-3); pointer-events:none; }
+.searchbox input { padding-left:32px; }
+
+/* ============================================================
+   15 · MOBILE bottom nav + responsive
+   ============================================================ */
+.mobnav { display:none; }
+.mobtop { display:none; }
+
+@media (max-width:1080px) {
+  .app { grid-template-columns:216px minmax(0,1fr); }
+  .content { padding:0 20px 96px; }
+  .split { grid-template-columns:1fr; }
+  .focus-in { grid-template-columns:1fr; gap:18px; }
+  .focus .cta { min-width:0; }
+  .focus .cta .exam { text-align:left; }
+}
+@media (max-width:760px) {
+  .app { grid-template-columns:1fr; }
+  .rail { display:none; }
+  .content { padding:0 15px 92px; }
+  .topbar { position:static; padding:14px 0 10px; }
+  .mobtop { display:flex; align-items:center; justify-content:space-between; gap:12px; position:sticky; top:0; z-index:30; padding:12px 15px; margin:0 -15px 6px; background:var(--surface); border-bottom:1px solid var(--rule-soft); }
+  .mobtop .brand { padding:0; }
+  .semprog { display:none; }
+  .searchbox { display:none; }
+  .topbar .head-right { display:none; }
+  .greet h2 { font-size:21px; }
+  .focus .task { font-size:24px; }
+  .focus-in { padding:20px; }
+  .split, .split.even { grid-template-columns:1fr; }
+  .health { grid-template-columns:1fr; }
+  .tiles { grid-template-columns:1fr 1fr; }
+  .tile:nth-child(2n) { border-right:0; }
+  .tile { border-bottom:1px solid var(--rule-soft); }
+  .page-head h2 { font-size:23px; }
+  .session .s-timer { font-size:46px; }
+  .mobnav {
+    display:grid; grid-auto-flow:column; grid-auto-columns:1fr;
+    position:fixed; left:0; right:0; bottom:0; z-index:70;
+    background:var(--surface); border-top:1px solid var(--rule); padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    box-shadow:0 -4px 20px -12px rgba(20,19,28,.4);
+  }
+  a.mnav { display:flex; flex-direction:column; align-items:center; gap:3px; padding:7px 2px; min-height:52px; justify-content:center; text-decoration:none; color:var(--ink-3); border-radius:var(--r1); }
+  a.mnav svg { width:21px; height:21px; }
+  a.mnav span { font-size:10px; font-weight:600; }
+  a.mnav[aria-current="page"] { color:var(--accent); }
+  a.mnav[aria-current="page"] .ic { position:relative; }
+  .float-pill { bottom:76px; }
+}
+@media (max-width:400px) {
+  .tiles { grid-template-columns:1fr; }
+  .tile { border-right:0; }
+}
+
+/* ============================================================
+   16 · TOOLTIP + misc
+   ============================================================ */
+#tip { position:fixed; z-index:120; pointer-events:none; opacity:0; transition:opacity .12s ease; background:var(--ink); color:var(--bg); font-size:12px; line-height:1.45; padding:8px 11px; border-radius:var(--r1); max-width:260px; box-shadow:var(--sh-2); }
+#tip.on { opacity:1; }
+.content a.tlink { color:var(--accent); text-underline-offset:2px; }
+footer.foot { font-size:12px; color:var(--ink-4); border-top:1px solid var(--rule-soft); padding-top:18px; margin-top:8px; }
+footer.foot code { font-family:var(--f-data); font-size:11.5px; color:var(--ink-3); }
+
+@media (prefers-reduced-motion:reduce) { *, *::before, *::after { transition:none !important; animation:none !important; } }
+.nb { display:inline-flex; align-items:center; font-size:12px; color:var(--ink-3); border:1px dashed var(--rule); border-radius:999px; padding:1px 9px; white-space:nowrap; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 8v6l9 5 9-5V8"/></svg></div>
+      <div><h1>Semester Console</h1><div class="sub" id="brandSub">—</div></div>
+    </div>
+    <nav class="rail-nav" id="nav" aria-label="Primary"></nav>
+    <div class="rail-foot" id="railFoot">The study server is the source of truth.</div>
+  </aside>
+
+  <div class="content">
+    <div class="mobtop">
+      <div class="brand">
+        <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 8v6l9 5 9-5V8"/></svg></div>
+        <div><h1 style="font-size:16px">Semester Console</h1></div>
+      </div>
+      <button class="btn-icon btn-ghost" id="themeMob" aria-label="Toggle theme"></button>
+    </div>
+    <header class="topbar" id="topbar"></header>
+    <main id="view" tabindex="-1"></main>
+  </div>
+</div>
+
+<nav class="mobnav" id="mobnav" aria-label="Sections"></nav>
+<div id="tip" role="status" aria-live="polite"></div>
+<div id="overlay"></div>
+<div id="pillHost"></div>
+
+<script>
+/* ============================================================
+   LOAD — this page holds no study data of its own. GET /state is
+   the whole truth (D-19, D-163): the server computes every metric
+   and ranking, the browser derives cosmetics only (groupings,
+   countdowns, colours). A field the server sends as null renders
+   as unknown, never as 0; a panel the server has no data for yet
+   says "not built yet" (D-186).
+   ============================================================ */
+const SERIES = ["--s1", "--s2", "--s3", "--s4", "--s5"];
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+const DAY = 86400000;
+const d = s => new Date(s + "T00:00:00");
+const pad2 = n => String(n).padStart(2, "0");
+const localISO = () => { const n = new Date(); return `${n.getFullYear()}-${pad2(n.getMonth() + 1)}-${pad2(n.getDate())}`; };
+const daysBetween = (a, b) => Math.round((d(b) - a) / DAY);
+const fmtDate = iso => d(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const fmtLong = iso => d(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+
+let DATA = null, TODAY = null, SEM = null, STATE = null;
+
+/* The server's blob, keyed the way this page reads it. Courses are keyed by code in the URL
+   (D-163 point 4: the code is for display and for URLs); courseId joins them to the plan. */
+function adapt(s) {
+  const courses = s.courses.map((c, i) => ({
+    id: c.code, courseId: c.course_id, code: c.code, name: c.name,
+    instructor: c.instructor, credits: c.credits, targetGrade: c.target_grade,
+    strategy: c.strategy, conceded: c.conceded, hoursLogged: c.minutes_logged / 60,
+    colorVar: SERIES[i % SERIES.length],
+    assessments: s.assessment_slots.filter(a => a.course_id === c.course_id).map(a => ({
+      name: a.name, kind: a.kind, sessionType: a.session_type, weight: a.weight,
+      date: a.date, approx: a.date_approx, time: a.time, room: a.room, mark: a.mark
+    }))
+  }));
+  return {
+    generatedAt: s.generated_at,
+    semester: { name: s.semester.name, start: s.semester.start, end: s.semester.end, endApprox: s.semester.end_approx, today: localISO() },
+    weeklyCapacity: s.capacity.declared_hours_per_week,
+    capacitySuggestion: s.capacity.suggested_from_timetable,
+    courses,
+    plan: s.plan.current
+  };
+}
+
+/* Cosmetic and scratch arithmetic only. The grade numbers feed the projector, which is labelled
+   scratch (D-19); nothing here ranks or scores anything. */
+function derive() {
+  DATA.courses.forEach(c => {
+    c.color = cssVar(c.colorVar);
+    const graded   = c.assessments.filter(a => a.mark !== null);
+    const ungraded = c.assessments.filter(a => a.mark === null);
+    // One unknown weight makes every sum below unknown: it is not a 0.
+    c.weightsKnown = c.assessments.every(a => a.weight != null);
+    if (c.weightsKnown) {
+      c.earned         = graded.reduce((t, a) => t + a.weight * a.mark / 100, 0);
+      c.assessedWeight = graded.reduce((t, a) => t + a.weight, 0);
+      c.openWeight     = 100 - c.assessedWeight;
+      c.lost           = c.assessedWeight - c.earned;
+      c.standing       = c.assessedWeight ? (c.earned / c.assessedWeight) * 100 : null;
+      c.ceiling        = c.earned + c.openWeight;
+    } else {
+      c.earned = c.assessedWeight = c.openWeight = c.lost = c.standing = c.ceiling = null;
+    }
+    c.next = ungraded.filter(a => a.date && d(a.date) >= TODAY).sort((a, b) => d(a.date) - d(b.date))[0] || null;
+    c.daysToNext = c.next ? daysBetween(TODAY, c.next.date) : null;
+  });
+  const start = DATA.semester.start, end = DATA.semester.end, today = DATA.semester.today;
+  SEM = {
+    week: start ? Math.floor(daysBetween(d(start), today) / 7) + 1 : null,
+    weeks: start && end ? Math.ceil(daysBetween(d(start), end) / 7) : null,
+    daysLeft: end ? daysBetween(TODAY, end) : null,
+    pct: (start && end) ? Math.max(0, Math.min(100, Math.round(daysBetween(d(start), today) / daysBetween(d(start), end) * 100))) : null
+  };
+}
+
+const wTxt  = w => (w == null ? "weight TBD" : w + "%");
+const num = (v, digits) => v == null ? '<span class="unknown">—</span>' : v.toFixed(digits);
+const pct = v => v == null ? '<span class="unknown">—</span>' : v + "%";
+const wCell = w => (w == null ? '<span class="muted">TBD</span>' : w + "%");
+const fmtWhen = a => a.date ? (a.approx ? "~" + fmtDate(a.date) : fmtDate(a.date)) : "TBD";
+const whenLong = a => a.date ? (a.approx ? "~" : "") + fmtLong(a.date) : "TBD";
+
+/* ============================================================
+   THE PLAN — read from the server as it is stored (D-163). The
+   lanes arrive ranked; this page lists them in lane order and
+   never re-sorts or re-scores.
+   ============================================================ */
+const LANES = ["review", "study", "setup"];
+const LANE_LABEL = { review: "Review", study: "Study", setup: "Setup", custom: "Task" };
+const CUSTOM_MINS = 30;
+
+function toItem(lane, it) {
+  return {
+    uid: lane + ":" + (it.setup_key || it.topic_id),
+    lane, rank: it.rank, course: DATA.courses.find(c => c.courseId === it.course_id) || null,
+    what: lane === "setup" ? it.reason : it.topic_name, why: it.reason,
+    mins: it.estimated_minutes ?? null,
+    marks: it.marks_unlocked_estimate ?? null, marksTier: it.marks_unlocked_estimate_tier
+  };
+}
+function planItems() {
+  if (!DATA.plan) return [];
+  return LANES.flatMap(lane => DATA.plan.lanes[lane].items.map(it => toItem(lane, it)));
+}
+function hiddenNote() {
+  if (!DATA.plan) return "";
+  const hid = LANES.filter(l => DATA.plan.lanes[l].hidden > 0).map(l => `${l} ${DATA.plan.lanes[l].hidden}`);
+  return hid.length ? "Held back by the plan: " + hid.join(" · ") : "";
+}
+function planAge() {
+  if (!DATA.plan) return null;
+  const m = new Date(DATA.plan.created_at), m0 = new Date(m.getFullYear(), m.getMonth(), m.getDate());
+  const n = Math.round((TODAY - m0) / DAY);
+  return { when: m.toLocaleDateString("en-GB", { day: "numeric", month: "short" }), days: n };
+}
+function planAgeLabel() {
+  const a = planAge();
+  if (!a) return "no plan yet";
+  return a.days <= 0 ? "plan made today" : `plan made ${a.when} · ${a.days} day${a.days === 1 ? "" : "s"} old`;
+}
+function minsTxt(it) {
+  if (it.custom) return it.mins + "m";
+  if (it.lane === "setup") return it.marks == null ? "marks unknown" : `unlocks ${it.marksTier === "inferred" ? "~" : ""}${Math.round(it.marks)} marks`;
+  return it.mins == null ? "time unknown" : it.mins + "m";
+}
+
+/* ============================================================
+   HELPERS (rendering)
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
+const hrs = h => (h >= 10 ? h.toFixed(0) : h.toFixed(1)) + "h";
+const listOr = (arr, fn, empty) => arr.length ? `<ul>${arr.map(fn).join("")}</ul>` : `<p class="none">${empty}</p>`;
+const courseHref = c => "#/c/" + encodeURIComponent(c.id);
+
+/* "Not built yet" is the server saying it has no numbers here; "unknown" is the server saying it
+   does not know. They look different on purpose (D-186). */
+const nbTag = label => `<span class="nb">${label ? esc(label) + " · " : ""}not built yet</span>`;
+const nbCard = (title, note) => `<section class="card"><div class="card-head"><h3>${esc(title)}</h3>${nbTag()}</div>
+  <div class="pad"><p class="none">${note || "The server sends nothing for this panel yet, so nothing is shown. Nothing is guessed here."}</p></div></section>`;
+
+const ICON = {
+  today:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  tasks:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h11M4 12h11M4 18h7"/><path d="m17.5 15.5 1.8 1.8 3.2-3.6"/></svg>',
+  calendar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9h18M8 3v3M16 3v3"/></svg>',
+  courses:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H19a1 1 0 0 1 1 1v13H6a2 2 0 0 0-2 2Z"/><path d="M20 18v3H6a2 2 0 0 1-2-2"/></svg>',
+  grades:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16"/><rect x="7" y="11" width="3" height="5"/><rect x="12.5" y="7" width="3" height="9"/><rect x="18" y="13" width="0.1" height="3"/></svg>',
+  workload:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 13V9M12 5V3M9 3h6"/></svg>',
+  insights:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.2 1 2v.5h6V15.5c0-.8.3-1.3 1-2A6 6 0 0 0 12 3Z"/></svg>',
+  play:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 5.5v13l11-6.5Z"/></svg>',
+  pause:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6.5" y="5" width="3.5" height="14" rx="1"/><rect x="14" y="5" width="3.5" height="14" rx="1"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 6.5"/></svg>',
+  skip:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5v14M9 6l8 6-8 6Z"/></svg>',
+  x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12M18 6 6 18"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
+  flag:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h11l-1.5 3.5L16 11H5"/></svg>',
+  clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></svg>',
+  sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8 6 18M18 6l1.8-1.8"/></svg>',
+  moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.3 6.3 0 0 0 10.5 10.5Z"/></svg>',
+  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>',
+  alert:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4.5M12 17.5v.1"/></svg>',
+  up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6M6 11l6-6 6 6"/></svg>',
+  diamond:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 12 12 21 3 12Z"/></svg>',
+  dot:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="5"/></svg>',
+  arrow:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H19a1 1 0 0 1 1 1v13H6a2 2 0 0 0-2 2Z"/></svg>',
+  target:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="0.6"/></svg>'
+};
+const ic = n => `<span class="ic" aria-hidden="true">${ICON[n] || ""}</span>`;
+
+/* ============================================================
+   STATE — this browser's own scratch (in-memory + safe
+   localStorage): today's completions, personal tasks, the theme.
+   NOT study data. Nothing here reaches the server.
+   ============================================================ */
+const STORE_KEY = "semcon.state.v2";
+const safeGet = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); } catch { return {}; } };
+const safeSet = o => { try { localStorage.setItem(STORE_KEY, JSON.stringify(o)); } catch {} };
+
+function initState() {
+  const raw = safeGet();
+  const today = DATA.semester.today;
+  STATE = {
+    day: today,
+    items: (raw.day === today ? (raw.items || {}) : {}),   // per-day completion of plan items
+    custom: Array.isArray(raw.custom) ? raw.custom : [],   // personal tasks (persist across days until done)
+    theme: raw.theme || "system"
+  };
+  STATE.custom = STATE.custom.filter(t => !(t.done && t.doneDay && t.doneDay !== today));
+}
+function persist() { safeSet(STATE); }
+
+function newId() { return "u" + Math.random().toString(36).slice(2, 9); }
+
+function customItems(includeDone) {
+  return (STATE.custom || [])
+    .filter(t => includeDone || !t.done)
+    .map(t => ({
+      uid: "custom:" + t.id, custom: true, id: t.id, lane: "custom",
+      course: t.course ? DATA.courses.find(c => c.id === t.course) || null : null,
+      mins: t.mins || CUSTOM_MINS, what: t.title, why: "added by you", done: !!t.done
+    }));
+}
+
+function itemStatus(it) {
+  if (it.custom) { const t = STATE.custom.find(x => x.id === it.id); return t && t.done ? "done" : "upcoming"; }
+  const s = STATE.items[it.uid];
+  return s && s.status ? s.status : "upcoming";
+}
+const isOpen = it => { const s = itemStatus(it); return s !== "done" && s !== "skipped"; };
+
+/* what Today lists: your own tasks first, then the server's plan in its own order */
+function todayList() { return customItems(false).concat(planItems().filter(i => itemStatus(i) !== "skipped")); }
+
+/* ---- actions ---- */
+function addCustom(title, course, mins) {
+  title = (title || "").trim(); if (!title) return;
+  STATE.custom.unshift({ id: newId(), title, course: course || null, mins: mins || CUSTOM_MINS, done: false, doneDay: null });
+  persist(); refresh();
+}
+function toggleItem(uid) {
+  if (uid.startsWith("custom:")) {
+    const id = uid.slice(7); const t = STATE.custom.find(x => x.id === id); if (!t) return;
+    t.done = !t.done; t.doneDay = t.done ? STATE.day : null;
+  } else {
+    const cur = STATE.items[uid];
+    if (cur && cur.status === "done") delete STATE.items[uid];
+    else STATE.items[uid] = { status: "done" };
+  }
+  persist(); refresh();
+}
+function skipItem(uid) {
+  if (uid.startsWith("custom:")) { const id = uid.slice(7); const t = STATE.custom.find(x => x.id === id); if (t) { t.done = true; t.doneDay = STATE.day; } }
+  else STATE.items[uid] = { status: "skipped" };
+  persist(); refresh();
+}
+function deleteCustom(id) { STATE.custom = STATE.custom.filter(x => x.id !== id); persist(); refresh(); }
+function clearDoneCustom() { STATE.custom = STATE.custom.filter(t => !t.done); persist(); refresh(); }
+
+/* ============================================================
+   STUDY SESSION controller (a local countdown until 3.5 posts
+   real hours through POST /hours)
+   ============================================================ */
+let SESSION = null;   // {uid,item,plannedSec,elapsed,paused,tick,conf,notes}
+
+function findItem(uid) {
+  if (uid.startsWith("custom:")) return customItems(true).find(i => i.uid === uid);
+  return planItems().find(i => i.uid === uid);
+}
+function startSession(uid) {
+  const item = findItem(uid); if (!item) return;
+  if (SESSION && SESSION.tick) clearInterval(SESSION.tick);
+  SESSION = { uid, item, plannedSec: item.mins ? item.mins * 60 : null, elapsed: 0, paused: false, conf: null, notes: "" };
+  renderSession();
+  SESSION.tick = setInterval(tickSession, 1000);
+  refresh();
+}
+function tickSession() {
+  if (!SESSION || SESSION.paused) return;
+  SESSION.elapsed++;
+  updateSessionTime();
+}
+function togglePause() { if (!SESSION) return; SESSION.paused = !SESSION.paused; renderSession(); }
+function closeSession(complete) {
+  if (!SESSION) return;
+  const uid = SESSION.uid, spent = Math.max(1, Math.round(SESSION.elapsed / 60));
+  if (SESSION.tick) clearInterval(SESSION.tick);
+  if (complete) {
+    if (uid.startsWith("custom:")) { const id = uid.slice(7); const t = STATE.custom.find(x => x.id === id); if (t) { t.done = true; t.doneDay = STATE.day; } }
+    else STATE.items[uid] = { status: "done", spentMin: spent, confidence: SESSION.conf };
+    persist();
+  }
+  SESSION = null;
+  $("#overlay").innerHTML = "";
+  renderPill();
+  refresh();
+}
+function hideSession() {   // minimise, keep running
+  $("#overlay").innerHTML = "";
+  renderPill();
+}
+function setConf(n) { if (SESSION) { SESSION.conf = n; renderSession(); } }
+
+function sessionTimeStr() {
+  const clock = s => `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
+  if (SESSION.plannedSec == null) return { str: clock(SESSION.elapsed), over: false, pct: 0, sub: "elapsed · this item has no planned time" };
+  const remain = SESSION.plannedSec - SESSION.elapsed;
+  const over = remain < 0;
+  return { str: clock(Math.abs(remain)), over, pct: Math.min(100, SESSION.elapsed / SESSION.plannedSec * 100),
+    sub: over ? "over your planned time" : "remaining of " + SESSION.item.mins + " min" };
+}
+function updateSessionTime() {
+  const t = sessionTimeStr(), el = $("#sTimer"), bar = $("#sBar"), pill = $("#pillTime");
+  if (el) { el.textContent = t.str; el.classList.toggle("over", t.over); const sub = $("#sSub"); if (sub) sub.textContent = t.sub; }
+  if (bar) bar.style.width = t.pct + "%";
+  if (pill) pill.textContent = t.str;
+}
+function renderSession() {
+  if (!SESSION) return;
+  const it = SESSION.item, c = it.course, t = sessionTimeStr();
+  const cSwatch = c ? `<span class="swatch" style="background:${c.color}"></span>` : "";
+  const cName = c ? esc(c.name) : "Personal task";
+  $("#overlay").innerHTML = `
+  <div class="session-scrim" id="scrim">
+    <div class="session" role="dialog" aria-modal="true" aria-label="Study session">
+      <div class="s-top">
+        <span class="c">${cSwatch}${esc((c && c.code) || "task")}</span>
+        <button class="btn-icon btn-ghost" data-sx="min" aria-label="Minimise session">${ICON.x}</button>
+      </div>
+      <div class="s-body">
+        <div class="eyebrow" style="margin-bottom:6px;color:var(--accent)">${cName}</div>
+        <h2 class="s-task">${esc(it.what)}</h2>
+        <div class="s-timer${t.over ? " over" : ""}" id="sTimer">${t.str}</div>
+        <div class="s-sub" id="sSub">${esc(t.sub)}</div>
+        <div class="s-ring"><i id="sBar" style="width:${t.pct}%"></i></div>
+        <div class="s-controls">
+          <button class="btn ${SESSION.paused ? "btn-primary" : "btn-secondary"}" data-sx="pause">${SESSION.paused ? ICON.play + "Resume" : ICON.pause + "Pause"}</button>
+          <button class="btn btn-secondary" data-sx="skip">${ICON.skip}Skip</button>
+          <button class="btn btn-primary" data-sx="done">${ICON.check}Complete</button>
+        </div>
+        <div class="s-after">
+          <span class="eyebrow">After the session · how confident now?</span>
+          <div class="confset" role="group" aria-label="Confidence 1 to 5">
+            ${[1,2,3,4,5].map(n => `<button data-conf="${n}" aria-pressed="${SESSION.conf === n}">${n}</button>`).join("")}
+          </div>
+          <textarea class="s-notes" id="sNotes" placeholder="Notes (optional) — for you, this session only">${esc(SESSION.notes || "")}</textarea>
+          <div class="s-note">Confidence and notes stay on this page for today. To make a score count, run a real quiz with the study tools.</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  const scrim = $("#scrim");
+  scrim.addEventListener("mousedown", e => { if (e.target === scrim) hideSession(); });
+  $("#sNotes").addEventListener("input", e => { SESSION.notes = e.target.value; });
+  $("#pillHost").innerHTML = "";
+}
+function renderPill() {
+  if (!SESSION) { $("#pillHost").innerHTML = ""; return; }
+  const t = sessionTimeStr();
+  $("#pillHost").innerHTML = `
+    <div class="float-pill" id="floatPill" role="button" tabindex="0" aria-label="Resume study session">
+      <span class="pr">${ICON.play}</span>
+      <span class="txt"><span class="a">${esc(SESSION.item.what)}</span><span class="b" id="pillTime">${t.str}</span></span>
+    </div>`;
+  const p = $("#floatPill");
+  p.addEventListener("click", renderSession);
+  p.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); renderSession(); } });
+}
+
+/* ============================================================
+   SHARED RENDER HELPERS
+   ============================================================ */
+const lanePill = it => `<span class="pill ok"><span class="dot"></span>${LANE_LABEL[it.lane]}</span>`;
+function examFactHTML(it) {
+  const c = it.course;
+  if (!c || !c.next) return `<span class="f">${ICON.clock}No dated exam</span>`;
+  return `<span class="f">${ICON.clock}Exam · <b>${c.next.approx ? "~" : ""}${c.daysToNext}d</b></span>`;
+}
+
+/* focus = the first open item of the server's plan, in lane order */
+function focusItem() { return planItems().find(isOpen) || null; }
+
+function focusHero() {
+  const it = focusItem();
+  if (!it) {
+    const none = !DATA.plan;
+    return `<section class="focus"><span class="accentbar" style="background:${none ? "var(--ink-3)" : "var(--good)"}"></span>
+      <div class="focus-in" style="grid-template-columns:1fr">
+        <div class="lead">
+          <div class="kicker"><span class="eyebrow">Today's focus</span></div>
+          <h2 class="task">${none ? "No plan yet." : "Plan cleared — nothing left open."}</h2>
+          <p class="why" style="max-width:56ch">${none
+            ? "The server has not stored a plan. Ask the host to run <code>study_get_plan</code>; this page only shows a plan, it never makes one."
+            : "You've actioned every item the plan shows. Add a personal task below, or ask the host for a fresh plan."}</p>
+        </div>
+      </div></section>`;
+  }
+  const c = it.course;
+  const cSwatch = c ? `<span class="swatch" style="background:${c.color}"></span>` : "";
+  const cName = c ? esc(c.name) : "Personal task";
+  const examLine = (c && c.next) ? `${c.next.approx ? "~" : ""}${fmtLong(c.next.date)}` : "No dated exam";
+  const examDays = (c && c.next) ? `${c.next.approx ? "~" : ""}${c.daysToNext} days out` : "";
+  return `<section class="focus">
+    <span class="accentbar" style="background:${c ? c.color : "var(--accent)"}"></span>
+    <div class="focus-in">
+      <div class="lead">
+        <div class="kicker"><span class="eyebrow">Today's focus</span>${lanePill(it)}</div>
+        <div class="course">${cSwatch}${cName}</div>
+        <h2 class="task">${esc(it.what)}</h2>
+        <div class="facts">
+          <div class="fact"><span class="fk">Lane</span><span class="fv">${ic(it.lane === "review" ? "today" : "book")}${LANE_LABEL[it.lane]}</span></div>
+          <div class="fact"><span class="fk">${it.lane === "setup" ? "Worth" : "Time"}</span><span class="fv">${esc(minsTxt(it))}</span></div>
+          <div class="fact"><span class="fk">Plan</span><span class="fv" style="font-weight:500">${esc(planAgeLabel())}</span></div>
+        </div>
+        <div class="why"><span class="eyebrow">From the server's plan</span>${esc(it.why)}</div>
+      </div>
+      <div class="cta">
+        <div class="exam"><span class="fk">${(c && c.next) ? esc(c.next.name) : "Exam"}</span><span class="fv">${esc(examLine)}</span>${examDays ? `<div class="fk" style="margin-top:2px">${esc(examDays)}</div>` : ""}</div>
+        <button class="btn btn-primary btn-lg btn-block" data-action="start" data-uid="${esc(it.uid)}">${ICON.play}Start study session</button>
+        <div class="row" style="gap:8px">
+          <button class="btn btn-secondary btn-sm grow" data-action="toggle" data-uid="${esc(it.uid)}">${ICON.check}Mark done</button>
+          <button class="btn btn-secondary btn-sm grow" data-action="skip" data-uid="${esc(it.uid)}">${ICON.skip}Skip</button>
+        </div>
+      </div>
+    </div>
+  </section>`;
+}
+
+function planList() {
+  const items = todayList();
+  if (!items.length) return `<div class="plan-empty">${DATA.plan
+    ? "Nothing open. Add a task below, or ask the host for a fresh plan."
+    : "No plan yet. Ask the host to run <code>study_get_plan</code>; this page never makes one."}</div>`;
+  let first = true;
+  const rows = items.map(it => {
+    const active = SESSION && SESSION.uid === it.uid;
+    const st = active ? "active" : itemStatus(it);
+    const c = it.course;
+    let when;
+    if (st === "done") when = ic("check");
+    else if (st === "active") when = `<span class="live"><span class="pulse"></span>live</span>`;
+    else { when = first ? "next" : it.custom ? "yours" : "#" + it.rank; first = false; }
+    const swatch = c ? `<span class="swatch" style="background:${c.color}"></span>${esc(c.code)}` : `${ic("dot")}Personal`;
+    return `<li class="plan-row ${st}">
+      <button class="tick" data-action="toggle" data-uid="${esc(it.uid)}" aria-label="${st === "done" ? "Mark not done" : "Mark done"}" aria-pressed="${st === "done"}">${ICON.check}</button>
+      <span class="when">${when}</span>
+      <span class="body">
+        <span class="t">${esc(it.what)}${it.custom ? `<span class="tag">yours</span>` : ""}</span>
+        <span class="m">${swatch}<span>·</span>${LANE_LABEL[it.lane]}</span>
+      </span>
+      <span class="dur" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <span>${esc(minsTxt(it))}</span>
+        ${st !== "done" ? `<button class="btn btn-secondary btn-sm go" data-action="start" data-uid="${esc(it.uid)}">${ICON.play}Start</button>` : ""}
+      </span>
+    </li>`;
+  }).join("");
+  return `<ul class="plan">${rows}</ul>`;
+}
+
+function planCard() {
+  const hid = hiddenNote();
+  return `<section class="card"><div class="card-head"><h3>Today's plan</h3><span class="eyebrow">${esc(planAgeLabel())}</span></div>
+    ${planList()}
+    ${hid ? `<div class="strap">${esc(hid)}</div>` : ""}
+    <form class="addbar" id="addForm">
+      <input class="field ti" id="addTitle" placeholder="Add your own task…" aria-label="Task title" maxlength="120" autocomplete="off">
+      <select class="field mini" id="addCourse" aria-label="Course">
+        <option value="">No course</option>
+        ${DATA.courses.map(c => `<option value="${esc(c.id)}">${esc(c.code)}</option>`).join("")}
+      </select>
+      <select class="field mini" id="addMins" aria-label="Minutes">
+        ${[15, 25, 30, 45, 60, 90].map(m => `<option value="${m}"${m === 30 ? " selected" : ""}>${m}m</option>`).join("")}
+      </select>
+      <button class="btn btn-primary btn-sm" type="submit">${ICON.plus}Add</button>
+    </form>
+  </section>`;
+}
+
+function healthCard(c) {
+  const nextAction = planItems().find(i => i.course === c && isOpen(i));
+  const examTxt = c.next ? `Exam ${c.next.approx ? "~" : ""}in ${c.daysToNext}d` : "No dated exam";
+  const target = c.targetGrade == null ? "—" : Math.round(c.targetGrade);
+  return `<a class="hcard" href="${courseHref(c)}" style="--cc:${c.color}">
+    <div class="top">
+      <div><div class="name">${esc(c.name)}</div><div class="code">${esc(c.code)}</div></div>
+      <div class="grade"><span class="n">${target}</span><span class="d">${c.targetGrade == null ? "NO TARGET SET" : "TARGET"}</span></div>
+    </div>
+    <div class="cov">
+      <div class="lab"><span>Coverage</span><span>not built yet</span></div>
+      <div class="meter striped"><i style="width:100%"></i></div>
+    </div>
+    <div class="foot">
+      <span class="exam">${ICON.clock}${esc(examTxt)}</span>
+      ${nbTag("risk")}
+    </div>
+    <div class="next"><span class="eyebrow">Next</span>${nextAction ? esc(nextAction.what.length > 70 ? nextAction.what.slice(0, 68) + "…" : nextAction.what) : "Nothing in the plan"}</div>
+  </a>`;
+}
+
+/* task card (Tasks page) */
+function taskCard(it) {
+  const active = SESSION && SESSION.uid === it.uid;
+  const st = active ? "active" : itemStatus(it);
+  const done = st === "done";
+  const c = it.course;
+  const cLine = c ? `<span class="swatch" style="background:${c.color}"></span>${esc(c.name)}` : `${ic("dot")}Personal task`;
+  return `<div class="task ${done ? "done" : ""} ${it.custom ? "useradd" : ""}">
+    <button class="tick" data-action="toggle" data-uid="${esc(it.uid)}" aria-label="${done ? "Mark not done" : "Mark done"}" aria-pressed="${done}">${ICON.check}</button>
+    <div class="mid">
+      <div class="tc">${cLine}</div>
+      <div class="tt">${esc(it.what)}</div>
+      <div class="facts">
+        <span class="f">${lanePill(it)}</span>
+        ${!it.custom ? `<span class="f">${esc(it.why)}</span>` : ""}
+        ${examFactHTML(it)}
+      </div>
+    </div>
+    <div class="side">
+      <span class="dur">${esc(minsTxt(it))} · ${LANE_LABEL[it.lane]}</span>
+      <div class="acts">
+        ${done ? `<button class="btn btn-ghost btn-sm" data-action="toggle" data-uid="${esc(it.uid)}">Undo</button>`
+               : `<button class="btn btn-primary btn-sm" data-action="start" data-uid="${esc(it.uid)}">${ICON.play}Start</button>
+                  <button class="btn btn-secondary btn-sm" data-action="skip" data-uid="${esc(it.uid)}" aria-label="Skip">${ICON.skip}</button>`}
+        ${it.custom ? `<button class="btn btn-danger btn-sm btn-icon" data-action="del" data-uid="${esc(it.uid)}" aria-label="Delete task">${ICON.x}</button>` : ""}
+      </div>
+    </div>
+  </div>`;
+}
+
+function timelineSVG(courses) {
+  const W = 1000, H = 132, padL = 26, padR = 26;
+  const t0 = d(DATA.semester.start || DATA.semester.today), t1 = d(DATA.semester.end || DATA.semester.today), span = (t1 - t0) || 1;
+  const x = iso => padL + ((d(iso) - t0) / span) * (W - padL - padR);
+  const clampX = v => Math.max(padL + 12, Math.min(W - padR - 12, v));
+  const axisY = 96;
+  const marks = [];
+  courses.forEach(c => c.assessments.filter(a => a.date).forEach(a => {
+    marks.push({ x: x(a.date), h: a.weight == null ? 22 : 8 + (a.weight / 100) * 52, c, a, past: d(a.date) < TODAY });
+  }));
+  marks.sort((m, n) => m.x - n.x);
+  if (!marks.length) return `<p class="none">No assessment has a date yet.</p>`;
+  let ticks = "";
+  for (let t = new Date(t0); t <= t1; t = new Date(+t + 7 * DAY)) {
+    const iso = `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`;
+    ticks += `<line x1="${x(iso)}" y1="${axisY - 4}" x2="${x(iso)}" y2="${axisY + 4}" stroke="var(--rule)" stroke-width="1"/>`;
+  }
+  let lastLabelX = -999;
+  const bars = marks.map(m => {
+    const showLabel = m.x - lastLabelX > 52; if (showLabel) lastLabelX = m.x;
+    const tip = `${esc(m.c.code)} — ${esc(m.a.name)}&#10;${wTxt(m.a.weight)} · ${whenLong(m.a)}` + (m.a.mark !== null ? `&#10;scored ${m.a.mark}` : "&#10;not sat yet");
+    return `<g data-tip="${tip}">
+      <rect x="${m.x - 4}" y="${axisY - m.h}" width="8" height="${m.h}" rx="3" fill="${m.c.color}" opacity="${m.past ? 0.34 : m.a.weight == null ? 0.5 : 1}"/>
+      ${m.a.weight == null ? `<text x="${clampX(m.x)}" y="${axisY - m.h - 6}" text-anchor="middle" font-size="10.5" font-family="var(--f-data)" fill="var(--ink-3)">?</text>` : ""}
+      ${m.a.mark !== null ? `<text x="${clampX(m.x)}" y="${axisY - m.h - 6}" text-anchor="middle" font-size="10.5" font-family="var(--f-data)" fill="var(--ink-2)">${m.a.mark}</text>` : ""}
+      ${showLabel ? `<text x="${clampX(m.x)}" y="${axisY + 17}" text-anchor="middle" font-size="10" font-family="var(--f-data)" fill="var(--ink-3)">${esc(m.c.code.split(" ")[0])}</text>
+        <text x="${clampX(m.x)}" y="${axisY + 29}" text-anchor="middle" font-size="10" font-family="var(--f-data)" fill="var(--ink-3)">${fmtDate(m.a.date)}</text>` : ""}
+    </g>`;
+  }).join("");
+  return `<div class="tl"><div class="tl-inner">
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Assessment timeline; bar height is the weight of each assessment.">
+      <line x1="${padL}" y1="${axisY}" x2="${W - padR}" y2="${axisY}" stroke="var(--rule)" stroke-width="1.5"/>
+      ${ticks}
+      <line x1="${x(DATA.semester.today)}" y1="14" x2="${x(DATA.semester.today)}" y2="${axisY + 6}" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="3 3"/>
+      <text x="${clampX(x(DATA.semester.today))}" y="10" text-anchor="middle" font-size="10" font-family="var(--f-data)" fill="var(--ink)">TODAY</text>
+      ${bars}
+    </svg></div></div>`;
+}
+
+/* Scratch only (D-19): arithmetic on the marks the server holds, run in this browser. */
+function projectorMarkup(c, idPrefix) {
+  if (!c.weightsKnown) return `<p class="none">Some of this course's weights are unknown, so there is nothing honest to project from.</p>`;
+  const assume = c.standing === null ? 75 : Math.round(c.standing);
+  return `<div class="split even">
+    <div>
+      <div class="readout">
+        <div class="ro"><span class="v">${c.earned.toFixed(1)}</span><span class="k">points banked (of 100)</span></div>
+        <div class="ro"><span class="v">${c.openWeight}</span><span class="k">still to play for</span></div>
+        <div class="ro"><span class="v">${c.ceiling.toFixed(0)}</span><span class="k">ceiling if you ace the rest</span></div>
+      </div>
+      <div class="pstack" aria-hidden="true">
+        <span class="seg" style="width:${c.earned}%;background:${c.color}"></span>
+        <span class="seg" style="width:${c.lost}%;background:var(--lost)"></span>
+        <span class="seg" style="width:${c.openWeight}%;background:repeating-linear-gradient(135deg,var(--surface-2),var(--surface-2) 4px,var(--rule) 4px,var(--rule) 5px)"></span>
+      </div>
+      <div class="stack-key">
+        <span><i class="swatch" style="background:${c.color}"></i>banked ${c.earned.toFixed(1)}</span>
+        <span><i class="swatch" style="background:var(--lost)"></i>already lost ${c.lost.toFixed(1)}</span>
+        <span><i class="swatch" style="background:var(--surface-2);border:1px solid var(--rule)"></i>open ${c.openWeight}</span>
+      </div>
+    </div>
+    <div data-projector="${esc(c.id)}">
+      <label class="slider-label" for="${idPrefix}-assume"><span>If I average this on everything still ungraded</span><b data-out="assume">${assume}%</b></label>
+      <input type="range" id="${idPrefix}-assume" data-role="assume" min="0" max="100" step="1" value="${assume}">
+      <div class="verdict" data-out="project"></div>
+      <label class="slider-label" for="${idPrefix}-target"><span>To finish the course at</span><b data-out="target">${c.targetGrade == null ? 85 : Math.round(c.targetGrade)}%</b></label>
+      <input type="range" id="${idPrefix}-target" data-role="target" min="50" max="100" step="1" value="${c.targetGrade == null ? 85 : Math.round(c.targetGrade)}">
+      <div class="verdict" data-out="need"></div>
+    </div>
+  </div>`;
+}
+function runProjector(box) {
+  const c = DATA.courses.find(x => x.id === box.dataset.projector);
+  const assume = +box.querySelector('[data-role="assume"]').value;
+  const target = +box.querySelector('[data-role="target"]').value;
+  box.querySelector('[data-out="assume"]').textContent = assume + "%";
+  box.querySelector('[data-out="target"]').textContent = target + "%";
+  const projected = c.earned + c.openWeight * assume / 100;
+  const pv = box.querySelector('[data-out="project"]'); pv.className = "verdict";
+  pv.innerHTML = c.openWeight === 0
+    ? `Everything is graded. This course finishes at <b>${c.earned.toFixed(1)}</b>.`
+    : `Average <b>${assume}%</b> on the remaining <b>${c.openWeight}%</b> and you finish at <b>${projected.toFixed(1)}</b>. ${c.next ? `Next up: ${esc(c.next.name)}, ${c.next.weight == null ? "share of the grade not set" : c.next.weight + "% of the grade"}, in ${c.daysToNext} days.` : ""}`;
+  const needed = c.openWeight === 0 ? null : (target - c.earned) / c.openWeight * 100;
+  const nv = box.querySelector('[data-out="need"]');
+  if (needed === null) { nv.className = "verdict"; nv.innerHTML = `Nothing left to sit — the grade is settled.`; }
+  else if (needed > 100) { nv.className = "verdict is-risk"; nv.innerHTML = `<b>${target}% is out of reach.</b> It would take ${needed.toFixed(0)}% on everything remaining, and the ceiling is ${c.ceiling.toFixed(0)}. Aim at ${Math.floor(c.ceiling)} and spend the hours where they still move something.`; }
+  else if (needed <= 0) { nv.className = "verdict is-ok"; nv.innerHTML = `<b>Already secured.</b> Even scoring zero on what's left, this course finishes at or above ${target}%.`; }
+  else { const strain = c.standing === null ? null : needed - c.standing; nv.className = "verdict" + (needed > 90 ? " is-risk" : ""); nv.innerHTML = `You need <b>${needed.toFixed(0)}%</b> across the remaining ${c.openWeight}%. ${strain === null ? `Nothing is graded yet, so there's no track record to say whether that's a stretch.` : strain > 8 ? `That's ${strain.toFixed(0)} points above your current ${Math.round(c.standing)} — real work, not a rounding error.` : `That's about where you're already running.`}`; }
+}
+
+function head(title, lede, right) {
+  return `<div class="page-head"><div><h2>${esc(title)}</h2><p class="lede">${lede}</p></div>${right ? `<div class="right">${right}</div>` : ""}</div>`;
+}
+
+/* ============================================================
+   PAGES
+   ============================================================ */
+const PAGES = {};
+
+PAGES.overview = () => `
+  ${focusHero()}
+  ${nbCard("Today's progress", "Hours logged today and the day's planned total are not sent by the server yet.")}
+  <div class="split">
+    <div class="section">${planCard()}</div>
+    <div class="section">
+      <div class="sec-head"><h2>Course health</h2><a class="linkbtn" href="#/courses">All courses ${ICON.arrow}</a></div>
+      <div class="health" style="grid-template-columns:1fr">${DATA.courses.map(healthCard).join("")}</div>
+    </div>
+  </div>
+  <section class="section">
+    <div class="sec-head"><h2>Upcoming assessments</h2><a class="linkbtn" href="#/calendar">Calendar ${ICON.arrow}</a></div>
+    <div class="card"><div class="pad">${timelineSVG(DATA.courses)}</div>
+      <div class="strap rt">Bar height is what each assessment is worth — the tall ones are where the grade actually moves. <a class="tlink" href="#/calendar">Open calendar →</a></div>
+    </div>
+  </section>
+  <div class="split even">
+    <section class="section">${nbCard("Weekly workload")}</section>
+    <section class="section">${nbCard("Insights")}</section>
+  </div>`;
+
+PAGES.queue = () => {
+  const mine = customItems(false);
+  const doneCustom = (STATE.custom || []).filter(t => t.done && t.doneDay === STATE.day).length;
+  return `
+  ${head("Tasks", "Your own to-dos, then every item the server's plan shows, in the plan's own order. This page never ranks anything.")}
+  <section class="section">
+    <div class="sec-head"><h2>Your tasks</h2>${doneCustom ? `<button class="linkbtn" data-action="clearcustom">Clear ${doneCustom} done</button>` : ""}</div>
+    <div class="card"><form class="addbar" id="addForm" style="border-top:0">
+      <input class="field ti" id="addTitle" placeholder="Add a task — e.g. re-read UML notes" aria-label="Task title" maxlength="120" autocomplete="off">
+      <select class="field mini" id="addCourse" aria-label="Course"><option value="">No course</option>${DATA.courses.map(c => `<option value="${esc(c.id)}">${esc(c.code)}</option>`).join("")}</select>
+      <select class="field mini" id="addMins" aria-label="Minutes">${[15,25,30,45,60,90].map(m => `<option value="${m}"${m === 30 ? " selected" : ""}>${m}m</option>`).join("")}</select>
+      <button class="btn btn-primary btn-sm" type="submit">${ICON.plus}Add task</button>
+    </form></div>
+    ${mine.length ? `<div class="tasklist">${mine.map(taskCard).join("")}</div>`
+      : `<p class="none" style="padding:2px 2px">No personal tasks yet — anything you add here rides at the top of today's plan and vanishes when you tick it off.</p>`}
+  </section>
+  <section class="section">
+    <div class="sec-head"><h2 id="qCount">From the plan</h2>
+      <div class="chips" id="qFilter" role="group" aria-label="Filter by lane">
+        ${["all", ...LANES].map((k,i) => `<button class="chip" data-kind="${k}" aria-pressed="${i===0}">${k === "all" ? "All" : LANE_LABEL[k]}</button>`).join("")}
+      </div>
+    </div>
+    <div class="row" style="justify-content:space-between"><span class="muted" id="qStrap" style="font-size:12.5px"></span>
+      <label class="row" style="gap:6px;font-size:12.5px;color:var(--ink-3);cursor:pointer"><input type="checkbox" id="showDone">show cleared</label></div>
+    <div class="tasklist" id="qList"></div>
+  </section>`;
+};
+
+PAGES.courses = () => `
+  ${head("Courses", "Every course this semester, with its declared target, exam countdown and the next item the plan holds for it.")}
+  <div class="health">${DATA.courses.map(healthCard).join("")}</div>`;
+
+PAGES.load = () => {
+  const cap = DATA.weeklyCapacity;
+  const sug = DATA.capacitySuggestion;
+  return `
+  ${head("Workload", "The hours you declared for a week, and what is logged so far. What the plan needs against that capacity is the server's to say, and it does not send it yet.")}
+  <section class="card"><div class="pad">
+    <span class="eyebrow">Weekly capacity</span>
+    <div class="row" style="margin-top:12px;gap:10px;align-items:baseline">
+      <span class="num" style="font-size:28px">${cap == null ? "—" : cap + "h"}</span>
+      <span class="muted">${cap == null ? "no capacity declared" : "declared per week"}</span>
+    </div>
+    <div class="muted" style="font-size:12.5px;margin-top:8px">${sug == null ? "Timetable suggestion: unknown — no timetable yet." : `Timetable suggestion: ${sug}h`}</div>
+    <div class="row" style="margin-top:14px">${nbTag("hours the plan needs")}</div>
+  </div></section>
+  <div class="split even">
+    <section class="card"><div class="card-head"><h3>Logged so far</h3><span class="eyebrow">all time, per course</span></div>
+      <div class="table-wrap"><table class="data"><thead><tr><th class="l">Course</th><th>Logged</th></tr></thead>
+      <tbody>${DATA.courses.map(c => `<tr><td class="l"><span class="swatch" style="background:${c.color}"></span> ${esc(c.code)}</td><td>${hrs(c.hoursLogged)}</td></tr>`).join("")}</tbody></table></div>
+    </section>
+    ${nbCard("What to cut first")}
+  </div>
+  ${nbCard("Where the time goes")}`;
+};
+
+PAGES.calendar = () => {
+  const upcoming = DATA.courses.flatMap(c => c.assessments.filter(a => a.date && d(a.date) >= TODAY).map(a => ({ c, a }))).sort((x, y) => d(x.a.date) - d(y.a.date));
+  const past = DATA.courses.flatMap(c => c.assessments.filter(a => a.date && d(a.date) < TODAY).map(a => ({ c, a }))).sort((x, y) => d(y.a.date) - d(x.a.date));
+  const nextOne = upcoming[0];
+  return `
+  ${head("Calendar", "Every dated assessment in the semester, nearest first. The next one is pinned at the top.")}
+  ${nextOne ? `<section class="focus"><span class="accentbar" style="background:${nextOne.c.color}"></span>
+    <div class="focus-in"><div class="lead">
+      <div class="kicker"><span class="eyebrow">Next assessment</span></div>
+      <div class="course"><span class="swatch" style="background:${nextOne.c.color}"></span>${esc(nextOne.c.name)}</div>
+      <h2 class="task">${esc(nextOne.a.name)}</h2>
+      <div class="facts">
+        <div class="fact"><span class="fk">When</span><span class="fv">${nextOne.a.approx ? "~" : ""}${esc(fmtLong(nextOne.a.date))}</span></div>
+        <div class="fact"><span class="fk">Weight</span><span class="fv">${nextOne.a.weight == null ? `<span class="unknown">TBD</span>` : nextOne.a.weight + "%"}</span></div>
+        <div class="fact"><span class="fk">Countdown</span><span class="fv"><span class="num">${nextOne.a.approx ? "~" : ""}${daysBetween(TODAY, nextOne.a.date)}</span> days</span></div>
+      </div>
+    </div>
+    <div class="cta"><a class="btn btn-secondary btn-block" href="${courseHref(nextOne.c)}">${ICON.book}Open ${esc(nextOne.c.code)}</a></div></div></section>` : ""}
+  <section class="card"><div class="card-head"><h3>${DATA.semester.end ? "The run to " + d(DATA.semester.end).toLocaleDateString("en-GB", { month: "long" }) : "Dated assessments"}</h3><span class="eyebrow">height = weight · ? = TBD</span></div>
+    <div class="pad">${timelineSVG(DATA.courses)}</div></section>
+  <div class="split even">
+    <section class="card"><div class="card-head"><h3>Ahead</h3><span class="eyebrow">${upcoming.length} to sit</span></div>
+      <div class="table-wrap"><table class="data"><thead><tr><th>When</th><th class="l">Course</th><th class="l">What</th><th>Weight</th><th>In</th></tr></thead>
+      <tbody>${upcoming.map(({c,a}) => `<tr><td>${fmtWhen(a)}</td><td class="l"><span class="swatch" style="background:${c.color}"></span> ${esc(c.code)}</td><td class="l">${esc(a.name)}</td><td>${wCell(a.weight)}</td><td>${daysBetween(TODAY, a.date)}d</td></tr>`).join("")}</tbody></table></div>
+    </section>
+    <section class="card"><div class="card-head"><h3>Behind you</h3><span class="eyebrow">already dated in the past</span></div>
+      ${past.length ? `<div class="table-wrap"><table class="data"><thead><tr><th>When</th><th class="l">Course</th><th class="l">What</th><th>Weight</th><th>Mark</th></tr></thead>
+      <tbody>${past.map(({c,a}) => `<tr><td>${fmtDate(a.date)}</td><td class="l"><span class="swatch" style="background:${c.color}"></span> ${esc(c.code)}</td><td class="l">${esc(a.name)}</td><td>${wCell(a.weight)}</td><td>${a.mark === null ? '<span class="muted">not back</span>' : a.mark}</td></tr>`).join("")}</tbody></table></div>` : `<div class="pad"><p class="none">Nothing sat yet.</p></div>`}
+    </section>
+  </div>`;
+};
+
+PAGES.grades = () => `
+  ${head("Grades", "Each course's declared target beside what the marks so far add up to. The sums on this page are scratch, worked out here from the marks the server holds. They are not server numbers. A mark the server does not have reads as unknown, not zero.")}
+  <section class="card"><div class="card-head"><h3>Standing by course</h3><span class="eyebrow">scratch · graded work only</span></div>
+    <div class="table-wrap"><table class="data"><thead><tr><th>Course</th><th>Cr</th><th>Target</th><th>Standing</th><th>Graded</th><th>Banked</th><th>Open</th><th>Ceiling</th><th>Floor</th></tr></thead>
+    <tbody>${DATA.courses.map(c => `<tr><td><span class="swatch" style="background:${c.color}"></span> <a href="${courseHref(c)}">${esc(c.code)}</a></td><td class="muted">${c.credits ?? "—"}</td><td>${c.targetGrade == null ? '<span class="unknown">—</span>' : Math.round(c.targetGrade)}</td><td><b>${c.standing === null ? '<span class="unknown">—</span>' : c.standing.toFixed(1)}</b></td><td class="muted">${pct(c.assessedWeight)}</td><td>${num(c.earned, 1)}</td><td>${pct(c.openWeight)}</td><td>${num(c.ceiling, 0)}</td><td class="muted">${num(c.earned, 0)}</td></tr>`).join("")}</tbody></table></div>
+    <div class="strap rt">Ceiling is what you get by acing everything left; floor is what you keep scoring zero. The gap between them is the only part still under your control.</div>
+  </section>
+  <section class="card"><div class="card-head"><h3>If the rest of the semester goes like this</h3><span class="eyebrow">scratch · one assumption, every course</span></div>
+    <div class="pad">
+      <label class="slider-label" for="semAssume"><span>Average across every ungraded assessment, in every course</span><b id="semAssumeOut">75%</b></label>
+      <input type="range" id="semAssume" min="0" max="100" step="1" value="75">
+      <div class="table-wrap" style="margin-top:14px"><table class="data"><thead><tr><th>Course</th><th>Now</th><th>Lands at</th><th>Change</th></tr></thead>
+      <tbody id="semProjRows"></tbody>
+      <tfoot><tr><th>Semester average</th><th id="semNow"></th><th id="semThen"></th><th id="semDelta"></th></tr></tfoot></table></div>
+    </div>
+  </section>`;
+
+PAGES.attention = () => `
+  ${head("Insights", "What the system noticed that you did not ask about. None of it is shown until the server computes it, because a second copy of that logic in this page would drift from the real one.")}
+  ${nbCard("Insights")}
+  ${nbCard("Weakest ground, repeated mistakes, untested confidence")}`;
+
+PAGES.course = c => {
+  const q = planItems().filter(i => i.course === c && isOpen(i));
+  const graded = c.assessments.filter(a => a.mark !== null).length;
+  const rec = q[0];
+  const inst = c.instructor == null ? `<span class="unknown" style="font-weight:500">TBD</span>` : esc(c.instructor);
+  return `
+  <section class="focus"><span class="accentbar" style="background:${c.color}"></span>
+    <div class="focus-in"><div class="lead">
+      <div class="kicker"><span class="eyebrow">${esc(c.code)}</span>${c.conceded ? `<span class="pill flag">${ICON.flag}conceded</span>` : ""}${c.strategy === "catch-up" ? `<span class="pill flag">${ICON.flag}catch-up</span>` : ""}</div>
+      <h2 class="task" style="margin-bottom:10px">${esc(c.name)}</h2>
+      <div class="facts">
+        <div class="fact"><span class="fk">Target</span><span class="fv">${c.targetGrade == null ? `<span class="unknown" style="font-weight:500">Not set</span>` : `<span class="num" style="font-size:20px">${Math.round(c.targetGrade)}</span>`}</span></div>
+        <div class="fact"><span class="fk">Instructor</span><span class="fv">${inst}</span></div>
+        <div class="fact"><span class="fk">Credits</span><span class="fv" style="${c.credits == null ? "color:var(--ink-3);font-weight:500" : ""}">${c.credits == null ? "Not available yet" : c.credits}</span></div>
+      </div>
+    </div>
+    <div class="cta">
+      <div class="exam"><span class="fk">${c.next ? esc(c.next.name) : "Exam"}</span><span class="fv">${c.next ? (c.next.approx ? "~" : "") + fmtLong(c.next.date) : "No dated exam"}</span>${c.next ? `<div class="fk" style="margin-top:2px">${c.next.approx ? "~" : ""}${c.daysToNext} days out</div>` : ""}</div>
+      ${rec ? `<button class="btn btn-primary btn-block" data-action="start" data-uid="${esc(rec.uid)}">${ICON.play}Start the plan's next item</button>` : `<span class="pill ok" style="justify-content:center;padding:10px">${ICON.check}Nothing in the plan</span>`}
+    </div></div></section>
+
+  <section class="card"><div class="tiles">
+    <div class="tile"><span class="v ${c.targetGrade == null ? "sm" : ""}">${c.targetGrade == null ? "—" : Math.round(c.targetGrade)}</span><span class="k">target</span><span class="sub">${c.targetGrade == null ? "not set" : "declared"}</span></div>
+    <div class="tile"><span class="v">${c.next ? (c.next.approx ? "~" : "") + c.daysToNext : "—"}</span><span class="k">days to exam</span><span class="sub">${c.next ? wTxt(c.next.weight) : "nothing dated"}</span></div>
+    <div class="tile"><span class="v">${hrs(c.hoursLogged)}</span><span class="k">logged</span><span class="sub">all time</span></div>
+    <div class="tile"><span class="v">${q.length}</span><span class="k">in the plan</span><span class="sub">open items</span></div>
+  </div></section>
+
+  <div class="split">
+    ${nbCard("Course progress", "Chapters, notes and review dates are not sent by the server yet. Coverage stays unknown until they are.")}
+    <section class="card"><div class="card-head"><h3>In the plan</h3><span class="eyebrow">${esc(planAgeLabel())}</span></div>
+      ${q.length ? `<div class="tasklist" style="padding:14px 16px">${q.slice(0, 6).map(taskCard).join("")}</div>${q.length > 6 ? `<div class="strap rt">${q.length - 6} more in <a class="tlink" href="#/queue">Tasks</a>.</div>` : ""}` : `<div class="pad"><p class="none">Nothing in the plan for this course right now.</p></div>`}
+    </section>
+  </div>
+
+  <section class="card"><div class="card-head"><h3>How it's graded</h3><span class="eyebrow">${graded} of ${c.assessments.length} back</span></div>
+    <div class="table-wrap"><table class="data"><thead><tr><th class="l">Component</th><th>Weight</th><th>When</th><th class="l">Session</th><th>Mark</th></tr></thead>
+    <tbody>${c.assessments.map(a => `<tr><td class="l">${esc(a.name)}</td><td>${wCell(a.weight)}</td><td class="muted">${a.date ? fmtWhen(a) : "ongoing"}</td><td class="muted l">${a.sessionType ? esc(a.sessionType) : "—"}</td><td>${a.mark === null ? '<span class="muted">—</span>' : "<b>" + a.mark + "</b>"}</td></tr>`).join("")}</tbody></table></div>
+  </section>
+
+  <section class="card"><div class="card-head"><h3>What's still winnable</h3><span class="eyebrow">scratch · ${c.weightsKnown ? c.openWeight + "% unplayed" : "weights TBD"}</span></div>
+    <div class="pad">${projectorMarkup(c, "c-" + c.code.replace(/[^A-Za-z0-9]/g, ""))}</div>
+  </section>
+
+  ${nbCard("Mistakes, evidence gaps and confidence")}`;
+};
+
+/* ============================================================
+   NAV + HEADER + THEME
+   ============================================================ */
+const SECTIONS = [
+  { group: "Overview", items: [
+    { id: "overview", label: "Today", icon: "today" },
+    { id: "queue", label: "Tasks", icon: "tasks", badge: () => todayList().filter(isOpen).length },
+    { id: "calendar", label: "Calendar", icon: "calendar" }
+  ]},
+  { group: "Academics", items: [
+    { id: "courses", label: "Courses", icon: "courses" },
+    { id: "grades", label: "Grades", icon: "grades" }
+  ]},
+  { group: "Analytics", items: [
+    { id: "load", label: "Workload", icon: "workload" },
+    { id: "attention", label: "Insights", icon: "insights" }
+  ]}
+];
+const MOBNAV = [
+  { id: "overview", label: "Today", icon: "today" },
+  { id: "queue", label: "Tasks", icon: "tasks" },
+  { id: "calendar", label: "Calendar", icon: "calendar" },
+  { id: "courses", label: "Courses", icon: "courses" },
+  { id: "attention", label: "Insights", icon: "insights" }
+];
+
+function renderNav(active) {
+  const courseCount = c => planItems().filter(i => i.course === c && isOpen(i)).length;
+  $("#nav").innerHTML = SECTIONS.map(g => `
+    <div class="nav-group"><div class="nav-title">${g.group}</div>
+      ${g.items.map(s => `<a class="nav" href="#/${s.id}" ${active === s.id ? 'aria-current="page"' : ""}>${ic(s.icon)}<span class="n-label">${s.label}</span>${s.badge ? `<span class="n-badge">${s.badge()}</span>` : ""}</a>`).join("")}
+    </div>`).join("") + `
+    <div class="nav-group"><div class="nav-title">Courses</div>
+      ${DATA.courses.map(c => `<a class="cnav" href="${courseHref(c)}" ${active === "c/" + c.id ? 'aria-current="page"' : ""}>
+        <span class="swatch" style="background:${c.color}"></span><span class="code">${esc(c.code)}</span>
+        <span class="ct">${courseCount(c)}</span></a>`).join("")}
+    </div>`;
+}
+
+function renderMobnav(active) {
+  $("#mobnav").innerHTML = MOBNAV.map(s => `<a class="mnav" href="#/${s.id}" ${active === s.id ? 'aria-current="page"' : ""}>${ic(s.icon)}<span>${s.label}</span></a>`).join("");
+}
+
+const semCaption = () => SEM.pct != null ? `${SEM.pct}% · wk ${SEM.week}/${SEM.weeks}`
+  : SEM.daysLeft != null ? `${SEM.daysLeft} days to finals` : "dates not set";
+
+function renderTopbar() {
+  const now = new Date(); const h = now.getHours();
+  const greet = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  const dateStr = TODAY.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+  const semBar = `<div class="bar"><i style="width:${SEM.pct != null ? SEM.pct : 6}%"></i></div><span class="cap num">${semCaption()}</span>`;
+  $("#topbar").innerHTML = `
+    <div class="greet">
+      <h2>${greet}</h2>
+      <div class="meta">${esc(dateStr)} · <b>${esc(DATA.semester.name)}</b></div>
+    </div>
+    <div class="head-right">
+      <div class="searchbox">${ICON.search}<input class="field" id="search" placeholder="Jump to…" aria-label="Search" autocomplete="off"></div>
+      <div class="semprog"><span class="eyebrow">Semester</span>${semBar}</div>
+      <button class="btn-icon btn-secondary" id="themeBtn" aria-label="Toggle theme"></button>
+    </div>`;
+  updateThemeIcons();
+  const s = $("#search");
+  if (s) s.addEventListener("keydown", e => {
+    if (e.key !== "Enter") return;
+    const v = e.target.value.trim().toLowerCase(); if (!v) return;
+    const c = DATA.courses.find(c => c.code.toLowerCase().includes(v) || c.name.toLowerCase().includes(v));
+    if (c) location.hash = courseHref(c);
+    else { const p = ["overview","queue","calendar","courses","grades","load","attention"].find(x => x.includes(v)); location.hash = "#/" + (p || "queue"); }
+    e.target.value = "";
+  });
+}
+
+function applyTheme() {
+  const t = STATE.theme;
+  if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  else if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+  else document.documentElement.removeAttribute("data-theme");
+  DATA.courses.forEach(c => { c.color = cssVar(c.colorVar); });
+}
+function updateThemeIcons() {
+  const t = STATE.theme;
+  const svg = t === "dark" ? ICON.moon : t === "light" ? ICON.sun : ICON.today;
+  const lbl = "Theme: " + (t === "system" ? "auto" : t);
+  const b = $("#themeBtn"), m = $("#themeMob");
+  if (b) { b.innerHTML = svg; b.setAttribute("aria-label", lbl); }
+  if (m) { m.innerHTML = svg; m.setAttribute("aria-label", lbl); }
+}
+function cycleTheme() {
+  STATE.theme = STATE.theme === "system" ? "light" : STATE.theme === "light" ? "dark" : "system";
+  persist(); applyTheme(); refresh();
+}
+
+/* ============================================================
+   ROUTER + WIRING
+   ============================================================ */
+function pageFor(raw) {
+  if (raw.startsWith("c/")) {
+    const code = decodeURIComponent(raw.slice(2));
+    const c = DATA.courses.find(x => x.id === code);
+    return c ? { html: PAGES.course(c), active: "c/" + c.id } : { html: PAGES.overview(), active: "overview" };
+  }
+  if (PAGES[raw]) return { html: PAGES[raw](), active: raw };
+  return { html: PAGES.overview(), active: "overview" };
+}
+
+function render(preserveScroll) {
+  const raw = (location.hash || "#/overview").replace(/^#\/?/, "") || "overview";
+  const { html, active } = pageFor(raw);
+  $("#view").innerHTML = html + `<footer class="foot">Read from the study server (<code>GET /state</code>, generated ${esc(DATA.generatedAt)}). Unknown stays unknown, and a panel the server has no numbers for says so. This page never invents what the server does not know.</footer>`;
+  renderNav(active); renderMobnav(active); renderTopbar();
+  $("#brandSub").textContent = SEM.week ? `Week ${SEM.week} of ${SEM.weeks}` : SEM.daysLeft != null ? `${SEM.daysLeft} days to finals` : "Semester dates not set";
+  wire(raw);
+  if (!preserveScroll) window.scrollTo({ top: 0, behavior: "instant" });
+}
+function route() { render(false); }
+function refresh() { render(true); renderPill(); }
+
+function wire(page) {
+  document.querySelectorAll("[data-projector]").forEach(box => { runProjector(box); box.addEventListener("input", () => runProjector(box)); });
+
+  const af = $("#addForm");
+  if (af) af.addEventListener("submit", e => {
+    e.preventDefault();
+    addCustom($("#addTitle").value, $("#addCourse") ? $("#addCourse").value : "", +($("#addMins") ? $("#addMins").value : CUSTOM_MINS));
+  });
+
+  if (page === "queue") {
+    let kind = "all", showDone = false;
+    const draw = () => {
+      let items = planItems();
+      if (kind !== "all") items = items.filter(i => i.lane === kind);
+      if (!showDone) items = items.filter(isOpen);
+      $("#qList").innerHTML = items.length ? items.map(taskCard).join("")
+        : `<p class="none">${DATA.plan ? "Nothing here." : "No plan yet. Ask the host to run <code>study_get_plan</code>."}</p>`;
+      const open = planItems().filter(isOpen).length;
+      $("#qCount").textContent = `From the plan · ${open} open`;
+      const hid = hiddenNote();
+      $("#qStrap").textContent = `${items.length} shown · ${planAgeLabel()}${hid ? " · " + hid : ""}`;
+    };
+    $("#qFilter").addEventListener("click", e => { const b = e.target.closest(".chip"); if (!b) return; kind = b.dataset.kind; [...$("#qFilter").children].forEach(ch => ch.setAttribute("aria-pressed", String(ch === b))); draw(); });
+    $("#showDone").addEventListener("change", e => { showDone = e.target.checked; draw(); });
+    draw();
+  }
+
+  if (page === "grades") {
+    const s = $("#semAssume");
+    const draw = () => {
+      const a = +s.value; $("#semAssumeOut").textContent = a + "%";
+      // Only a course with credits, marks and known weights can enter the average: the
+      // other cells read unknown, and the average is over the same courses on both sides.
+      let now = 0, then = 0, credits = 0;
+      $("#semProjRows").innerHTML = DATA.courses.map(c => {
+        const lands = c.weightsKnown ? c.earned + c.openWeight * a / 100 : null;
+        const delta = lands == null || c.standing == null ? null : lands - c.standing;
+        if (delta != null && c.credits != null) { now += c.standing * c.credits; then += lands * c.credits; credits += c.credits; }
+        const tone = delta == null ? "var(--ink-3)" : delta < -0.05 ? "var(--critical)" : delta > 0.05 ? "var(--ink)" : "var(--ink-3)";
+        return `<tr><td><span class="swatch" style="background:${c.color}"></span> ${esc(c.code)}</td><td class="muted">${num(c.standing, 1)}</td><td><b>${num(lands, 1)}</b></td><td style="color:${tone}">${delta == null ? "—" : (delta >= 0 ? "+" : "") + delta.toFixed(1)}</td></tr>`;
+      }).join("");
+      if (!credits) { $("#semNow").textContent = $("#semThen").textContent = $("#semDelta").textContent = "—"; return; }
+      const nowAvg = now / credits, thenAvg = then / credits;
+      $("#semNow").textContent = nowAvg.toFixed(1); $("#semThen").textContent = thenAvg.toFixed(1);
+      $("#semDelta").textContent = (thenAvg - nowAvg >= 0 ? "+" : "") + (thenAvg - nowAvg).toFixed(1);
+    };
+    s.addEventListener("input", draw); draw();
+  }
+}
+
+/* delegated actions (attached once) */
+document.addEventListener("click", e => {
+  const a = e.target.closest("[data-action]"); if (a) {
+    const act = a.dataset.action, uid = a.dataset.uid;
+    if (act === "start") { startSession(uid); return; }
+    if (act === "toggle") { toggleItem(uid); return; }
+    if (act === "skip") { skipItem(uid); return; }
+    if (act === "del") { deleteCustom(uid.replace(/^custom:/, "")); return; }
+    if (act === "clearcustom") { clearDoneCustom(); return; }
+  }
+  const sx = e.target.closest("[data-sx]"); if (sx) {
+    const k = sx.dataset.sx;
+    if (k === "pause") togglePause();
+    else if (k === "done") closeSession(true);
+    else if (k === "skip") { const uid = SESSION && SESSION.uid; closeSession(false); if (uid) skipItem(uid); }
+    else if (k === "min") hideSession();
+    return;
+  }
+  const cf = e.target.closest("[data-conf]"); if (cf) { setConf(+cf.dataset.conf); return; }
+});
+$("#themeMob").addEventListener("click", cycleTheme);
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { if (SESSION && $("#scrim")) hideSession(); }
+  if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if (!STATE) return;
+  if (e.key === "t" || e.key === "T") cycleTheme();
+});
+
+/* theme button lives in topbar (re-rendered), so delegate its click */
+document.addEventListener("click", e => { if (STATE && e.target.closest("#themeBtn")) cycleTheme(); });
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+async function boot() {
+  try {
+    const response = await fetch("/state", { headers: { Accept: "application/json" } });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.message || "the server answered " + response.status);
+    DATA = adapt(body);
+  } catch (err) {
+    $("#view").innerHTML = `<section class="card"><div class="card-head"><h3>The study server did not give a state</h3></div>
+      <div class="pad"><p>${esc(err.message)}</p><p class="none">Start it with <code>uv run study dashboard</code> and reload this page.</p></div></section>`;
+    return;
+  }
+  TODAY = d(DATA.semester.today);
+  initState();
+  applyTheme();
+  derive();
+  window.addEventListener("hashchange", route);
+  route();
+}
+boot();
+
+/* ---- tooltip ---- */
+(function tooltip() {
+  const tip = $("#tip"); let raf = null;
+  document.addEventListener("mouseover", e => { const t = e.target.closest("[data-tip]"); if (!t) return; tip.innerHTML = t.dataset.tip.split("\n").map(esc).join("<br>"); tip.classList.add("on"); });
+  document.addEventListener("mouseout", e => { if (e.target.closest("[data-tip]")) tip.classList.remove("on"); });
+  document.addEventListener("mousemove", e => {
+    if (!tip.classList.contains("on") || raf) return;
+    raf = requestAnimationFrame(() => { raf = null; const pad = 14, r = tip.getBoundingClientRect(); let x = e.clientX + pad, y = e.clientY + pad; if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad; if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad; tip.style.left = x + "px"; tip.style.top = y + "px"; });
+  });
+})();
+
+</script>
+</body>
+</html>
