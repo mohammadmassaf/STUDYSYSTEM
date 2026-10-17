@@ -11,7 +11,9 @@ from sqlalchemy import func, select
 from studysystem.db.tables import coverage, generation_task, note, submission, topic
 from studysystem.errors import StudyError
 from studysystem.services.generation import submit_generation
+from studysystem.services.profiles import derive_profile
 from tests.test_note_generation import ch6, i3302, start, web  # noqa: F401 - fixtures
+from tests.test_profiles import FINAL
 
 BODY = "# PHP & MySQL\n\nmysqli_connect() opens the connection ..."
 
@@ -211,6 +213,39 @@ def test_a_closed_task_takes_no_more_submissions(service_engine, user_id, task_i
     with pytest.raises(StudyError) as excinfo:
         submit(service_engine, user_id, task_id, {"notes": [entry()]})
     assert excinfo.value.code == "task_closed"
+    assert len(note_rows(service_engine)) == 1
+
+
+def test_an_invalidated_task_tells_the_host_to_start_again(service_engine, user_id, task_id):
+    """A derive bumped the profile mid-task (D-11): its weights may have changed, so a task that
+    kept nothing is told to start again - not "nothing to resend" (D-188)."""
+    derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    with pytest.raises(StudyError) as excinfo:
+        submit(service_engine, user_id, task_id, {"notes": [entry()]})
+
+    err = excinfo.value
+    assert (err.code, err.field_errors[0]["problem"]) == ("task_closed", "task is invalidated")
+    assert "study_start_generation" in err.fix
+    assert note_rows(service_engine) == []
+
+
+def test_an_invalidated_task_that_kept_its_note_has_nothing_to_resend(
+    service_engine, user_id, task_id
+):
+    """Section 1 kept, section 2 an error: open with its note. Starting again would meet
+    `already_noted`, so the fix does not send the host there (D-188)."""
+    reply = submit(service_engine, user_id, task_id, {"notes": [entry(), entry(section=2)]})
+    assert (reply["status"], reply["accepted"]) == ("open", [1])
+    derive_profile(service_engine, user_id, "I3302", FINAL)
+
+    with pytest.raises(StudyError) as excinfo:
+        submit(service_engine, user_id, task_id, {"notes": [entry()]})
+
+    err = excinfo.value
+    assert (err.code, err.field_errors[0]["problem"]) == ("task_closed", "task is invalidated")
+    assert "nothing to resend" in err.fix
+    assert "study_start_generation" not in err.fix
     assert len(note_rows(service_engine)) == 1
 
 
