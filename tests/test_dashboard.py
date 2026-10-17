@@ -46,6 +46,19 @@ def test_health_names_the_version_and_the_schema(client):
     }
 
 
+def test_the_page_is_served_at_the_root_and_ranks_nothing(client):
+    """3.3 (D-19, D-186): the page comes from the same origin as /state, reads the server's plan,
+    and holds no ranking code of its own."""
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    page = response.text
+    assert 'fetch("/state"' in page
+    for gone in ("const DATA", "const QUEUE", "function buildPlan"):
+        assert gone not in page
+
+
 def test_post_hours_logs_through_the_service(client, service_engine, web):
     response = client.post("/hours", json={"code": "I3302", "minutes": 40})
 

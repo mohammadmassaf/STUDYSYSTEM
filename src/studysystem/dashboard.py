@@ -13,6 +13,7 @@ import importlib.metadata
 import logging
 import sys
 from collections.abc import Callable
+from pathlib import Path
 
 import uvicorn
 from sqlalchemy import Engine
@@ -22,7 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from studysystem.db.migrate import current_revision
@@ -32,6 +33,7 @@ from studysystem.services.users import current_user
 from studysystem.startup import open_database
 
 HOST = "127.0.0.1"
+PAGE = Path(__file__).with_name("dashboard.html")
 OWN_HOSTS = {"127.0.0.1", "localhost"}
 
 # Any code not listed is the caller's to fix, so 400.
@@ -117,6 +119,11 @@ def create_app(engine: Engine) -> Starlette:
     """The app on `engine`. Called by main() and by tests, which pass their own engine."""
     version = importlib.metadata.version("studysystem")
 
+    async def page(request: Request) -> HTMLResponse:
+        # The page is served here, same origin as /state and /hours, because D-162 blocks writes
+        # from a file:// page (D-186).
+        return HTMLResponse(await run_in_threadpool(PAGE.read_text, encoding="utf-8"))
+
     async def health(request: Request) -> JSONResponse:
         return await run_in_threadpool(
             _answer,
@@ -144,6 +151,7 @@ def create_app(engine: Engine) -> Starlette:
 
     return Starlette(
         routes=[
+            Route("/", page, methods=["GET"]),
             Route("/health", health, methods=["GET"]),
             Route("/state", get_state, methods=["GET"]),
             Route("/hours", hours, methods=["POST"]),
