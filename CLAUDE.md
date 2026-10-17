@@ -51,6 +51,8 @@ schedules.
   request with both CI jobs green, merged by rebase (the branch's commits land one by one, no
   merge commit). So each commit passes the tests on its own, and a PR is rebased onto the
   latest `main` before it can merge.
+- **Exception - workflow files:** a change that touches only `CLAUDE.md` or `.claude/` (agents,
+  skills) commits straight to `main`: no branch, PR or QA run. Anything else follows the rules above.
 - Small commits with an imperative subject ("add write-unit wrapper").
 - Mohammad is the sole author of every commit: the message ends at its own body, with no
   `Co-Authored-By` or "generated with" trailer - and the same holds for PR titles and bodies.

@@ -69,7 +69,20 @@ a finding is a report, not a patch.
      on owned rows, no model calls from the server, SQL that runs on both SQLite and Postgres,
      rows retired by status.
 6. **Plan vs code.** Where the plan and the code disagree, quote both sides with file and line.
-   Do not choose - that is Mohammad's call.
+   Do not choose - that is Mohammad's call. Also scan the current task's entry and the files it
+   touches for (borrowed from Spec Kit's analyze pass):
+   - **Name drift**: one thing called two names across plan, schema, code (e.g. a column in
+     `physical-schema.md` vs `domain-model.md` vs the code). Quote each spelling.
+   - **Coverage both ways**: a plan rule or *Done when* with no code or test; code or test with no
+     plan rule.
+   - **Untestable criteria**: a *Done when* or D-record with a vague word ("fast", "robust",
+     "handles") and no check or number.
+   - **Open markers**: any `[NEEDS CLARIFICATION: ...]` left in the plan entry, or a `TODO` the
+     task should have closed. An open marker on the current task blocks its start.
+   Tag each finding with a severity: CRITICAL = breaks a `CLAUDE.md` architecture rule or
+   zero coverage of a *Done when*; HIGH = plan and code conflict, or untestable criterion;
+   MEDIUM = name drift, missing edge case; LOW = wording. Same files, same findings: report the
+   same way each run.
 7. **Smells.** Match the lines the diff adds against these code smells (Fowler, *Refactoring*
    ch.3). Each is a judgement call - report it as "possible Feature Envy", never as a failure.
    `CLAUDE.md` and the plan win: where they ask for a shape, it is not a smell (e.g. the thin
