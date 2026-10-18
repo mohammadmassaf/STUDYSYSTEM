@@ -39,7 +39,7 @@ schedules.
 - **Unknown stays unknown:** a missing input is stored as `NULL` with tier `unknown`, never as 0.
 - **Ownership:** every user-owned row carries `user_id`; the evidence tables carry `owner_id`.
 - **Hours are explicit assertions.** Sessions label the work; minutes come only from
-  `study_log_hours`.
+  `study_log_hours` (source `tool`) or the dashboard timer's stop (`timer`, D-198).
 - **Migrations run only through the `study migrate` command.** A server whose database is behind
   head refuses to start with an error naming that command.
 - **Rows retire by status** (`superseded`, `declined`, `voided_at`); foreign keys are
