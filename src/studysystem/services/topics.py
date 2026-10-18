@@ -184,13 +184,20 @@ def best_scores(user_id: str) -> Subquery:
     return query
 
 
-def get_topics(engine: Engine, user_id: str, code: str, semester_name: str | None = None) -> dict:
+def get_topics(
+    engine: Engine,
+    user_id: str,
+    code: str,
+    semester_name: str | None = None,
+    include_hidden: bool = False,
+) -> dict:
     """Every live topic of the course, each with its status, its offered items (id, paper date,
     position, marks, the full question text, best score) and how many it hides (D-64, D-66).
 
     An item is offered while unpractised (`best_score` None) or mostly wrong (best at or under
-    PASS_SCORE); above it, it is hidden - not handed out again (D-99, D-126). A `rejected`
-    item is not listed at all, nor counted in `hidden`."""
+    PASS_SCORE); above it, it is hidden - not handed out again (D-99, D-126). `include_hidden`
+    lists every live item and `hidden` is 0 - what a split maps (D-203). A `rejected` item is not
+    listed at all, nor counted in `hidden`."""
     best = best_scores(user_id)
     with read_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
@@ -230,7 +237,7 @@ def get_topics(engine: Engine, user_id: str, code: str, semester_name: str | Non
                 )
             ).all()
             # Decided here, not in SQL: `hidden` counts the items a WHERE would have dropped.
-            offered = [i for i in items if i.best is None or i.best <= PASS_SCORE]
+            offered = [i for i in items if include_hidden or i.best is None or i.best <= PASS_SCORE]
             result["topics"].append(
                 {
                     "id": row.id,
