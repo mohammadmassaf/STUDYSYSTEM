@@ -44,10 +44,15 @@ STATUS = {
     "no_user": 500,
     "too_many_users": 500,
     "database_busy": 503,
+    "session_ended": 409,
+    "session_expired": 409,
 }
 
-# study_log_hours's arguments, by the same names.
+# Each write's service arguments, by the same names: study_log_hours's, study_start_session's,
+# and the timer's stop (D-198).
 HOURS_FIELDS = ("code", "minutes", "topic_id", "setup_key", "session_id", "voids", "semester_name")
+START_FIELDS = ("code", "mode", "subject_type", "subject_id", "semester_name")
+STOP_FIELDS = ("code", "session_id", "minutes", "setup_key", "semester_name")
 
 
 def _error(err: StudyError) -> JSONResponse:
@@ -99,17 +104,20 @@ async def _json_body(request: Request) -> dict:
     return body
 
 
-def _hours_args(body: dict) -> dict:
+def _args(body: dict, route: str, fields: tuple[str, ...], needed: tuple[str, ...]) -> dict:
     """The tool's schema checks names and types before the service runs; this is that check. A
-    mistyped name must not drop silently: `topic` for `topic_id` would log course-level hours."""
+    mistyped name must not drop silently: `topic` for `topic_id` would log course-level hours,
+    and `source` is no field at all - only the timer's stop writes `timer` (D-198)."""
     for field in body:
-        if field not in HOURS_FIELDS:
+        if field not in fields:
             raise values.invalid(
-                field, "is not a field of POST /hours", f"send only: {', '.join(HOURS_FIELDS)}"
+                field, f"is not a field of POST {route}", f"send only: {', '.join(fields)}"
             )
-    if body.get("code") is None:
-        raise values.invalid("code", "is missing", "send the course code, e.g. I3302")
-    for field in HOURS_FIELDS:
+    for field in needed:
+        if body.get(field) is None:
+            fix = "send the course code, e.g. I3302" if field == "code" else f"send {field}"
+            raise values.invalid(field, "is missing", fix)
+    for field in fields:
         if field != "minutes" and body.get(field) is not None and not isinstance(body[field], str):
             raise values.invalid(field, f"{body[field]!r} is not text", f"send {field} as a string")
     return body
@@ -139,22 +147,30 @@ def create_app(engine: Engine) -> Starlette:
             ),
         )
 
-    async def hours(request: Request) -> JSONResponse:
-        try:
-            args = _hours_args(await _json_body(request))
-        except StudyError as err:
-            return _error(err)
-        # In a worker thread: a write can wait out busy_timeout, and must not stall the others.
-        return await run_in_threadpool(
-            _answer, lambda: study_loop.log_hours(engine, current_user(engine), **args)
-        )
+    def write(route: str, service: str, fields: tuple[str, ...], needed: tuple[str, ...]) -> Route:
+        """A POST route: a checked JSON body, then `study_loop.<service>` with the current user -
+        looked up per call, so a test can swap the service out."""
+
+        async def handle(request: Request) -> JSONResponse:
+            try:
+                args = _args(await _json_body(request), route, fields, needed)
+            except StudyError as err:
+                return _error(err)
+            # In a worker thread: a write can wait out busy_timeout, and must not stall the others.
+            return await run_in_threadpool(
+                _answer, lambda: getattr(study_loop, service)(engine, current_user(engine), **args)
+            )
+
+        return Route(route, handle, methods=["POST"])
 
     return Starlette(
         routes=[
             Route("/", page, methods=["GET"]),
             Route("/health", health, methods=["GET"]),
             Route("/state", get_state, methods=["GET"]),
-            Route("/hours", hours, methods=["POST"]),
+            write("/hours", "log_hours", HOURS_FIELDS, ("code",)),
+            write("/sessions", "start_session", START_FIELDS, ("code", "mode")),
+            write("/sessions/stop", "stop_timer", STOP_FIELDS, ("code", "session_id", "minutes")),
         ],
         middleware=[Middleware(BaseHTTPMiddleware, dispatch=_own_host)],
     )
