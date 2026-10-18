@@ -47,10 +47,11 @@ schedules.
 
 ## Git
 
-- Every task works on its own branch, never on `main`. `main` changes only through a pull
+- Work happens on a branch, never on `main`. One branch and one PR per milestone (a group of
+  tasks in `build-plan.md`), one small commit per task. `main` changes only through a pull
   request with both CI jobs green, merged by rebase (the branch's commits land one by one, no
   merge commit). So each commit passes the tests on its own, and a PR is rebased onto the
-  latest `main` before it can merge.
+  latest `main` before it can merge. Postgres runs only in CI, so no SQL reaches `main` unchecked.
 - **Exception - workflow files:** a change that touches only `CLAUDE.md` or `.claude/` (agents,
   skills) commits straight to `main`: no branch, PR or QA run. Anything else follows the rules above.
 - Small commits with an imperative subject ("add write-unit wrapper").
