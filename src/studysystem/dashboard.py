@@ -147,9 +147,10 @@ def create_app(engine: Engine) -> Starlette:
             ),
         )
 
-    def write(route: str, service: str, fields: tuple[str, ...], needed: tuple[str, ...]) -> Route:
-        """A POST route: a checked JSON body, then `study_loop.<service>` with the current user -
-        looked up per call, so a test can swap the service out."""
+    def write(
+        route: str, service: Callable[..., dict], fields: tuple[str, ...], needed: tuple[str, ...]
+    ) -> Route:
+        """A POST route: a checked JSON body, then `service` with the current user."""
 
         async def handle(request: Request) -> JSONResponse:
             try:
@@ -158,7 +159,7 @@ def create_app(engine: Engine) -> Starlette:
                 return _error(err)
             # In a worker thread: a write can wait out busy_timeout, and must not stall the others.
             return await run_in_threadpool(
-                _answer, lambda: getattr(study_loop, service)(engine, current_user(engine), **args)
+                _answer, lambda: service(engine, current_user(engine), **args)
             )
 
         return Route(route, handle, methods=["POST"])
@@ -168,9 +169,14 @@ def create_app(engine: Engine) -> Starlette:
             Route("/", page, methods=["GET"]),
             Route("/health", health, methods=["GET"]),
             Route("/state", get_state, methods=["GET"]),
-            write("/hours", "log_hours", HOURS_FIELDS, ("code",)),
-            write("/sessions", "start_session", START_FIELDS, ("code", "mode")),
-            write("/sessions/stop", "stop_timer", STOP_FIELDS, ("code", "session_id", "minutes")),
+            write("/hours", study_loop.log_hours, HOURS_FIELDS, ("code",)),
+            write("/sessions", study_loop.start_session, START_FIELDS, ("code", "mode")),
+            write(
+                "/sessions/stop",
+                study_loop.stop_timer,
+                STOP_FIELDS,
+                ("code", "session_id", "minutes"),
+            ),
         ],
         middleware=[Middleware(BaseHTTPMiddleware, dispatch=_own_host)],
     )
