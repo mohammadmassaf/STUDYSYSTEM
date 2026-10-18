@@ -356,6 +356,26 @@ def _retag_shape_errors(retag) -> list[dict]:
     return errors
 
 
+def map_problems(owned: set[str], listed: list[str], field: str) -> list[dict]:
+    """Whether `listed` names each id of `owned` exactly once - a decline's retag, a split's
+    children (D-61, D-195). One field error per kind of problem, each naming its ids: missing,
+    not the topic's, listed twice. Every problem in one list, so the host fixes the whole map in
+    one retry. Empty when the map is right."""
+    missing = owned - set(listed)
+    foreign = set(listed) - owned
+    dups = [item_id for item_id, n in Counter(listed).items() if n > 1]
+    problems = []
+    if missing:
+        problems.append({"field": field, "problem": f"missing: {', '.join(sorted(missing))}"})
+    if foreign:
+        problems.append(
+            {"field": field, "problem": f"not this topic's item: {', '.join(sorted(foreign))}"}
+        )
+    if dups:
+        problems.append({"field": field, "problem": f"listed twice: {', '.join(sorted(dups))}"})
+    return problems
+
+
 def _decline(conn: Connection, user_id: str, found, retag: list[dict]) -> dict:
     """The decline half of `confirm_topic_proposal` (D-61 - D-63): check the map, resolve each
     target, move the items, retire the topic, then give each `active` target its edges.
@@ -371,26 +391,12 @@ def _decline(conn: Connection, user_id: str, found, retag: list[dict]) -> dict:
         .scalars()
         .all()
     )
-    items = [e["item_id"] for e in retag]
-    missing = declined - set(items)
-    foreign = set(items) - declined
-    count = Counter(items)
-    dups = [item_id for item_id, n in count.items() if n > 1]
-
-    # every problem in one error, so the host fixes the whole list in one retry
-    problems = []
-    if missing:
-        problems.append({"field": "retag", "problem": f"missing: {', '.join(sorted(missing))}"})
-    if foreign:
-        problems.append(
-            {"field": "retag", "problem": f"not this topic's item: {', '.join(sorted(foreign))}"}
-        )
-    if dups:
-        problems.append({"field": "retag", "problem": f"listed twice: {', '.join(sorted(dups))}"})
+    problems = map_problems(declined, [e["item_id"] for e in retag], "retag")
     if problems:
         raise StudyError(
             code="invalid_value",
-            message=f"retag must name each of the {len(declined)} items of this topic exactly once",
+            message=f"retag must name each of the {len(declined)} live items of this topic "
+            "exactly once",
             fix="call study_get_topics for this topic's item ids and send one entry per item",
             field_errors=problems,
         )
