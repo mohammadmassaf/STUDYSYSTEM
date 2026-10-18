@@ -172,7 +172,7 @@ def test_a_locked_database_is_503(client, monkeypatch, web):
     def locked(*_args, **_kwargs):
         raise OperationalError("INSERT ...", {}, sqlite3.OperationalError("database is locked"))
 
-    monkeypatch.setattr(study_loop, "log_hours", locked)
+    monkeypatch.setattr(study_loop, "write_unit", locked)
 
     response = client.post("/hours", json={"code": "I3302", "minutes": 40})
 
