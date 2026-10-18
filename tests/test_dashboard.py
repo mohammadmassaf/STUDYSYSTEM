@@ -1,6 +1,7 @@
 """The dashboard route (3.1; D-17, D-161, D-162): the same services the tools call, behind HTTP.
 Each write is his 40 minutes on I3302, sent as the dashboard would send it."""
 
+import datetime
 import importlib.metadata
 import sqlite3
 
@@ -12,7 +13,7 @@ from starlette.testclient import TestClient
 from studysystem.dashboard import create_app
 from studysystem.db.engine import db_path
 from studysystem.db.migrate import head_revision
-from studysystem.db.tables import hours_entry
+from studysystem.db.tables import hours_entry, study_session
 from studysystem.services import study_loop
 from studysystem.services.courses import add_course
 from tests._study import run_study
@@ -119,10 +120,11 @@ def test_a_body_that_is_not_one_json_object_is_refused(client, service_engine, w
     assert entries(service_engine) == 0
 
 
-def test_a_write_that_is_not_json_is_refused(client, service_engine, web):
+@pytest.mark.parametrize("path", ["/hours", "/sessions", "/sessions/stop"])
+def test_a_write_that_is_not_json_is_refused(client, service_engine, web, path):
     """What a page on another site can send without asking first: a form, or text/plain."""
     response = client.post(
-        "/hours",
+        path,
         content='{"code": "I3302", "minutes": 720}',
         headers={"content-type": "text/plain"},
     )
@@ -176,6 +178,93 @@ def test_a_locked_database_is_503(client, monkeypatch, web):
 
     assert response.status_code == 503
     assert response.json()["code"] == "database_busy"
+
+
+# --- the timer (3.5; D-198): start and stop through the route --------------------------------
+
+
+def _clock_after(monkeypatch, started_at: str, **span) -> None:
+    start = datetime.datetime.fromisoformat(started_at)
+    stamp = (start + datetime.timedelta(**span)).strftime(study_loop.TIMESTAMP)
+    monkeypatch.setattr(study_loop, "now", lambda: stamp)
+
+
+def test_a_timed_session_through_the_route_logs_timer_hours(
+    client, service_engine, web, monkeypatch
+):
+    started = client.post("/sessions", json={"code": "I3302", "mode": "practice"})
+    assert started.status_code == 200
+    session = started.json()
+    _clock_after(monkeypatch, session["started_at"], minutes=40)
+
+    stopped = client.post(
+        "/sessions/stop",
+        json={"code": "I3302", "session_id": session["session_id"], "minutes": 40},
+    )
+
+    assert stopped.status_code == 200
+    with service_engine.connect() as conn:
+        row = conn.execute(select(hours_entry)).one()
+    assert (row.id, row.minutes, row.source) == (stopped.json()["hours_entry_id"], 40, "timer")
+
+
+def test_a_stop_after_four_hours_is_409_and_writes_nothing(
+    client, service_engine, web, monkeypatch
+):
+    session = client.post("/sessions", json={"code": "I3302", "mode": "practice"}).json()
+    _clock_after(monkeypatch, session["started_at"], hours=6)
+
+    response = client.post(
+        "/sessions/stop",
+        json={"code": "I3302", "session_id": session["session_id"], "minutes": 360},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "session_expired"
+    assert entries(service_engine) == 0
+
+
+def test_a_second_stop_is_409_and_the_first_entry_stands(client, service_engine, web, monkeypatch):
+    session = client.post("/sessions", json={"code": "I3302", "mode": "practice"}).json()
+    _clock_after(monkeypatch, session["started_at"], minutes=40)
+    stop = {"code": "I3302", "session_id": session["session_id"], "minutes": 40}
+    client.post("/sessions/stop", json=stop)
+
+    response = client.post("/sessions/stop", json=stop)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "session_ended"
+    assert entries(service_engine) == 1
+
+
+def test_post_hours_cannot_claim_the_timer(client, service_engine, web):
+    claimed = client.post("/hours", json={"code": "I3302", "minutes": 40, "source": "timer"})
+    logged = client.post("/hours", json={"code": "I3302", "minutes": 40})
+
+    assert claimed.status_code == 400
+    assert claimed.json()["field_errors"][0]["field"] == "source"
+    assert logged.status_code == 200
+    with service_engine.connect() as conn:
+        assert conn.execute(select(hours_entry.c.source)).scalars().all() == ["tool"]
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "field"),
+    [
+        ("/sessions", {"code": "I3302"}, "mode"),
+        ("/sessions", {"code": "I3302", "mode": "practice", "topic_id": "x"}, "topic_id"),
+        ("/sessions/stop", {"code": "I3302", "minutes": 5}, "session_id"),
+        ("/sessions/stop", {"code": "I3302", "session_id": "x"}, "minutes"),
+        ("/sessions/stop", {"code": "I3302", "session_id": 7, "minutes": 5}, "session_id"),
+    ],
+)
+def test_a_session_route_checks_its_fields(client, service_engine, web, path, body, field):
+    response = client.post(path, json=body)
+
+    assert response.status_code == 400
+    assert response.json()["field_errors"][0]["field"] == field
+    with service_engine.connect() as conn:
+        assert conn.execute(select(func.count()).select_from(study_session)).scalar_one() == 0
 
 
 # --- `study dashboard`, started the way he starts it ------------------------------------------
