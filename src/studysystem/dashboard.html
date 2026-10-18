@@ -7,29 +7,31 @@
 <title>Semester Console</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Karla:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap">
 
 <style>
 /* ============================================================
    1 · DESIGN TOKENS - light is the base; dark redefines tokens.
-   Palette: settled "dusk grey-violet". Never near-black, never warm cream.
+   Palette (D-207): rose accent, cool light grounds, pure black in dark.
    Series + confidence colours are the validated dataviz ramps.
    ============================================================ */
 :root {
   color-scheme: light;
   /* grounds & surfaces - cool near-white, faint cyan cast */
-  --bg:#EEF3F4; --paper:#EEF3F4;
+  --bg:#F8F1F3; --paper:#F8F1F3;
   --surface:#FFFFFF; --card:#FFFFFF;
-  --surface-2:#E2ECEE; --sunken:#E2ECEE;
+  --surface-2:#F0E3E7; --sunken:#F0E3E7;
   --raise:#FFFFFF;
-  --rule:#D2DDE0; --rule-soft:#E5ECEE; --rule-strong:#B6C5CA;
+  --rule:#E8D8DD; --rule-soft:#F1E6EA; --rule-strong:#CDB6BE;
   /* ink - deep slate on light */
-  --ink:#0B1618; --ink-2:#455A61; --ink-3:#6E828A; --ink-4:#9BABB1;
+  --ink:#17141F; --ink-2:#463F55; --ink-3:#645D74; --ink-4:#958EA4;
   /* accent - cyan identity, DEEPENED for readability on white (cyan-700) */
-  --accent:#0E7490; --accent-strong:#155E75; --accent-soft:#0891B2; --accent-2:#0D9488;
-  --accent-ink:#FFFFFF; --accent-wash:rgba(14,116,144,0.10); --accent-line:rgba(14,116,144,0.28);
+  --accent:#E11D48; --accent-strong:#BE123C; --accent-soft:#FB7185; --accent-2:#F43F5E;
+  --accent-ink:#FFFFFF; --accent-wash:rgba(225,29,72,0.10); --accent-line:rgba(225,29,72,0.28);
   /* series (courses) - validated categorical ramp, distinct from cyan chrome */
   --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
+  /* course colours (8): the schedule and every course swatch */
+  --k1:#4652C9; --k2:#B7790A; --k3:#23895A; --k4:#C83A60; --k5:#7B45C4; --k6:#16799F; --k7:#CF5A1C; --k8:#6E7F12;
   /* status - spaced hues so none blur together on white; always paired with icon+label */
   --good:#047857; --good-wash:rgba(4,120,87,0.12);
   --warn:#946412; --warn-wash:rgba(148,100,18,0.14);
@@ -38,38 +40,39 @@
   --done:#5A6B73; --done-wash:rgba(90,107,115,0.12);
   /* confidence ramp - blue sequential, reads as ordinal against cyan chrome */
   --c1:#86b6ef; --c2:#5598e7; --c3:#2a78d6; --c4:#1c5cab; --c5:#104281;
-  --c0-line:#B6C5CA; --lost:#CBD7DB;
+  --c0-line:#CDB6BE; --lost:#E3D3D8;
   /* radius scale */
   --r1:8px; --r2:12px; --r3:16px; --rpill:999px;
   /* elevation - cool shadows */
-  --sh-1:0 1px 2px rgba(11,22,24,.05);
-  --sh-2:0 2px 6px -2px rgba(11,22,24,.10), 0 8px 24px -14px rgba(11,22,24,.20);
-  --sh-3:0 12px 40px -12px rgba(11,22,24,.28);
+  --sh-1:0 1px 2px rgba(23,20,31,.05);
+  --sh-2:0 2px 6px -2px rgba(23,20,31,.10), 0 8px 24px -14px rgba(23,20,31,.20);
+  --sh-3:0 12px 40px -12px rgba(23,20,31,.28);
   --shadow:var(--sh-2);
   /* type */
-  --f-display:"Newsreader", Georgia, "Times New Roman", serif;
-  --f-ui:"Karla", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --f-data:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --f-display:"Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-ui:"Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-data:"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg:#080B0D; --paper:#080B0D;
-    --surface:#101518; --card:#101518;
-    --surface-2:#161D20; --sunken:#161D20;
-    --raise:#1A2327;
-    --rule:#263238; --rule-soft:#192226; --rule-strong:#33454D;
-    --ink:#F1F5F9; --ink-2:#94A3B8; --ink-3:#647585; --ink-4:#475059;
-    --accent:#22D3EE; --accent-strong:#67E8F9; --accent-soft:#0E7490; --accent-2:#14B8A6;
-    --accent-ink:#04171C; --accent-wash:rgba(34,211,238,0.13); --accent-line:rgba(34,211,238,0.32);
+    --bg:#000000; --paper:#000000;
+    --surface:#0A0A0B; --card:#0A0A0B;
+    --surface-2:#161618; --sunken:#161618;
+    --raise:#1A1A1D;
+    --rule:#232326; --rule-soft:#161618; --rule-strong:#35353A;
+    --ink:#F2F2F3; --ink-2:#C8C8CC; --ink-3:#9A9AA0; --ink-4:#6E6E75;
+    --accent:#FB7185; --accent-strong:#FDA4AF; --accent-soft:#E11D48; --accent-2:#F43F5E;
+    --accent-ink:#000000; --accent-wash:rgba(251,113,133,0.16); --accent-line:rgba(251,113,133,0.34);
     --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+    --k1:#8C96FF; --k2:#E8B04A; --k3:#5CCB92; --k4:#F17B9A; --k5:#B98BF5; --k6:#5CC0E6; --k7:#F59A64; --k8:#BCD15A;
     --good:#34D399; --good-wash:rgba(52,211,153,0.15);
     --warn:#FBBF24; --warn-wash:rgba(251,191,36,0.15);
     --serious:#FB923C; --serious-wash:rgba(251,146,60,0.16);
     --critical:#FB7185; --critical-wash:rgba(251,113,133,0.15);
     --done:#94A3B8; --done-wash:rgba(148,163,184,0.16);
     --c1:#1c5cab; --c2:#256abf; --c3:#3987e5; --c4:#6da7ec; --c5:#9ec5f4;
-    --c0-line:#33454D; --lost:#28353B;
+    --c0-line:#35353A; --lost:#232326;
     --sh-1:0 1px 2px rgba(0,0,0,.55);
     --sh-2:0 2px 8px -2px rgba(0,0,0,.6), 0 10px 30px -16px rgba(0,0,0,.85);
     --sh-3:0 16px 48px -12px rgba(0,0,0,.9);
@@ -77,22 +80,23 @@
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg:#080B0D; --paper:#080B0D;
-  --surface:#101518; --card:#101518;
-  --surface-2:#161D20; --sunken:#161D20;
-  --raise:#1A2327;
-  --rule:#263238; --rule-soft:#192226; --rule-strong:#33454D;
-  --ink:#F1F5F9; --ink-2:#94A3B8; --ink-3:#647585; --ink-4:#475059;
-  --accent:#22D3EE; --accent-strong:#67E8F9; --accent-soft:#0E7490; --accent-2:#14B8A6;
-  --accent-ink:#04171C; --accent-wash:rgba(34,211,238,0.13); --accent-line:rgba(34,211,238,0.32);
+  --bg:#000000; --paper:#000000;
+  --surface:#0A0A0B; --card:#0A0A0B;
+  --surface-2:#161618; --sunken:#161618;
+  --raise:#1A1A1D;
+  --rule:#232326; --rule-soft:#161618; --rule-strong:#35353A;
+  --ink:#F2F2F3; --ink-2:#C8C8CC; --ink-3:#9A9AA0; --ink-4:#6E6E75;
+  --accent:#FB7185; --accent-strong:#FDA4AF; --accent-soft:#E11D48; --accent-2:#F43F5E;
+  --accent-ink:#000000; --accent-wash:rgba(251,113,133,0.16); --accent-line:rgba(251,113,133,0.34);
   --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+  --k1:#8C96FF; --k2:#E8B04A; --k3:#5CCB92; --k4:#F17B9A; --k5:#B98BF5; --k6:#5CC0E6; --k7:#F59A64; --k8:#BCD15A;
   --good:#34D399; --good-wash:rgba(52,211,153,0.15);
   --warn:#FBBF24; --warn-wash:rgba(251,191,36,0.15);
   --serious:#FB923C; --serious-wash:rgba(251,146,60,0.16);
   --critical:#FB7185; --critical-wash:rgba(251,113,133,0.15);
   --done:#94A3B8; --done-wash:rgba(148,163,184,0.16);
   --c1:#1c5cab; --c2:#256abf; --c3:#3987e5; --c4:#6da7ec; --c5:#9ec5f4;
-  --c0-line:#33454D; --lost:#28353B;
+  --c0-line:#35353A; --lost:#232326;
   --sh-1:0 1px 2px rgba(0,0,0,.55);
   --sh-2:0 2px 8px -2px rgba(0,0,0,.6), 0 10px 30px -16px rgba(0,0,0,.85);
   --sh-3:0 16px 48px -12px rgba(0,0,0,.9);
@@ -140,11 +144,9 @@ svg { display:block; }
 .topbar {
   position:sticky; top:0; z-index:20;
   padding:20px 0 16px; margin-bottom:8px;
-  background:linear-gradient(var(--bg) 78%, rgba(238,243,244,0));
+  background:linear-gradient(var(--bg) 78%, transparent);
   display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap;
 }
-:root[data-theme="dark"] .topbar, :root:not([data-theme="light"]) .topbar { background:linear-gradient(var(--bg) 78%, rgba(8,11,13,0)); }
-@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .topbar{ background:linear-gradient(var(--bg) 78%, rgba(27,26,36,0)); } }
 main#view { display:flex; flex-direction:column; gap:22px; min-width:0; }
 .section { display:flex; flex-direction:column; gap:14px; min-width:0; }
 .stack { display:flex; flex-direction:column; gap:22px; min-width:0; }
@@ -424,6 +426,14 @@ select.field { cursor:pointer; padding-right:26px; }
 .task .tt { font-weight:600; font-size:15px; line-height:1.3; }
 .task .facts { display:flex; gap:8px; flex-wrap:wrap; margin-top:9px; }
 .task .facts .f { font-size:11.5px; color:var(--ink-3); background:var(--surface-2); padding:3px 9px; border-radius:var(--rpill); display:inline-flex; align-items:center; gap:5px; }
+.cchips { display:flex; flex-wrap:wrap; gap:4px 12px; }
+.data td.nw { white-space:nowrap; }
+.cchips a, .table-wrap .cchips a { display:inline-flex; align-items:center; gap:6px; color:var(--ink); text-decoration:none; font-family:var(--f-data); font-size:12.5px; }
+.cchips a:hover { color:var(--accent); }
+.cchips .swatch { width:9px; height:9px; border-radius:3px; flex:none; }
+.task .facts .f { white-space:nowrap; }
+.task .facts .f.why { white-space:normal; flex:1 1 100%; order:2; background:none; padding:0; border-radius:0; font-size:12.5px; line-height:1.45; }
+.task .facts .f:has(> .pill) { background:none; padding:0; }
 .task .facts .f b { color:var(--ink-2); font-weight:600; }
 .task .facts .f .cd { width:11px; height:11px; border-radius:3px; }
 .task .side { display:flex; flex-direction:column; align-items:flex-end; gap:9px; }
@@ -516,7 +526,7 @@ table.data a:hover { text-decoration:underline; }
 /* ============================================================
    13 · STUDY SESSION overlay + floating pill
    ============================================================ */
-.session-scrim { position:fixed; inset:0; z-index:100; background:rgba(20,19,28,.55); backdrop-filter:blur(3px); display:grid; place-items:center; padding:20px; opacity:0; animation:fade .2s ease forwards; }
+.session-scrim { position:fixed; inset:0; z-index:100; background:rgba(0,0,0,.6); backdrop-filter:blur(3px); display:grid; place-items:center; padding:20px; opacity:0; animation:fade .2s ease forwards; }
 @keyframes fade { to { opacity:1; } }
 .session { width:min(560px,100%); background:var(--surface); border:1px solid var(--rule); border-radius:var(--r3); box-shadow:var(--sh-3); overflow:hidden; transform:translateY(8px) scale(.99); animation:pop .22s cubic-bezier(.34,1.3,.5,1) forwards; }
 @keyframes pop { to { transform:none; } }
@@ -563,6 +573,29 @@ table.data a:hover { text-decoration:underline; }
 .searchbox svg { position:absolute; left:11px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:var(--ink-3); pointer-events:none; }
 .searchbox input { padding-left:32px; }
 
+
+/* collapsible rail (D-207): 68px icons; the mouse entering widens it over the page */
+.rail { width:256px; overflow-x:hidden; z-index:40; transition:width .22s ease, box-shadow .22s ease, padding .22s ease; background:var(--bg); }
+.rail-top { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; }
+.rail-top .brand { flex:1; min-width:0; overflow:hidden; }
+.rail-top .brand { padding:0; }
+.rail-top .brand h1 { font-size:14.5px; }
+.brand-text { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rail-toggle { width:32px; height:32px; flex:none; border-radius:var(--r1); border:1px solid var(--rule); background:none; color:var(--ink-3); cursor:pointer; display:grid; place-items:center; transition:background .14s ease, color .14s ease; }
+.rail-toggle:hover { background:var(--surface-2); color:var(--ink); }
+.rail-toggle svg { width:16px; height:16px; transition:transform .22s ease; }
+.app.collapsed { grid-template-columns:68px minmax(0,1fr); }
+.app.collapsed .rail { width:68px; padding-left:12px; padding-right:12px; }
+.app.collapsed.peek .rail { width:256px; padding-left:16px; padding-right:16px; box-shadow:14px 0 40px -18px rgba(0,0,0,.45); background:var(--surface); }
+.app.collapsed .rail-toggle svg { transform:rotate(180deg); }
+.app.collapsed:not(.peek) .rail-top { flex-direction:column; gap:10px; }
+.app.collapsed:not(.peek) .brand { padding:0; }
+.app.collapsed:not(.peek) :is(.brand-text, .nav-title, .n-label, .n-badge, a.cnav .code, a.cnav .ct, .rail-foot) { display:none; }
+.app.collapsed:not(.peek) :is(a.nav, a.cnav) { justify-content:center; padding-left:0; padding-right:0; }
+.app.collapsed:not(.peek) a.nav[aria-current="page"]::before { left:-12px; }
+a.nav .ic { transition:color .14s ease, transform .14s ease; }
+a.nav:hover .ic { color:var(--accent); transform:translateX(2px); }
+
 /* ============================================================
    15 · MOBILE bottom nav + responsive
    ============================================================ */
@@ -578,7 +611,7 @@ table.data a:hover { text-decoration:underline; }
   .focus .cta .exam { text-align:left; }
 }
 @media (max-width:760px) {
-  .app { grid-template-columns:1fr; }
+  .app, .app.collapsed { grid-template-columns:1fr; }
   .rail { display:none; }
   .content { padding:0 15px 92px; }
   .topbar { position:static; padding:14px 0 10px; }
@@ -601,19 +634,65 @@ table.data a:hover { text-decoration:underline; }
     display:grid; grid-auto-flow:column; grid-auto-columns:1fr;
     position:fixed; left:0; right:0; bottom:0; z-index:70;
     background:var(--surface); border-top:1px solid var(--rule); padding:6px 4px calc(6px + env(safe-area-inset-bottom));
-    box-shadow:0 -4px 20px -12px rgba(20,19,28,.4);
+    box-shadow:0 -4px 20px -12px rgba(0,0,0,.4);
   }
-  a.mnav { display:flex; flex-direction:column; align-items:center; gap:3px; padding:7px 2px; min-height:52px; justify-content:center; text-decoration:none; color:var(--ink-3); border-radius:var(--r1); }
-  a.mnav svg { width:21px; height:21px; }
-  a.mnav span { font-size:10px; font-weight:600; }
-  a.mnav[aria-current="page"] { color:var(--accent); }
+  a.mnav, button.mnav { display:flex; flex-direction:column; align-items:center; gap:3px; padding:7px 2px; min-height:52px; justify-content:center; text-decoration:none; color:var(--ink-3); border-radius:var(--r1); }
+  a.mnav svg, button.mnav svg { width:21px; height:21px; }
+  button.mnav { background:none; border:0; font:inherit; cursor:pointer; }
+  a.mnav span, button.mnav span { font-size:10px; font-weight:600; }
+  a.mnav[aria-current="page"], button.mnav[aria-current="page"] { color:var(--accent); }
   a.mnav[aria-current="page"] .ic { position:relative; }
   .float-pill { bottom:76px; }
+}
+@media (max-width:560px) {
+  .data td.nw { white-space:normal; }
+  .cchips { gap:4px 8px; }
+  .cchips a { font-size:11.5px; }
+  .task { grid-template-columns:auto minmax(0,1fr); }
+  .task .side { grid-column:1 / -1; flex-direction:row; justify-content:space-between; align-items:center; margin-top:12px; }
 }
 @media (max-width:400px) {
   .tiles { grid-template-columns:1fr; }
   .tile { border-right:0; }
 }
+
+
+/* ============================================================
+   SCHEDULE (D-207) - meetings from GET /state, placed by time
+   ============================================================ */
+.sk-controls { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; justify-content:space-between; }
+.sk-legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12.5px; color:var(--ink-3); }
+.sk-legend span { display:inline-flex; align-items:center; gap:6px; }
+.sk-legend i { width:10px; height:10px; border-radius:3px; background:var(--c); }
+.sk-week { display:grid; grid-template-columns:54px repeat(var(--days), minmax(0,1fr)); gap:0 6px; background:var(--surface); border:1px solid var(--rule); border-radius:var(--r3); padding:10px 10px 10px 6px; }
+.sk-dh { font-weight:700; font-size:14px; padding:4px 8px 10px; display:flex; justify-content:space-between; align-items:baseline; }
+.sk-dh small { font-family:var(--f-data); font-size:11px; font-weight:500; color:var(--ink-4); }
+.sk-dh.today, .sk-dh.today small { color:var(--accent); }
+.sk-hours, .sk-col { position:relative; height:calc(var(--hpx) * var(--hrs)); }
+.sk-hours span { position:absolute; right:6px; font-family:var(--f-data); font-size:11px; color:var(--ink-4); transform:translateY(-50%); }
+.sk-col { border-left:1px dashed var(--rule);
+  background:repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--hpx) - 1px), var(--rule-soft) calc(var(--hpx) - 1px), var(--rule-soft) var(--hpx)); }
+.sk-col.today { background-color:var(--accent-wash); }
+.sk-block { position:absolute; border-radius:var(--r1); padding:7px 9px; overflow:hidden; border-left:4px solid var(--c);
+  background:color-mix(in oklab, var(--c) 14%, var(--surface)); transition:transform .14s ease, box-shadow .14s ease; }
+.sk-block:hover { transform:translateY(-1px); box-shadow:var(--sh-2); z-index:2; }
+.sk-block .code { font-family:var(--f-data); font-size:12px; font-weight:600; color:var(--c); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.sk-block .nm { font-weight:700; font-size:13.5px; line-height:1.2; }
+.sk-block .meta { font-size:12px; color:var(--ink-3); }
+.sk-chip { font-family:var(--f-data); font-size:9.5px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; padding:1px 5px; border-radius:4px; background:color-mix(in oklab, var(--c) 22%, transparent); color:var(--c); }
+.sk-chip.inf { background:none; border:1px dashed var(--c); }
+.sk-now { position:absolute; left:0; right:0; border-top:2px solid var(--accent); z-index:3; pointer-events:none; }
+.sk-now::before { content:""; position:absolute; left:-4px; top:-5px; width:8px; height:8px; border-radius:50%; background:var(--accent); }
+.sk-dayview { display:none; }
+.sk-tabs { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:4px; background:var(--surface); border:1px solid var(--rule); border-radius:var(--r2); padding:4px; }
+.sk-tabs button { font:700 13px var(--f-ui); color:var(--ink-3); background:none; border:0; border-radius:var(--r1); padding:8px 0; cursor:pointer; }
+.sk-tabs button[aria-selected="true"] { background:var(--ink); color:var(--bg); }
+.sk-list { display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+.sk-row { display:grid; grid-template-columns:56px 1fr; gap:10px; }
+.sk-row .t { font-family:var(--f-data); font-size:12px; color:var(--ink-3); padding-top:9px; }
+.sk-row .t b { display:block; color:var(--ink); font-size:13px; font-weight:600; }
+.sk-row .sk-block { position:static; }
+@media (max-width:900px) { .sk-week { display:none; } .sk-dayview { display:block; } }
 
 /* ============================================================
    16 · TOOLTIP + misc
@@ -626,14 +705,115 @@ footer.foot code { font-family:var(--f-data); font-size:11.5px; color:var(--ink-
 
 @media (prefers-reduced-motion:reduce) { *, *::before, *::after { transition:none !important; animation:none !important; } }
 .nb { display:inline-flex; align-items:center; font-size:12px; color:var(--ink-3); border:1px dashed var(--rule); border-radius:999px; padding:1px 9px; white-space:nowrap; }
+
+/* ============================================================
+   17 - QUIET GLASS (D-207): frosted only where content passes beneath (rail, top bar, phone nav,
+   modal); cards are near-solid with a hairline edge. One accent wash, no gloss, no glow.
+   ============================================================ */
+:root {
+  --glass:rgba(255,255,255,.70); --glass-strong:rgba(255,255,255,.86);
+  --glass-edge:rgba(23,20,31,.09); --blur:saturate(150%) blur(20px);
+  --surface:rgba(255,255,255,.78); --card:rgba(255,255,255,.78); --raise:rgba(255,255,255,.9);
+  --surface-2:rgba(23,20,31,.045); --sunken:rgba(23,20,31,.045);
+  --r1:8px; --r2:12px; --r3:16px;
+  --sh-1:0 1px 2px rgba(23,20,31,.05);
+  --sh-2:0 1px 2px rgba(23,20,31,.05), 0 6px 18px -10px rgba(23,20,31,.16);
+  --sh-3:0 18px 44px -18px rgba(23,20,31,.30);
+  --wash:rgba(225,29,72,.07);
+}
+@media (prefers-color-scheme:dark) { :root:not([data-theme="light"]) {
+  --glass:rgba(16,16,18,.72); --glass-strong:rgba(22,22,26,.88); --glass-edge:rgba(255,255,255,.08);
+  --surface:rgba(14,14,16,.78); --card:rgba(14,14,16,.78); --raise:rgba(24,24,28,.9);
+  --surface-2:rgba(255,255,255,.055); --sunken:rgba(255,255,255,.055);
+  --sh-1:0 1px 2px rgba(0,0,0,.5); --sh-2:0 8px 24px -12px rgba(0,0,0,.8); --sh-3:0 22px 50px -18px rgba(0,0,0,.9);
+  --wash:rgba(251,113,133,.10);
+} }
+:root[data-theme="dark"] {
+  --glass:rgba(16,16,18,.72); --glass-strong:rgba(22,22,26,.88); --glass-edge:rgba(255,255,255,.08);
+  --surface:rgba(14,14,16,.78); --card:rgba(14,14,16,.78); --raise:rgba(24,24,28,.9);
+  --surface-2:rgba(255,255,255,.055); --sunken:rgba(255,255,255,.055);
+  --sh-1:0 1px 2px rgba(0,0,0,.5); --sh-2:0 8px 24px -12px rgba(0,0,0,.8); --sh-3:0 22px 50px -18px rgba(0,0,0,.9);
+  --wash:rgba(251,113,133,.10);
+}
+
+/* one quiet accent wash in a corner - enough for the frosted parts to have something to blur */
+body::before { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+  background:radial-gradient(70vw 55vh at 0% -8%, var(--wash), transparent 65%); }
+
+/* cards: near-solid, hairline edge, one soft shadow. no lift, no gloss. */
+.card, .task, .hcard, .focus, .sk-week, .sk-tabs, .tile {
+  border:1px solid var(--glass-edge); box-shadow:var(--sh-2); border-radius:var(--r3);
+}
+.task:hover, .hcard:hover { transform:none; border-color:var(--rule-strong); box-shadow:var(--sh-2); }
+.card.lane { border-left:1px solid var(--glass-edge); box-shadow:var(--sh-2), inset 3px 0 0 var(--lane); }
+.hcard { border-left:1px solid var(--glass-edge); box-shadow:var(--sh-2), inset 3px 0 0 var(--cc); }
+.hcard::before { display:none; }
+.focus { border-left:1px solid var(--glass-edge); }
+.card-head { border-bottom-color:var(--glass-edge); }
+
+/* frosted: only what content scrolls beneath */
+.rail, .app.collapsed.peek .rail, .topbar, .mobtop, .mobnav, .session {
+  background:var(--glass); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur);
+}
+.app.collapsed.peek .rail, .session { background:var(--glass-strong); }
+.rail { border-right:1px solid var(--glass-edge); }
+.topbar { border:1px solid var(--glass-edge); border-radius:var(--r3); padding:12px 18px; margin:12px 0 12px; box-shadow:var(--sh-1); }
+.mobtop, .mobnav { border-color:var(--glass-edge); }
+.session { border-radius:20px; box-shadow:var(--sh-3); }
+.session-scrim { background:rgba(10,8,14,.40); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); }
+
+/* nav */
+a.nav { border-radius:var(--r1); font-weight:550; }
+a.nav[aria-current="page"] { background:color-mix(in oklab, var(--accent) 12%, transparent); }
+a.nav[aria-current="page"]::before { display:none; }
+.brand .mark { border-radius:9px; background:var(--accent); box-shadow:none; }
+.rail-toggle { background:transparent; border-color:var(--glass-edge); border-radius:var(--r1); }
+
+/* type: the dashboard's own grotesque, labels in sentence case instead of spaced capitals */
+h1, h2, h3, .page-head h2, .sec-head h2, .greet h2 { letter-spacing:-.015em; }
+.page-head h2 { font-size:30px; font-weight:700; }
+.eyebrow { font-family:var(--f-ui); font-size:12px; font-weight:500; letter-spacing:0; text-transform:none; color:var(--ink-3); }
+.nav-title { font-family:var(--f-ui); font-size:11.5px; font-weight:600; letter-spacing:0; text-transform:none; color:var(--ink-3); }
+
+/* controls: no glow, no capsules except status chips */
+.btn { border-radius:var(--r1); height:38px; font-weight:600; }
+.btn-primary { box-shadow:none; }
+.btn-secondary, .chip, .pill { background:var(--surface-2); border-color:transparent; }
+.field { border:1px solid var(--glass-edge); border-radius:var(--r1); background:var(--surface); }
+.chip[aria-pressed="true"] { background:var(--ink); color:var(--bg); border-color:transparent; }
+.nb { border-color:var(--glass-edge); }
+
+/* schedule */
+.sk-block { border-left:0; border-radius:10px; box-shadow:inset 3px 0 0 var(--c);
+  background:color-mix(in oklab, var(--c) 14%, var(--surface)); }
+.sk-col { border-left-color:var(--glass-edge); }
+.sk-col.today { background-color:color-mix(in oklab, var(--accent) 6%, transparent); }
+
+.mobmore { position:absolute; right:8px; bottom:calc(100% + 8px); min-width:180px; padding:6px; display:flex; flex-direction:column;
+  background:var(--bg);
+  border:1px solid var(--glass-edge); border-radius:var(--r3); box-shadow:var(--sh-3); }
+.mobmore a { display:flex; align-items:center; gap:12px; padding:12px; border-radius:var(--r1); color:var(--ink); text-decoration:none; font-weight:600; font-size:14.5px; }
+.mobmore a:hover, .mobmore a[aria-current="page"] { background:var(--surface-2); }
+.mobmore a[aria-current="page"] { color:var(--accent); }
+.mobmore svg { width:19px; height:19px; flex:none; }
+/* the three leftovers: theme button, the heading that borrowed the task card's box, the countdown */
+#themeBtn, #themeMob { background:transparent; border:1px solid transparent; color:var(--ink-2); box-shadow:none; }
+#themeBtn:hover, #themeMob:hover { background:var(--surface-2); color:var(--ink); }
+#themeBtn svg, #themeMob svg { width:18px; height:18px; }
+.focus .task, .focus .task:hover { display:block; padding:0; background:none; border:0; box-shadow:none; border-radius:0; transform:none; }
+.focus .cta .exam .fk { display:block; margin-bottom:2px; }
+.focus .cta .exam .fv { font-family:var(--f-ui); font-size:20px; font-weight:600; letter-spacing:-.01em; }
 </style>
 </head>
 <body>
 <div class="app">
   <aside class="rail">
-    <div class="brand">
-      <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 8v6l9 5 9-5V8"/></svg></div>
-      <div><h1>Semester Console</h1><div class="sub" id="brandSub">-</div></div>
+    <div class="rail-top">
+      <div class="brand">
+        <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9 15.2 2.2 2.2 4.3-4.4"/></svg></div>
+        <div class="brand-text"><h1>Semester Console</h1><div class="sub" id="brandSub">-</div></div>
+      </div>
+      <button class="rail-toggle" id="railToggle" type="button" aria-expanded="true" aria-label="Collapse sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
     </div>
     <nav class="rail-nav" id="nav" aria-label="Primary"></nav>
     <div class="rail-foot" id="railFoot">The study server is the source of truth.</div>
@@ -642,7 +822,7 @@ footer.foot code { font-family:var(--f-data); font-size:11.5px; color:var(--ink-
   <div class="content">
     <div class="mobtop">
       <div class="brand">
-        <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 8v6l9 5 9-5V8"/></svg></div>
+        <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9 15.2 2.2 2.2 4.3-4.4"/></svg></div>
         <div><h1 style="font-size:16px">Semester Console</h1></div>
       </div>
       <button class="btn-icon btn-ghost" id="themeMob" aria-label="Toggle theme"></button>
@@ -666,7 +846,7 @@ footer.foot code { font-family:var(--f-data); font-size:11.5px; color:var(--ink-
    as unknown, never as 0; a panel the server has no data for yet
    says "not built yet" (D-186).
    ============================================================ */
-const SERIES = ["--s1", "--s2", "--s3", "--s4", "--s5"];
+const SERIES = ["--k1", "--k2", "--k3", "--k4", "--k5", "--k6", "--k7", "--k8"];
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
 const DAY = 86400000;
@@ -698,7 +878,9 @@ function adapt(s) {
     weeklyCapacity: s.capacity.declared_hours_per_week,
     capacitySuggestion: s.capacity.suggested_from_timetable,
     courses,
-    plan: s.plan.current
+    plan: s.plan.current,
+    /* null = no timetable entered (unknown), not an empty week */
+    meetings: s.timetable && Array.isArray(s.timetable.meetings) && s.timetable.meetings.length ? s.timetable.meetings : null
   };
 }
 
@@ -808,8 +990,11 @@ const ICON = {
   calendar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9h18M8 3v3M16 3v3"/></svg>',
   courses:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H19a1 1 0 0 1 1 1v13H6a2 2 0 0 0-2 2Z"/><path d="M20 18v3H6a2 2 0 0 1-2-2"/></svg>',
   grades:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16"/><rect x="7" y="11" width="3" height="5"/><rect x="12.5" y="7" width="3" height="9"/><rect x="18" y="13" width="0.1" height="3"/></svg>',
+  schedule:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M9 9.5v11M15 9.5v11"/></svg>',
   workload:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 13V9M12 5V3M9 3h6"/></svg>',
   insights:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.2 1 2v.5h6V15.5c0-.8.3-1.3 1-2A6 6 0 0 0 12 3Z"/></svg>',
+  auto:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="currentColor" stroke="none"/></svg>',
+  more:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5.5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="18.5" cy="12" r="1.8"/></svg>',
   play:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 5.5v13l11-6.5Z"/></svg>',
   pause:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6.5" y="5" width="3.5" height="14" rx="1"/><rect x="14" y="5" width="3.5" height="14" rx="1"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 6.5"/></svg>',
@@ -1078,7 +1263,7 @@ function focusHero() {
       <div class="focus-in" style="grid-template-columns:1fr">
         <div class="lead">
           <div class="kicker"><span class="eyebrow">Today's focus</span></div>
-          <h2 class="task">${none ? "No plan yet." : "Plan cleared. Nothing left open."}</h2>
+          <h2 class="task">${none ? "No plan yet." : "Plan cleared - nothing left open."}</h2>
           <p class="why" style="max-width:56ch">${none
             ? "The server has not stored a plan. Ask the host to run <code>study_get_plan</code>; this page only shows a plan, it never makes one."
             : "You've actioned every item the plan shows. Add a personal task below, or ask the host for a fresh plan."}</p>
@@ -1209,7 +1394,7 @@ function taskCard(it) {
       <div class="tt">${esc(it.what)}</div>
       <div class="facts">
         <span class="f">${lanePill(it)}</span>
-        ${!it.custom ? `<span class="f">${esc(it.why)}</span>` : ""}
+        ${!it.custom && it.why !== it.what ? `<span class="f why">${esc(it.why)}</span>` : ""}
         ${examFactHTML(it)}
       </div>
     </div>
@@ -1226,8 +1411,10 @@ function taskCard(it) {
 }
 
 function timelineSVG(courses) {
-  const W = 1000, H = 132, padL = 26, padR = 26;
-  const t0 = d(DATA.semester.start || DATA.semester.today), t1 = d(DATA.semester.end || DATA.semester.today), span = (t1 - t0) || 1;
+  const W = 1000, H = 132, padL = 26, padR = 64;
+  /* semester dates not set: run from the start (or today) to the last dated assessment */
+  const lastDate = courses.flatMap(c => c.assessments.filter(a => a.date).map(a => a.date)).sort().pop();
+  const t0 = d(DATA.semester.start || DATA.semester.today), t1 = d(DATA.semester.end || lastDate || DATA.semester.today), span = (t1 - t0) || 1;
   const x = iso => padL + ((d(iso) - t0) / span) * (W - padL - padR);
   const clampX = v => Math.max(padL + 12, Math.min(W - padR - 12, v));
   const axisY = 96;
@@ -1236,6 +1423,11 @@ function timelineSVG(courses) {
     marks.push({ x: x(a.date), h: a.weight == null ? 22 : 8 + (a.weight / 100) * 52, c, a, past: d(a.date) < TODAY });
   }));
   marks.sort((m, n) => m.x - n.x);
+  /* courses sitting on the same date stand side by side, not on top of each other */
+  marks.forEach((m, i) => {
+    const same = marks.filter(o => o.a.date === m.a.date);
+    m.n = same.length; m.dx = (same.indexOf(m) - (same.length - 1) / 2) * 11; m.first = same[0] === m;
+  });
   if (!marks.length) return `<p class="none">No assessment has a date yet.</p>`;
   let ticks = "";
   for (let t = new Date(t0); t <= t1; t = new Date(+t + 7 * DAY)) {
@@ -1245,12 +1437,12 @@ function timelineSVG(courses) {
   let lastLabelX = -999;
   const bars = marks.map(m => {
     const showLabel = m.x - lastLabelX > 52; if (showLabel) lastLabelX = m.x;
-    const tip = `${esc(m.c.code)}: ${esc(m.a.name)}&#10;${wTxt(m.a.weight)} · ${whenLong(m.a)}` + (m.a.mark !== null ? `&#10;scored ${m.a.mark}` : "&#10;not sat yet");
+    const tip = `${esc(m.c.code)} - ${esc(m.a.name)}&#10;${wTxt(m.a.weight)} · ${whenLong(m.a)}` + (m.a.mark !== null ? `&#10;scored ${m.a.mark}` : "&#10;not sat yet");
     return `<g data-tip="${tip}">
-      <rect x="${m.x - 4}" y="${axisY - m.h}" width="8" height="${m.h}" rx="3" fill="${m.c.color}" opacity="${m.past ? 0.34 : m.a.weight == null ? 0.5 : 1}"/>
+      <rect x="${m.x + m.dx - 4}" y="${axisY - m.h}" width="8" height="${m.h}" rx="3" fill="${m.c.color}" opacity="${m.past ? 0.34 : m.a.weight == null ? 0.5 : 1}"/>
       ${m.a.weight == null ? `<text x="${clampX(m.x)}" y="${axisY - m.h - 6}" text-anchor="middle" font-size="10.5" font-family="var(--f-data)" fill="var(--ink-3)">?</text>` : ""}
       ${m.a.mark !== null ? `<text x="${clampX(m.x)}" y="${axisY - m.h - 6}" text-anchor="middle" font-size="10.5" font-family="var(--f-data)" fill="var(--ink-2)">${m.a.mark}</text>` : ""}
-      ${showLabel ? `<text x="${clampX(m.x)}" y="${axisY + 17}" text-anchor="middle" font-size="10" font-family="var(--f-data)" fill="var(--ink-3)">${esc(m.c.code.split(" ")[0])}</text>
+      ${showLabel ? `<text x="${clampX(m.x)}" y="${axisY + 17}" text-anchor="middle" font-size="10" font-family="var(--f-data)" fill="var(--ink-3)">${m.n > 1 ? m.n + " courses" : esc(m.c.code.split(" ")[0])}</text>
         <text x="${clampX(m.x)}" y="${axisY + 29}" text-anchor="middle" font-size="10" font-family="var(--f-data)" fill="var(--ink-3)">${fmtDate(m.a.date)}</text>` : ""}
     </g>`;
   }).join("");
@@ -1309,10 +1501,10 @@ function runProjector(box) {
     : `Average <b>${assume}%</b> on the remaining <b>${c.openWeight}%</b> and you finish at <b>${projected.toFixed(1)}</b>. ${c.next ? `Next up: ${esc(c.next.name)}, ${c.next.weight == null ? "share of the grade not set" : c.next.weight + "% of the grade"}, in ${c.daysToNext} days.` : ""}`;
   const needed = c.openWeight === 0 ? null : (target - c.earned) / c.openWeight * 100;
   const nv = box.querySelector('[data-out="need"]');
-  if (needed === null) { nv.className = "verdict"; nv.innerHTML = `Nothing left to sit. The grade is settled.`; }
+  if (needed === null) { nv.className = "verdict"; nv.innerHTML = `Nothing left to sit - the grade is settled.`; }
   else if (needed > 100) { nv.className = "verdict is-risk"; nv.innerHTML = `<b>${target}% is out of reach.</b> It would take ${needed.toFixed(0)}% on everything remaining, and the ceiling is ${c.ceiling.toFixed(0)}. Aim at ${Math.floor(c.ceiling)} and spend the hours where they still move something.`; }
   else if (needed <= 0) { nv.className = "verdict is-ok"; nv.innerHTML = `<b>Already secured.</b> Even scoring zero on what's left, this course finishes at or above ${target}%.`; }
-  else { const strain = c.standing === null ? null : needed - c.standing; nv.className = "verdict" + (needed > 90 ? " is-risk" : ""); nv.innerHTML = `You need <b>${needed.toFixed(0)}%</b> across the remaining ${c.openWeight}%. ${strain === null ? `Nothing is graded yet, so there's no track record to say whether that's a stretch.` : strain > 8 ? `That's ${strain.toFixed(0)} points above your current ${Math.round(c.standing)}. That's real work, not a rounding error.` : `That's about where you're already running.`}`; }
+  else { const strain = c.standing === null ? null : needed - c.standing; nv.className = "verdict" + (needed > 90 ? " is-risk" : ""); nv.innerHTML = `You need <b>${needed.toFixed(0)}%</b> across the remaining ${c.openWeight}%. ${strain === null ? `Nothing is graded yet, so there's no track record to say whether that's a stretch.` : strain > 8 ? `That's ${strain.toFixed(0)} points above your current ${Math.round(c.standing)} - real work, not a rounding error.` : `That's about where you're already running.`}`; }
 }
 
 function head(title, lede, right) {
@@ -1327,23 +1519,97 @@ const PAGES = {};
 PAGES.overview = () => `
   ${focusHero()}
   ${nbCard("Today's progress", "Hours logged today and the day's planned total are not sent by the server yet.")}
-  <div class="split">
-    <div class="section">${planCard()}</div>
-    <div class="section">
-      <div class="sec-head"><h2>Course health</h2><a class="linkbtn" href="#/courses">All courses ${ICON.arrow}</a></div>
-      <div class="health" style="grid-template-columns:1fr">${DATA.courses.map(healthCard).join("")}</div>
-    </div>
-  </div>
+  <div class="section">${planCard()}</div>
+  <section class="section">
+    <div class="sec-head"><h2>Course health</h2><a class="linkbtn" href="#/courses">All courses ${ICON.arrow}</a></div>
+    <div class="health">${DATA.courses.map(healthCard).join("")}</div>
+  </section>
   <section class="section">
     <div class="sec-head"><h2>Upcoming assessments</h2><a class="linkbtn" href="#/calendar">Calendar ${ICON.arrow}</a></div>
     <div class="card"><div class="pad">${timelineSVG(DATA.courses)}</div>
-      <div class="strap rt">Bar height is what each assessment is worth; the tall ones are where the grade actually moves. <a class="tlink" href="#/calendar">Open calendar →</a></div>
+      <div class="strap rt">Bar height is what each assessment is worth - the tall ones are where the grade actually moves. <a class="tlink" href="#/calendar">Open calendar →</a></div>
     </div>
   </section>
   <div class="split even">
     <section class="section">${nbCard("Weekly workload")}</section>
     <section class="section">${nbCard("Insights")}</section>
   </div>`;
+
+/* the weekly class schedule, from GET /state timetable.meetings (D-207); none entered = unknown */
+const SK = { kind: "all", day: null };
+const SK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const SK_HPX = 68;
+const toMin = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const isoToday = () => ((TODAY.getDay() + 6) % 7) + 1;
+const skCourse = m => DATA.courses.find(c => c.courseId === m.course_id) || null;
+/* the kind says nothing while every class carries the same one */
+const skKinds = () => new Set(DATA.meetings.map(m => m.kind)).size;
+const skDays = () => (DATA.meetings.some(m => m.weekday >= 6) ? 7 : 5);
+
+/* side-by-side columns for meetings that overlap in one day */
+function skLayout(list) {
+  const sorted = [...list].sort((a, b) => toMin(a.start) - toMin(b.start) || toMin(a.end) - toMin(b.end));
+  const out = []; let cluster = [], clusterEnd = -1;
+  const flush = () => { const n = Math.max(1, ...cluster.map(x => x.lane + 1)); cluster.forEach(x => { x.n = n; out.push(x); }); cluster = []; };
+  sorted.forEach(m => {
+    if (cluster.length && toMin(m.start) >= clusterEnd) { flush(); clusterEnd = -1; }
+    const used = cluster.filter(x => toMin(x.m.end) > toMin(m.start)).map(x => x.lane);
+    let lane = 0; while (used.includes(lane)) lane++;
+    cluster.push({ m, lane }); clusterEnd = Math.max(clusterEnd, toMin(m.end));
+  });
+  flush();
+  return out;
+}
+
+function skBlock(m, style) {
+  const c = skCourse(m);
+  const color = c ? c.color : "var(--ink-3)";
+  return `<div class="sk-block" style="--c:${color};${style || ""}">
+    <div class="code">${esc(m.code)}${skKinds() > 1 ? `<span class="sk-chip">${esc(m.kind)}</span>` : ""}${m.tier === "inferred" ? '<span class="sk-chip inf" title="read from an image, not confirmed">unconfirmed</span>' : ""}</div>
+    <div class="nm">${esc(c ? c.name : m.code)}</div>
+    ${c && c.instructor ? `<div class="meta">${esc(c.instructor)}</div>` : ""}
+    <div class="meta">${esc(m.start)}–${esc(m.end)}${m.room ? " · " + esc(m.room) : ""}</div></div>`;
+}
+
+function skBody() {
+  const ms = DATA.meetings.filter(m => SK.kind === "all" || m.kind === SK.kind);
+  const days = skDays();
+  const first = Math.min(...DATA.meetings.map(m => toMin(m.start))), last = Math.max(...DATA.meetings.map(m => toMin(m.end)));
+  const start = Math.floor(first / 60) * 60, hrs = Math.max(4, Math.ceil(last / 60) - start / 60);
+  const today = isoToday(), now = new Date(), cur = now.getHours() * 60 + now.getMinutes();
+  let grid = `<div></div>` + SK_DAYS.slice(0, days).map((n, i) => `<div class="sk-dh ${i + 1 === today ? "today" : ""}">${n}${i + 1 === today ? "<small>today</small>" : ""}</div>`).join("");
+  grid += `<div class="sk-hours">${Array.from({ length: hrs + 1 }, (_, i) => `<span style="top:${i * SK_HPX}px">${pad2(start / 60 + i)}:00</span>`).join("")}</div>`;
+  for (let wd = 1; wd <= days; wd++) {
+    const blocks = skLayout(ms.filter(m => m.weekday === wd)).map(x => {
+      const w = 100 / x.n;
+      return skBlock(x.m, `top:${(toMin(x.m.start) - start) / 60 * SK_HPX}px;height:${(toMin(x.m.end) - toMin(x.m.start)) / 60 * SK_HPX - 3}px;left:calc(${x.lane * w}% + 3px);width:calc(${w}% - 6px)`);
+    }).join("");
+    const nowLine = wd === today && cur >= start && cur <= start + hrs * 60 ? `<div class="sk-now" style="top:${(cur - start) / 60 * SK_HPX}px"></div>` : "";
+    grid += `<div class="sk-col ${wd === today ? "today" : ""}">${blocks}${nowLine}</div>`;
+  }
+  if (SK.day == null || SK.day > days) SK.day = today <= days ? today : 1;
+  const dayRows = ms.filter(m => m.weekday === SK.day).sort((a, b) => toMin(a.start) - toMin(b.start))
+    .map(m => `<div class="sk-row"><div class="t"><b>${esc(m.start)}</b>${esc(m.end)}</div>${skBlock(m)}</div>`).join("");
+  const seen = [...new Set(DATA.meetings.map(m => m.course_id))].map(id => DATA.courses.find(c => c.courseId === id)).filter(Boolean);
+  return `<div class="sk-legend">${seen.map(c => `<span style="--c:${c.color}"><i></i>${esc(c.code)} · ${esc(c.name)}</span>`).join("")}</div>
+    <section class="sk-week" style="--days:${days};--hpx:${SK_HPX}px;--hrs:${hrs}" aria-label="Weekly schedule">${grid}</section>
+    <section class="sk-dayview" aria-label="Daily schedule">
+      <div class="sk-tabs" role="tablist" id="skTabs">${SK_DAYS.slice(0, days).map((n, i) => `<button type="button" role="tab" data-day="${i + 1}" aria-selected="${i + 1 === SK.day}">${n.slice(0, 3)}</button>`).join("")}</div>
+      <div class="sk-list">${dayRows || '<p class="none">No classes this day.</p>'}</div></section>`;
+}
+
+PAGES.schedule = () => {
+  const lede = "Your weekly class schedule, as the server holds it. Blocks sit at their class time; nothing here is planned or ranked.";
+  if (!DATA.meetings) return `${head("Schedule", lede)}
+    <section class="card"><div class="card-head"><h3>No timetable yet</h3></div>
+    <div class="pad"><p class="none">The server holds no weekly class schedule yet, so no week is drawn. Ask the host to read your timetable image into the study server.</p></div></section>`;
+  return `${head("Schedule", lede)}
+    <div class="sk-controls"><span class="row" style="gap:10px"><span class="eyebrow">${DATA.meetings.length} classes a week</span>${nbTag("alternating weeks and lab groups")}</span>
+      ${skKinds() > 1 ? `<div class="chips" id="skKind" role="group" aria-label="Filter by kind">
+        ${["all", "lecture", "lab", "tutorial"].map(k => `<button class="chip" data-kind="${k}" aria-pressed="${k === SK.kind}">${k === "all" ? "All" : k[0].toUpperCase() + k.slice(1) + "s"}</button>`).join("")}
+      </div>` : ""}</div>
+    <div class="stack" id="skBody">${skBody()}</div>`;
+};
 
 PAGES.queue = () => {
   const mine = customItems(false);
@@ -1353,13 +1619,13 @@ PAGES.queue = () => {
   <section class="section">
     <div class="sec-head"><h2>Your tasks</h2>${doneCustom ? `<button class="linkbtn" data-action="clearcustom">Clear ${doneCustom} done</button>` : ""}</div>
     <div class="card"><form class="addbar" id="addForm" style="border-top:0">
-      <input class="field ti" id="addTitle" placeholder="Add a task, e.g. re-read UML notes" aria-label="Task title" maxlength="120" autocomplete="off">
+      <input class="field ti" id="addTitle" placeholder="Add a task - e.g. re-read UML notes" aria-label="Task title" maxlength="120" autocomplete="off">
       <select class="field mini" id="addCourse" aria-label="Course"><option value="">No course</option>${DATA.courses.map(c => `<option value="${esc(c.id)}">${esc(c.code)}</option>`).join("")}</select>
       <select class="field mini" id="addMins" aria-label="Minutes">${[15,25,30,45,60,90].map(m => `<option value="${m}"${m === 30 ? " selected" : ""}>${m}m</option>`).join("")}</select>
       <button class="btn btn-primary btn-sm" type="submit">${ICON.plus}Add task</button>
     </form></div>
     ${mine.length ? `<div class="tasklist">${mine.map(taskCard).join("")}</div>`
-      : `<p class="none" style="padding:2px 2px">No personal tasks yet. Anything you add here shows under Your tasks on Today and vanishes when you tick it off.</p>`}
+      : `<p class="none" style="padding:2px 2px">No personal tasks yet - anything you add here shows under Your tasks on Today and vanishes when you tick it off.</p>`}
   </section>
   <section class="section">
     <div class="sec-head"><h2 id="qCount">From the plan</h2>
@@ -1388,7 +1654,7 @@ PAGES.load = () => {
       <span class="num" style="font-size:28px">${cap == null ? "-" : cap + "h"}</span>
       <span class="muted">${cap == null ? "no capacity declared" : "declared per week"}</span>
     </div>
-    <div class="muted" style="font-size:12.5px;margin-top:8px">${sug == null ? "Timetable suggestion: unknown, no timetable yet." : `Timetable suggestion: ${sug}h`}</div>
+    <div class="muted" style="font-size:12.5px;margin-top:8px">${sug == null ? "Timetable suggestion: unknown - no timetable yet." : `Timetable suggestion: ${sug}h`}</div>
     <div class="row" style="margin-top:14px">${nbTag("hours the plan needs")}</div>
   </div></section>
   <div class="split even">
@@ -1400,6 +1666,19 @@ PAGES.load = () => {
   </div>
   ${nbCard("Where the time goes")}`;
 };
+
+/* one row per sitting (date, name, weight), the courses that sit it as chips - not one row per course */
+function sittings(list) {
+  const groups = [];
+  list.forEach(({ c, a }) => {
+    const key = [a.date, a.name, a.weight, a.approx].join("|");
+    let g = groups.find(x => x.key === key);
+    if (!g) groups.push(g = { key, a, courses: [], marks: [] });
+    g.courses.push(c); g.marks.push(a.mark);
+  });
+  return groups;
+}
+const courseChips = cs => `<span class="cchips">${cs.map(c => `<a href="${courseHref(c)}"><span class="swatch" style="background:${c.color}"></span>${esc(c.code)}</a>`).join("")}</span>`;
 
 PAGES.calendar = () => {
   const upcoming = DATA.courses.flatMap(c => c.assessments.filter(a => a.date && d(a.date) >= TODAY).map(a => ({ c, a }))).sort((x, y) => d(x.a.date) - d(y.a.date));
@@ -1423,12 +1702,12 @@ PAGES.calendar = () => {
     <div class="pad">${timelineSVG(DATA.courses)}</div></section>
   <div class="split even">
     <section class="card"><div class="card-head"><h3>Ahead</h3><span class="eyebrow">${upcoming.length} to sit</span></div>
-      <div class="table-wrap"><table class="data"><thead><tr><th>When</th><th class="l">Course</th><th class="l">What</th><th>Weight</th><th>In</th></tr></thead>
-      <tbody>${upcoming.map(({c,a}) => `<tr><td>${fmtWhen(a)}</td><td class="l"><span class="swatch" style="background:${c.color}"></span> ${esc(c.code)}</td><td class="l">${esc(a.name)}</td><td>${wCell(a.weight)}</td><td>${daysBetween(TODAY, a.date)}d</td></tr>`).join("")}</tbody></table></div>
+      <div class="table-wrap"><table class="data"><thead><tr><th>When</th><th class="l">What</th><th class="l">Courses</th><th>Weight</th><th>In</th></tr></thead>
+      <tbody>${sittings(upcoming).map(g => `<tr><td class="nw">${fmtWhen(g.a)}</td><td class="l nw">${esc(g.a.name)}</td><td class="l">${courseChips(g.courses)}</td><td>${wCell(g.a.weight)}</td><td>${daysBetween(TODAY, g.a.date)}d</td></tr>`).join("")}</tbody></table></div>
     </section>
     <section class="card"><div class="card-head"><h3>Behind you</h3><span class="eyebrow">already dated in the past</span></div>
-      ${past.length ? `<div class="table-wrap"><table class="data"><thead><tr><th>When</th><th class="l">Course</th><th class="l">What</th><th>Weight</th><th>Mark</th></tr></thead>
-      <tbody>${past.map(({c,a}) => `<tr><td>${fmtDate(a.date)}</td><td class="l"><span class="swatch" style="background:${c.color}"></span> ${esc(c.code)}</td><td class="l">${esc(a.name)}</td><td>${wCell(a.weight)}</td><td>${a.mark === null ? '<span class="muted">not back</span>' : a.mark}</td></tr>`).join("")}</tbody></table></div>` : `<div class="pad"><p class="none">Nothing sat yet.</p></div>`}
+      ${past.length ? `<div class="table-wrap"><table class="data"><thead><tr><th>When</th><th class="l">What</th><th class="l">Courses</th><th>Weight</th><th>Mark</th></tr></thead>
+      <tbody>${past.map(({c,a}) => `<tr><td>${fmtDate(a.date)}</td><td class="l">${esc(a.name)}</td><td class="l">${courseChips([c])}</td><td>${wCell(a.weight)}</td><td>${a.mark === null ? '<span class="muted">not back</span>' : a.mark}</td></tr>`).join("")}</tbody></table></div>` : `<div class="pad"><p class="none">Nothing sat yet.</p></div>`}
     </section>
   </div>`;
 };
@@ -1509,7 +1788,8 @@ const SECTIONS = [
   { group: "Overview", items: [
     { id: "overview", label: "Today", icon: "today" },
     { id: "queue", label: "Tasks", icon: "tasks", badge: () => todayList().filter(isOpen).length },
-    { id: "calendar", label: "Calendar", icon: "calendar" }
+    { id: "calendar", label: "Calendar", icon: "calendar" },
+    { id: "schedule", label: "Schedule", icon: "schedule" }
   ]},
   { group: "Academics", items: [
     { id: "courses", label: "Courses", icon: "courses" },
@@ -1524,8 +1804,8 @@ const MOBNAV = [
   { id: "overview", label: "Today", icon: "today" },
   { id: "queue", label: "Tasks", icon: "tasks" },
   { id: "calendar", label: "Calendar", icon: "calendar" },
-  { id: "courses", label: "Courses", icon: "courses" },
-  { id: "attention", label: "Insights", icon: "insights" }
+  { id: "schedule", label: "Schedule", icon: "schedule" },
+  { id: "courses", label: "Courses", icon: "courses" }
 ];
 
 function renderNav(active) {
@@ -1541,8 +1821,17 @@ function renderNav(active) {
     </div>`;
 }
 
+/* the phone bar holds six slots; the pages that do not fit sit behind "More" */
+const MOBMORE = [
+  { id: "grades", label: "Grades", icon: "grades" },
+  { id: "load", label: "Workload", icon: "workload" },
+  { id: "attention", label: "Insights", icon: "insights" }
+];
 function renderMobnav(active) {
-  $("#mobnav").innerHTML = MOBNAV.map(s => `<a class="mnav" href="#/${s.id}" ${active === s.id ? 'aria-current="page"' : ""}>${ic(s.icon)}<span>${s.label}</span></a>`).join("");
+  const inMore = MOBMORE.some(m => m.id === active);
+  $("#mobnav").innerHTML = MOBNAV.map(s => `<a class="mnav" href="#/${s.id}" ${active === s.id ? 'aria-current="page"' : ""}>${ic(s.icon)}<span>${s.label}</span></a>`).join("") + `
+    <button class="mnav" id="mobMore" type="button" aria-haspopup="true" aria-expanded="false" ${inMore ? 'aria-current="page"' : ""}>${ic("more")}<span>More</span></button>
+    <div class="mobmore" id="mobMoreSheet" hidden>${MOBMORE.map(m => `<a href="#/${m.id}" ${active === m.id ? 'aria-current="page"' : ""}>${ic(m.icon)}<span>${m.label}</span></a>`).join("")}</div>`;
 }
 
 const semCaption = () => SEM.pct != null ? `${SEM.pct}% · wk ${SEM.week}/${SEM.weeks}`
@@ -1570,7 +1859,7 @@ function renderTopbar() {
     const v = e.target.value.trim().toLowerCase(); if (!v) return;
     const c = DATA.courses.find(c => c.code.toLowerCase().includes(v) || c.name.toLowerCase().includes(v));
     if (c) location.hash = courseHref(c);
-    else { const p = ["overview","queue","calendar","courses","grades","load","attention"].find(x => x.includes(v)); location.hash = "#/" + (p || "queue"); }
+    else { const p = ["overview","queue","calendar","schedule","courses","grades","load","attention"].find(x => x.includes(v)); location.hash = "#/" + (p || "queue"); }
     e.target.value = "";
   });
 }
@@ -1584,7 +1873,7 @@ function applyTheme() {
 }
 function updateThemeIcons() {
   const t = STATE.theme;
-  const svg = t === "dark" ? ICON.moon : t === "light" ? ICON.sun : ICON.today;
+  const svg = t === "dark" ? ICON.moon : t === "light" ? ICON.sun : ICON.auto;
   const lbl = "Theme: " + (t === "system" ? "auto" : t);
   const b = $("#themeBtn"), m = $("#themeMob");
   if (b) { b.innerHTML = svg; b.setAttribute("aria-label", lbl); }
@@ -1628,6 +1917,20 @@ function wire(page) {
     e.preventDefault();
     addCustom($("#addTitle").value, $("#addCourse") ? $("#addCourse").value : "", +($("#addMins") ? $("#addMins").value : CUSTOM_MINS));
   });
+
+  if (page === "schedule" && DATA.meetings) {
+    const body = $("#skBody");
+    if ($("#skKind")) $("#skKind").addEventListener("click", e => {
+      const b = e.target.closest("[data-kind]"); if (!b) return;
+      SK.kind = b.dataset.kind;
+      document.querySelectorAll("#skKind .chip").forEach(x => x.setAttribute("aria-pressed", x === b));
+      body.innerHTML = skBody();
+    });
+    body.addEventListener("click", e => {
+      const b = e.target.closest("[data-day]"); if (!b) return;
+      SK.day = +b.dataset.day; body.innerHTML = skBody();
+    });
+  }
 
   if (page === "queue") {
     let kind = "all", showDone = false;
@@ -1697,6 +2000,12 @@ document.addEventListener("click", e => {
   const md = e.target.closest("[data-mode]"); if (md) { setMode(md.dataset.mode); return; }
 });
 $("#themeMob").addEventListener("click", cycleTheme);
+document.addEventListener("click", e => {
+  const sheet = $("#mobMoreSheet"), btn = e.target.closest("#mobMore");
+  if (!sheet) return;
+  if (btn) { sheet.hidden = !sheet.hidden; btn.setAttribute("aria-expanded", String(!sheet.hidden)); }
+  else if (!sheet.hidden && !e.target.closest("#mobMoreSheet")) sheet.hidden = true;
+});
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") { if (SESSION && $("#scrim")) hideSession(); }
   if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
@@ -1706,6 +2015,26 @@ document.addEventListener("keydown", e => {
 
 /* theme button lives in topbar (re-rendered), so delegate its click */
 document.addEventListener("click", e => { if (STATE && e.target.closest("#themeBtn")) cycleTheme(); });
+
+/* ============================================================
+   REFRESH - a plan or class the host adds while this tab is open appears when you come back to
+   it. Skipped while a session modal is open or a field has focus, so nothing you are typing goes.
+   ============================================================ */
+let lastLoad = Date.now(), reloading = false;
+async function reloadState() {
+  if (reloading || !DATA || document.hidden || Date.now() - lastLoad < 10000) return;
+  if (SESSION || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
+  if ([...document.querySelectorAll("#view input.field, #view textarea")].some(el => el.value)) return;   /* text typed, then clicked away */
+  reloading = true;
+  try {
+    const response = await fetch("/state", { headers: { Accept: "application/json" } });
+    if (!response.ok) return;
+    DATA = adapt(await response.json());
+    applyTheme(); derive(); lastLoad = Date.now(); refresh();
+  } catch (err) { /* the server is away: keep what is drawn */ } finally { reloading = false; }
+}
+document.addEventListener("visibilitychange", reloadState);
+window.addEventListener("focus", reloadState);
 
 /* ============================================================
    BOOT
@@ -1725,10 +2054,29 @@ async function boot() {
   initState();
   applyTheme();
   derive();
+  lastLoad = Date.now();
   window.addEventListener("hashchange", route);
   route();
 }
 boot();
+
+/* ---- collapsible rail (D-207): the choice is kept; the mouse entering a collapsed rail widens it ---- */
+(function rail() {
+  const app = $(".app"), r = $(".rail"), btn = $("#railToggle"); let leave = null;
+  const set = collapsed => {
+    app.classList.toggle("collapsed", collapsed);
+    if (collapsed) app.classList.remove("peek");   /* the pointer is still on the button: do not re-open */
+    btn.setAttribute("aria-expanded", String(!collapsed));
+    btn.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+    try { localStorage.setItem("studysystem.rail", collapsed ? "1" : "0"); } catch (e) { /* storage blocked: stays per visit */ }
+  };
+  btn.addEventListener("click", () => set(!app.classList.contains("collapsed")));
+  r.addEventListener("mouseenter", () => { clearTimeout(leave); app.classList.add("peek"); });
+  r.addEventListener("mouseleave", () => { leave = setTimeout(() => app.classList.remove("peek"), 120); });
+  r.addEventListener("focusin", () => app.classList.add("peek"));
+  r.addEventListener("focusout", e => { if (!r.contains(e.relatedTarget)) app.classList.remove("peek"); });
+  try { if (localStorage.getItem("studysystem.rail") === "1") set(true); } catch (e) { /* storage blocked */ }
+})();
 
 /* ---- tooltip ---- */
 (function tooltip() {

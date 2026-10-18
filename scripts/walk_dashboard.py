@@ -21,7 +21,8 @@ PORT = 8799
 BASE = f"http://127.0.0.1:{PORT}"
 WIDTHS = (1440, 1024, 768, 390)
 HEIGHT = 900
-PAGES = ("overview", "queue", "calendar", "courses", "grades", "load", "attention")
+FONT_HOSTS = ("https://fonts.googleapis.com", "https://fonts.gstatic.com")
+PAGES = ("overview", "queue", "calendar", "schedule", "courses", "grades", "load", "attention")
 
 
 def wait_for_health() -> None:
@@ -44,6 +45,32 @@ def visit(page, route: str, label: str, seen: list[str]) -> list[str]:
     problems = [f"{label}: console: {text}" for text in seen]
     if "did not give a state" in page.inner_text("#view"):
         problems.append(f"{label}: the page shows no state")
+    if route == "overview" and page.viewport_size["width"] >= 1024:
+        # D-207: Course health is a grid under the plan, not one narrow column
+        columns = page.evaluate(
+            "getComputedStyle(document.querySelector('.health'))"
+            ".gridTemplateColumns.split(' ').length"
+        )
+        if columns < 2:
+            problems.append(f"{label}: Course health is a single column")
+    if route == "overview" and page.viewport_size["width"] <= 760:
+        # D-207: the pages that do not fit the phone bar sit behind "More"
+        page.click("#mobMore")
+        links = page.eval_on_selector_all(
+            "#mobMoreSheet a", "a => a.map(x => x.getAttribute('href'))"
+        )
+        if sorted(links) != ["#/attention", "#/grades", "#/load"]:
+            problems.append(f"{label}: More holds {links}, not Grades, Workload and Insights")
+    if route == "courses" and not page.query_selector(".meter.striped"):
+        # D-19 / 3.8: coverage the server does not send stays the striped meter, never a bar
+        problems.append(f"{label}: no striped coverage meter")
+    if route == "queue":
+        # 3.3's carried finding: a task card's text column squeezed to a thin strip at 390px
+        narrow = page.eval_on_selector_all(
+            ".task .mid", "mids => Math.min(...mids.map(m => m.getBoundingClientRect().width))"
+        )
+        if narrow < 200:
+            problems.append(f"{label}: a task card's text column is {narrow:.0f}px wide")
     overflow = page.evaluate("const e = document.documentElement; e.scrollWidth - e.clientWidth")
     if overflow > 0:
         problems.append(f"{label}: scrolls sideways by {overflow}px")
@@ -54,7 +81,11 @@ def new_page(browser, width: int, seen: list[str]):
     page = browser.new_page(viewport={"width": width, "height": HEIGHT})
     page.on("console", lambda m: seen.append(m.text) if m.type == "error" else None)
     page.on("pageerror", lambda e: seen.append(str(e)))
-    page.on("requestfailed", lambda r: seen.append(f"request failed: {r.url}"))
+    # the web fonts come from Google (D-207); a dropped font request is the network, not the page
+    page.on(
+        "requestfailed",
+        lambda r: None if r.url.startswith(FONT_HOSTS) else seen.append(f"request failed: {r.url}"),
+    )
     return page
 
 
@@ -105,6 +136,77 @@ def with_a_review(state: dict) -> dict | None:
     return fake
 
 
+def with_a_timetable(state: dict) -> dict:
+    """The stored state with a week of classes: the copy holds no meetings (D-207), so the
+    Schedule page would show only its empty state. Two meetings overlap and one is inferred."""
+    courses = state["courses"]
+    fake = copy.deepcopy(state)
+    spec = [
+        (1, "08:00", "09:40", 0, "lecture", "declared"),
+        (1, "08:00", "09:40", 1, "lab", "declared"),
+        (1, "12:00", "13:40", 2, "lecture", "declared"),
+        (2, "09:55", "11:35", 1, "lecture", "inferred"),
+        (3, "14:00", "15:40", 0, "lab", "declared"),
+        (5, "16:00", "17:40", 2, "tutorial", "declared"),
+    ]
+    fake["timetable"] = {
+        "meetings": [
+            {
+                "meeting_id": f"m{i}",
+                "course_id": courses[c % len(courses)]["course_id"],
+                "code": courses[c % len(courses)]["code"],
+                "weekday": day,
+                "start": start,
+                "end": end,
+                "kind": kind,
+                "tier": tier,
+            }
+            for i, (day, start, end, c, kind, tier) in enumerate(spec)
+        ]
+    }
+    return fake
+
+
+def check_rail(page) -> list[str]:
+    """D-207: the arrow collapses the rail and it stays collapsed; the mouse entering widens it."""
+    problems = []
+    page.goto(f"{BASE}/#/overview")
+    page.wait_for_selector("#view > *")
+    width = lambda: page.evaluate("document.querySelector('.rail').getBoundingClientRect().width")  # noqa: E731
+    page.click("#railToggle")
+    page.mouse.move(700, 400)
+    page.wait_for_timeout(500)
+    if width() > 80:
+        problems.append(f"rail: collapsed width is {width()}px")
+    page.hover(".rail")
+    page.wait_for_timeout(500)
+    if width() < 200:
+        problems.append(f"rail: the mouse on a collapsed rail left it {width()}px wide")
+    page.mouse.move(700, 400)
+    page.wait_for_timeout(500)
+    if width() > 80:
+        problems.append(f"rail: it did not narrow again, {width()}px")
+    page.click("#railToggle")
+    page.mouse.move(700, 400)
+    page.wait_for_timeout(500)
+    if width() < 200:
+        problems.append(f"rail: expanding left it {width()}px wide")
+    return problems
+
+
+def check_refresh(page, fake: dict) -> list[str]:
+    """D-207: a plan the host makes while the tab is open shows when you return to the tab."""
+    page.goto(f"{BASE}/#/overview")
+    page.wait_for_selector("#view > *")
+    page.route(f"{BASE}/state", lambda request: request.fulfill(json=fake))
+    page.evaluate("lastLoad -= 20000; window.dispatchEvent(new Event('focus'))")
+    try:
+        page.wait_for_selector('[data-lane="review"] [data-uid^="review:"]', timeout=3000)
+    except Exception:
+        return ["refresh: a new state did not show when the tab regained focus"]
+    return []
+
+
 def main() -> int:
     server = subprocess.Popen(
         [sys.executable, "-c", f"from studysystem.dashboard import main; main({PORT})"]
@@ -138,6 +240,11 @@ def main() -> int:
                 if fake is None:
                     print("no study item to build a review from: the review lane is not drawn")
 
+            if fake:
+                page = new_page(browser, WIDTHS[0], seen)
+                problems += check_refresh(page, fake)
+                page.close()
+
             for width in WIDTHS if fake else ():
                 page = new_page(browser, width, seen)
                 page.route(f"{BASE}/state", lambda request: request.fulfill(json=fake))
@@ -147,6 +254,25 @@ def main() -> int:
                     if not page.query_selector('[data-lane="review"] [data-uid^="review:"]'):
                         problems.append(f"{label}: the review item is not drawn")
                 page.close()
+
+            timetable = with_a_timetable(state)
+            for width in WIDTHS:
+                page = new_page(browser, width, seen)
+                page.route(f"{BASE}/state", lambda request: request.fulfill(json=timetable))
+                label = f"{width}px #/schedule with a timetable"
+                problems += visit(page, "schedule", label, seen)
+                drawn = (
+                    page.eval_on_selector_all(".sk-week .sk-block", "blocks => blocks.length")
+                    if width > 900
+                    else page.eval_on_selector_all(".sk-list .sk-block", "b => b.length")
+                )
+                if width > 900 and drawn != len(timetable["timetable"]["meetings"]):
+                    problems.append(f"{label}: {drawn} blocks drawn for 6 classes")
+                page.close()
+
+            page = new_page(browser, WIDTHS[0], seen)
+            problems += check_rail(page)
+            page.close()
             browser.close()
 
         visits = len(WIDTHS) * len(routes)
