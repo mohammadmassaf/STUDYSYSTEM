@@ -531,14 +531,11 @@ table.data a:hover { text-decoration:underline; }
 .session .s-ring { margin:20px auto 4px; width:100%; height:8px; border-radius:var(--rpill); background:var(--surface-2); overflow:hidden; }
 .session .s-ring > i { display:block; height:100%; background:var(--accent); border-radius:var(--rpill); transition:width 1s linear; }
 .session .s-controls { display:flex; gap:10px; justify-content:center; margin-top:22px; flex-wrap:wrap; }
-.session .s-after { margin-top:22px; padding-top:20px; border-top:1px solid var(--rule-soft); }
-.session .s-after .eyebrow { display:block; margin-bottom:10px; }
-.confset { display:inline-flex; gap:7px; }
-.confset button { width:42px; height:42px; border-radius:var(--r1); border:1.5px solid var(--rule-strong); background:var(--surface); font-family:var(--f-data); font-size:15px; font-weight:500; color:var(--ink-2); cursor:pointer; transition:all .14s; }
-.confset button:hover { border-color:var(--accent); color:var(--ink); }
-.confset button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
-.session .s-notes { width:100%; margin-top:16px; min-height:56px; resize:vertical; font-family:var(--f-ui); font-size:13.5px; padding:10px 12px; border-radius:var(--r1); border:1px solid var(--rule-strong); background:var(--surface); color:var(--ink); }
-.session .s-notes:focus { outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
+.modeset { display:flex; flex-wrap:wrap; justify-content:center; gap:7px; margin-top:10px; }
+.modeset button { height:36px; padding:0 12px; border-radius:var(--r1); border:1.5px solid var(--rule-strong); background:var(--surface); font-family:var(--f-ui); font-size:13px; font-weight:500; color:var(--ink-2); cursor:pointer; transition:all .14s; }
+.modeset button:hover { border-color:var(--accent); color:var(--ink); }
+.modeset button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+.session .s-err { margin-top:14px; font-size:13px; color:var(--critical); text-align:center; }
 .session .s-note { font-size:11.5px; color:var(--ink-3); margin-top:14px; text-align:center; }
 
 .float-pill { position:fixed; right:22px; bottom:22px; z-index:60; display:flex; align-items:center; gap:11px; padding:10px 14px 10px 12px; background:var(--surface); border:1px solid var(--rule); border-radius:var(--rpill); box-shadow:var(--sh-3); cursor:pointer; }
@@ -759,6 +756,7 @@ function toItem(lane, it) {
     uid: lane + ":" + (it.setup_key || it.topic_id),
     lane, rank: it.rank, course: DATA.courses.find(c => c.courseId === it.course_id) || null,
     what: lane === "setup" ? it.reason : it.topic_name, why: it.reason,
+    topicId: it.topic_id || null, setupKey: it.setup_key || null,
     mins: it.estimated_minutes ?? null,
     marks: it.marks_unlocked_estimate ?? null, marksTier: it.marks_unlocked_estimate_tier
   };
@@ -903,48 +901,86 @@ function deleteCustom(id) { STATE.custom = STATE.custom.filter(x => x.id !== id)
 function clearDoneCustom() { STATE.custom = STATE.custom.filter(t => !t.done); persist(); refresh(); }
 
 /* ============================================================
-   STUDY SESSION controller (a local countdown until 3.5 posts
-   real hours through POST /hours)
+   STUDY SESSION controller (3.5; D-198, D-199, D-202). Start
+   picks a mode and opens a session on the server; the page
+   counts the minutes, pauses left out, and Complete posts that
+   count to POST /sessions/stop, which caps it at the server's
+   clock. A personal task has no course, so it posts nothing.
    ============================================================ */
-let SESSION = null;   // {uid,item,plannedSec,elapsed,paused,tick,conf,notes}
+const MODES = [["practice", "Practice"], ["explain-chapter", "Explain chapter"], ["review-quiz", "Review quiz"],
+               ["exam-walkthrough", "Exam walkthrough"], ["mock", "Mock"]];
+const LANE_MODE = { review: "review-quiz", study: "practice", setup: null };   // a setup item selects none (D-199)
+let SESSION = null;   // {uid,item,mode,id,plannedSec,elapsed,paused,tick,busy,error}
+
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body) });
+  const answer = await response.json();
+  if (!response.ok) throw answer;
+  return answer;
+}
+const errorText = err => err && err.code ? `${err.message}. Fix: ${err.fix}.` : "The study server did not answer: " + (err && err.message);
 
 function findItem(uid) {
   if (uid.startsWith("custom:")) return customItems(true).find(i => i.uid === uid);
   return planItems().find(i => i.uid === uid);
 }
+const running = () => !!SESSION && (!!SESSION.item.custom || SESSION.id !== null);
 function startSession(uid) {
   const item = findItem(uid); if (!item) return;
-  if (SESSION && SESSION.tick) clearInterval(SESSION.tick);
-  SESSION = { uid, item, plannedSec: item.mins ? item.mins * 60 : null, elapsed: 0, paused: false, conf: null, notes: "" };
+  if (SESSION && SESSION.tick) clearInterval(SESSION.tick);   // one left open on the server expires unrecorded (D-17)
+  SESSION = { uid, item, mode: item.custom ? null : LANE_MODE[item.lane], id: null,
+              plannedSec: item.mins ? item.mins * 60 : null, elapsed: 0, paused: false, busy: false, error: null };
+  if (item.custom) SESSION.tick = setInterval(tickSession, 1000);
   renderSession();
-  SESSION.tick = setInterval(tickSession, 1000);
   refresh();
 }
+async function beginSession() {
+  const s = SESSION;
+  if (!s || s.busy || !s.mode || running()) return;
+  const body = { code: s.item.course.code, mode: s.mode };
+  if (s.item.topicId) Object.assign(body, { subject_type: "topic", subject_id: s.item.topicId });
+  s.busy = true; s.error = null; renderSession();
+  try { s.id = (await post("/sessions", body)).session_id; s.tick = setInterval(tickSession, 1000); }
+  catch (err) { s.error = errorText(err); }
+  s.busy = false;
+  if (SESSION === s) renderSession();
+}
 function tickSession() {
-  if (!SESSION || SESSION.paused) return;
+  if (!running() || SESSION.paused) return;
   SESSION.elapsed++;
   updateSessionTime();
 }
-function togglePause() { if (!SESSION) return; SESSION.paused = !SESSION.paused; renderSession(); }
-function closeSession(complete) {
-  if (!SESSION) return;
-  const uid = SESSION.uid, spent = Math.max(1, Math.round(SESSION.elapsed / 60));
-  if (SESSION.tick) clearInterval(SESSION.tick);
+function togglePause() { if (!running()) return; SESSION.paused = !SESSION.paused; renderSession(); }
+async function closeSession(complete) {
+  const s = SESSION;
+  if (!s || s.busy) return;
+  const uid = s.uid, spent = Math.round(s.elapsed / 60);
+  if (complete && s.id) {
+    const body = { code: s.item.course.code, session_id: s.id, minutes: spent };
+    if (s.item.setupKey) body.setup_key = s.item.setupKey;
+    s.busy = true; s.error = null; renderSession();
+    try { await post("/sessions/stop", body); }
+    catch (err) { s.busy = false; s.error = errorText(err); if (SESSION === s) renderSession(); return; }
+  }
+  if (s.tick) clearInterval(s.tick);
   if (complete) {
     if (uid.startsWith("custom:")) { const id = uid.slice(7); const t = STATE.custom.find(x => x.id === id); if (t) { t.done = true; t.doneDay = STATE.day; } }
-    else STATE.items[uid] = { status: "done", spentMin: spent, confidence: SESSION.conf };
+    else STATE.items[uid] = { status: "done" };
     persist();
   }
+  if (SESSION !== s) return;
   SESSION = null;
   $("#overlay").innerHTML = "";
   renderPill();
   refresh();
 }
-function hideSession() {   // minimise, keep running
+function hideSession() {   // minimise, keep running; before the timer starts, cancel
+  if (!running()) { closeSession(false); return; }
   $("#overlay").innerHTML = "";
   renderPill();
 }
-function setConf(n) { if (SESSION) { SESSION.conf = n; renderSession(); } }
+function setMode(mode) { if (SESSION && !running()) { SESSION.mode = mode; renderSession(); } }
 
 function sessionTimeStr() {
   const clock = s => `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
@@ -960,9 +996,34 @@ function updateSessionTime() {
   if (bar) bar.style.width = t.pct + "%";
   if (pill) pill.textContent = t.str;
 }
+function sessionBody() {
+  const busy = SESSION.busy ? " disabled" : "";
+  if (!running()) return `
+        <span class="eyebrow">What kind of session?</span>
+        <div class="modeset" role="group" aria-label="Session mode">
+          ${MODES.map(([m, label]) => `<button data-mode="${m}" aria-pressed="${SESSION.mode === m}">${label}</button>`).join("")}
+        </div>
+        <div class="s-controls">
+          <button class="btn btn-primary" data-sx="begin"${SESSION.mode ? busy : " disabled"}>${ICON.play}Start the timer</button>
+        </div>
+        <div class="s-note">The timer counts what you study, pauses left out. A session left open past 4 hours records nothing.</div>`;
+  const t = sessionTimeStr();
+  return `
+        <div class="s-timer${t.over ? " over" : ""}" id="sTimer">${t.str}</div>
+        <div class="s-sub" id="sSub">${esc(t.sub)}</div>
+        <div class="s-ring"><i id="sBar" style="width:${t.pct}%"></i></div>
+        <div class="s-controls">
+          <button class="btn ${SESSION.paused ? "btn-primary" : "btn-secondary"}" data-sx="pause"${busy}>${SESSION.paused ? ICON.play + "Resume" : ICON.pause + "Pause"}</button>
+          <button class="btn btn-secondary" data-sx="skip"${busy}>${ICON.skip}Skip</button>
+          <button class="btn btn-primary" data-sx="done"${busy}>${ICON.check}Complete</button>
+        </div>
+        <div class="s-note">${SESSION.item.custom
+          ? "A personal task stays on this page."
+          : "Complete logs these minutes. Past 4 hours the session records nothing: log the real minutes with the study tools."}</div>`;
+}
 function renderSession() {
   if (!SESSION) return;
-  const it = SESSION.item, c = it.course, t = sessionTimeStr();
+  const it = SESSION.item, c = it.course;
   const cSwatch = c ? `<span class="swatch" style="background:${c.color}"></span>` : "";
   const cName = c ? esc(c.name) : "Personal task";
   $("#overlay").innerHTML = `
@@ -970,37 +1031,21 @@ function renderSession() {
     <div class="session" role="dialog" aria-modal="true" aria-label="Study session">
       <div class="s-top">
         <span class="c">${cSwatch}${esc((c && c.code) || "task")}</span>
-        <button class="btn-icon btn-ghost" data-sx="min" aria-label="Minimise session">${ICON.x}</button>
+        <button class="btn-icon btn-ghost" data-sx="min" aria-label="${running() ? "Minimise session" : "Cancel"}">${ICON.x}</button>
       </div>
       <div class="s-body">
         <div class="eyebrow" style="margin-bottom:6px;color:var(--accent)">${cName}</div>
-        <h2 class="s-task">${esc(it.what)}</h2>
-        <div class="s-timer${t.over ? " over" : ""}" id="sTimer">${t.str}</div>
-        <div class="s-sub" id="sSub">${esc(t.sub)}</div>
-        <div class="s-ring"><i id="sBar" style="width:${t.pct}%"></i></div>
-        <div class="s-controls">
-          <button class="btn ${SESSION.paused ? "btn-primary" : "btn-secondary"}" data-sx="pause">${SESSION.paused ? ICON.play + "Resume" : ICON.pause + "Pause"}</button>
-          <button class="btn btn-secondary" data-sx="skip">${ICON.skip}Skip</button>
-          <button class="btn btn-primary" data-sx="done">${ICON.check}Complete</button>
-        </div>
-        <div class="s-after">
-          <span class="eyebrow">After the session · how confident now?</span>
-          <div class="confset" role="group" aria-label="Confidence 1 to 5">
-            ${[1,2,3,4,5].map(n => `<button data-conf="${n}" aria-pressed="${SESSION.conf === n}">${n}</button>`).join("")}
-          </div>
-          <textarea class="s-notes" id="sNotes" placeholder="Notes (optional) — for you, this session only">${esc(SESSION.notes || "")}</textarea>
-          <div class="s-note">Confidence and notes stay on this page for today. To make a score count, run a real quiz with the study tools.</div>
-        </div>
+        <h2 class="s-task">${esc(it.what)}</h2>${sessionBody()}
+        ${SESSION.error ? `<div class="s-err" role="alert">${esc(SESSION.error)}</div>` : ""}
       </div>
     </div>
   </div>`;
   const scrim = $("#scrim");
   scrim.addEventListener("mousedown", e => { if (e.target === scrim) hideSession(); });
-  $("#sNotes").addEventListener("input", e => { SESSION.notes = e.target.value; });
   $("#pillHost").innerHTML = "";
 }
 function renderPill() {
-  if (!SESSION) { $("#pillHost").innerHTML = ""; return; }
+  if (!running()) { $("#pillHost").innerHTML = ""; return; }
   const t = sessionTimeStr();
   $("#pillHost").innerHTML = `
     <div class="float-pill" id="floatPill" role="button" tabindex="0" aria-label="Resume study session">
@@ -1646,9 +1691,10 @@ document.addEventListener("click", e => {
     else if (k === "done") closeSession(true);
     else if (k === "skip") { const uid = SESSION && SESSION.uid; closeSession(false); if (uid) skipItem(uid); }
     else if (k === "min") hideSession();
+    else if (k === "begin") beginSession();
     return;
   }
-  const cf = e.target.closest("[data-conf]"); if (cf) { setConf(+cf.dataset.conf); return; }
+  const md = e.target.closest("[data-mode]"); if (md) { setMode(md.dataset.mode); return; }
 });
 $("#themeMob").addEventListener("click", cycleTheme);
 document.addEventListener("keydown", e => {
