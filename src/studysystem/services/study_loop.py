@@ -578,7 +578,7 @@ def _session_for_attempts(conn: Connection, user_id: str, course_id: str, code, 
     return conn.execute(select(*columns).where(study_session.c.id == new)).one()
 
 
-def _store_state(conn: Connection, user_id: str, topic_id: str, tz: datetime.tzinfo | None):
+def store_state(conn: Connection, user_id: str, topic_id: str, tz: datetime.tzinfo | None):
     """Replay the topic's attempts and write the result: insert, update, or delete when nothing
     counts (his pick - a state that exists only while an attempt counts). Returns the state."""
     rows = conn.execute(
@@ -696,7 +696,7 @@ def submit_attempts(
             )
         topics, logged = [], []
         for topic_id in touched:
-            state = _store_state(conn, user_id, topic_id, tz)
+            state = store_state(conn, user_id, topic_id, tz)
             if state is None:
                 topics.append({"topic_id": topic_id, "state": None})
                 logged.append({"topic_id": topic_id, "state": None})

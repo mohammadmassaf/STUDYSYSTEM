@@ -666,7 +666,7 @@ def test_a_crash_after_the_attempts_rolls_back_the_session_and_the_attempts(
     def crash(*args, **kwargs):
         raise RuntimeError("disk failed")
 
-    monkeypatch.setattr(study_loop, "_store_state", crash)
+    monkeypatch.setattr(study_loop, "store_state", crash)
     with pytest.raises(RuntimeError):
         submit_attempts(service_engine, user_id, "I3302", parts)
 
