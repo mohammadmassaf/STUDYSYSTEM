@@ -9,6 +9,7 @@ recomputed"), so the state is never patched one attempt at a time.
 import datetime
 import json
 import logging
+import math
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -262,14 +263,33 @@ def start_session(
     }
 
 
-# --- hours: the only place minutes come from (D-17, D-22) ---------------------------------
+# --- hours: the two places minutes come from, a tool and the timer (D-17, D-22, D-198) ------
 
 
-def _minutes(value: object) -> int:
-    nb = values.number("minutes", value, ge=1, le=720)
+def _minutes(value: object, least: int = 1) -> int:
+    nb = values.number("minutes", value, ge=least, le=720)
     if nb != int(nb):
         raise values.invalid("minutes", f"{nb:g} is not a whole number", "send whole minutes")
     return int(nb)
+
+
+def _check_setup_key(conn: Connection, user_id: str, course_id: str, code: str, key: str) -> None:
+    """Refuse a setup key no plan raised for this course: a mistyped key would snooze nothing."""
+    raised = conn.execute(
+        select(plan_item.c.id)
+        .where(
+            plan_item.c.user_id == user_id,
+            plan_item.c.course_id == course_id,
+            plan_item.c.setup_key == key,
+        )
+        .limit(1)
+    ).first()
+    if raised is None:
+        raise _not_found(
+            "setup_key",
+            f"setup item {key!r} in {code}'s plans",
+            "use a setup_key exactly as study_get_plan returned it",
+        )
 
 
 def log_hours(
@@ -283,8 +303,8 @@ def log_hours(
     voids: str | None = None,
     semester_name: str | None = None,
 ) -> dict:
-    """Assert the minutes studied on a course - the only way minutes enter (D-17). One write unit:
-    the new `hours_entry`, the entry it `voids`, and the session it closes.
+    """Assert the minutes studied on a course - minutes enter here or at the timer's stop (D-17,
+    D-198). One write unit: the new `hours_entry`, the entry it `voids`, and the session it closes.
 
     Scope is a topic, a setup item's key, or neither (course-level, the cold-start case) - never
     both. A setup key must be one a plan has raised for this course: a mistyped key would
@@ -326,21 +346,7 @@ def log_hours(
                 f"use an id from study_get_topics for {code}",
             )
         if setup_key is not None:
-            raised = conn.execute(
-                select(plan_item.c.id)
-                .where(
-                    plan_item.c.user_id == user_id,
-                    plan_item.c.course_id == course_id,
-                    plan_item.c.setup_key == setup_key,
-                )
-                .limit(1)
-            ).first()
-            if raised is None:
-                raise _not_found(
-                    "setup_key",
-                    f"setup item {setup_key!r} in {code}'s plans",
-                    "use a setup_key exactly as study_get_plan returned it",
-                )
+            _check_setup_key(conn, user_id, course_id, code, setup_key)
 
         started = None
         if session_id is not None:
@@ -408,7 +414,128 @@ def _void(conn: Connection, user_id: str, course_id: str, entry_id: str, stamp: 
     return entry_id
 
 
-# --- attempts: what moves `topic_state` ---------------------------------------------------
+def stop_timer(
+    engine: Engine,
+    user_id: str,
+    code: str,
+    session_id: str,
+    minutes: object,
+    setup_key: str | None = None,
+    semester_name: str | None = None,
+) -> dict:
+    """Stop the dashboard timer: the page's own count of minutes, checked against the server's
+    clock (D-198). One write unit: the session's `ended_at`, and an `hours_entry` with
+    `source = timer`. The only writer of `timer` - `log_hours` writes `tool`.
+
+    `minutes` is what the page counted, pauses left out, 0-720. It may not exceed the minutes
+    since the session's `started_at`, rounded up, so a second of drift between the two clocks
+    is no refusal. Under 1 minute ends the session and writes no entry. The entry's topic is the
+    session's subject when that is a topic. A setup item's key comes in `setup_key` (the session
+    has no column for it): one a plan raised for this course, never beside a topic subject. The
+    entry's `occurred_at` is the session's start.
+
+    I3304, practice on IP addressing, started 19:00 (expires 23:00):
+        stop 19:52,    52  -> 52 min `timer` on IP addressing
+        stop 20:10,    50  -> 50 (20 minutes paused)
+        stop 19:52:10, 53  -> 53 (52 m 10 s rounds up to 53)
+        stop 19:52,    90  -> refused: more than have passed
+        stop 23:00 or later -> refused: expired - nothing written, `ended_at` stays NULL
+        stop 19:00:20, 0   -> ended, no entry
+        a second stop      -> refused: already ended - the first entry stands
+
+    Refused, writing nothing:
+        not_found (session_id)        no session with this id on this user's course
+        session_ended (session_id)    already ended - by an earlier stop, or by log_hours
+        session_expired (session_id)  stopped at or after `expires_at`; the fix names
+                                      study_log_hours, which records the real minutes as `tool`
+        invalid_value (minutes)       more minutes than have passed
+        invalid_value (setup_key)     a setup key on a topic session
+        not_found (setup_key)         a key no plan raised for this course
+
+    Returns {"hours_entry_id" (None under 1 minute), "minutes", "session_id", "ended_at"}.
+    """
+    minutes = _minutes(minutes, least=0)
+    stamp = now()
+    with write_unit(engine) as conn:
+        course_id = find_course(conn, user_id, code, semester_name)
+        session = conn.execute(
+            select(study_session).where(
+                study_session.c.course_id == course_id,
+                study_session.c.user_id == user_id,
+                study_session.c.id == session_id,
+            )
+        ).first()
+        if session is None:
+            raise _not_found(
+                "session_id",
+                f"session with this id in {code}",
+                "use the session_id POST /sessions returned",
+            )
+        if session.ended_at is not None:
+            raise StudyError(
+                code="session_ended",
+                message="this session has already ended",
+                fix="start a new session: an ended session takes no more minutes",
+                field_errors=[{"field": "session_id", "problem": "already ended"}],
+            )
+        if stamp >= session.expires_at:
+            raise StudyError(
+                code="session_expired",
+                message=f"this session expired at {session.expires_at}, 4 hours after it started",
+                fix="log the minutes you really studied with study_log_hours",
+                field_errors=[{"field": "session_id", "problem": "expired"}],
+            )
+        passed = (
+            datetime.datetime.fromisoformat(stamp)
+            - datetime.datetime.fromisoformat(session.started_at)
+        ).total_seconds()
+        clock = math.ceil(passed / 60)
+        if minutes > clock:
+            raise values.invalid(
+                "minutes",
+                f"{minutes} is more than the {clock} since the session started",
+                "send the minutes the timer counted",
+            )
+        if setup_key is not None:
+            if session.subject_type == "topic":
+                raise values.invalid(
+                    "setup_key",
+                    "this session is on a topic, and hours go to a topic or a setup item, not both",
+                    "leave setup_key out: the session's topic gets the minutes",
+                )
+            _check_setup_key(conn, user_id, course_id, code, setup_key)
+        topic_id = session.subject_id if session.subject_type == "topic" else None
+
+        conn.execute(
+            update(study_session).where(study_session.c.id == session_id).values(ended_at=stamp)
+        )
+        entry_id = None
+        if minutes >= 1:
+            entry_id = new_id()
+            conn.execute(
+                insert(hours_entry).values(
+                    id=entry_id,
+                    user_id=user_id,
+                    course_id=course_id,
+                    session_id=session_id,
+                    topic_id=topic_id,
+                    setup_key=setup_key,
+                    minutes=minutes,
+                    occurred_at=session.started_at,
+                    source="timer",
+                    created_at=stamp,
+                )
+            )
+
+    return {
+        "hours_entry_id": entry_id,
+        "minutes": minutes,
+        "session_id": session_id,
+        "ended_at": stamp,
+    }
+
+
+# --- attempts: what moves `topic_state`---------------------------------------------------
 
 # What an attempt in each session mode is (D-07b): its `source`, and whether it was assisted.
 # An explanation's check questions come right after the explanation, so they are assisted and
