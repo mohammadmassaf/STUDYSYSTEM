@@ -198,6 +198,24 @@ def _subject_course(conn: Connection, user_id: str, subject_type: str, subject_i
     return conn.execute(query).scalar_one_or_none()
 
 
+def _named_session(conn: Connection, user_id: str, course_id: str, code: str, session_id: str):
+    """The session this id names - this user's, on this course - or not_found."""
+    session = conn.execute(
+        select(study_session).where(
+            study_session.c.id == session_id,
+            study_session.c.user_id == user_id,
+            study_session.c.course_id == course_id,
+        )
+    ).first()
+    if session is None:
+        raise _not_found(
+            "session_id",
+            f"session with this id in {code}",
+            "use the id study_start_session or POST /sessions returned",
+        )
+    return session
+
+
 def start_session(
     engine: Engine,
     user_id: str,
@@ -350,21 +368,7 @@ def log_hours(
 
         started = None
         if session_id is not None:
-            session = conn.execute(
-                select(
-                    study_session.c.started_at, study_session.c.expires_at, study_session.c.ended_at
-                ).where(
-                    study_session.c.id == session_id,
-                    study_session.c.user_id == user_id,
-                    study_session.c.course_id == course_id,
-                )
-            ).first()
-            if session is None:
-                raise _not_found(
-                    "session_id",
-                    f"session with this id in {code}",
-                    "use the id study_start_session returned",
-                )
+            session = _named_session(conn, user_id, course_id, code, session_id)
             started = session.started_at
             if session.ended_at is None and stamp < session.expires_at:
                 conn.execute(
@@ -458,19 +462,7 @@ def stop_timer(
     stamp = now()
     with write_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
-        session = conn.execute(
-            select(study_session).where(
-                study_session.c.course_id == course_id,
-                study_session.c.user_id == user_id,
-                study_session.c.id == session_id,
-            )
-        ).first()
-        if session is None:
-            raise _not_found(
-                "session_id",
-                f"session with this id in {code}",
-                "use the session_id POST /sessions returned",
-            )
+        session = _named_session(conn, user_id, course_id, code, session_id)
         if session.ended_at is not None:
             raise StudyError(
                 code="session_ended",
@@ -662,20 +654,7 @@ def _session_for_attempts(conn: Connection, user_id: str, course_id: str, code, 
         study_session.c.position,
     )
     if session_id is not None:
-        session = conn.execute(
-            select(*columns).where(
-                study_session.c.id == session_id,
-                study_session.c.user_id == user_id,
-                study_session.c.course_id == course_id,
-            )
-        ).first()
-        if session is None:
-            raise _not_found(
-                "session_id",
-                f"session with this id in {code}",
-                "use the id study_start_session returned",
-            )
-        return session
+        return _named_session(conn, user_id, course_id, code, session_id)
     session = conn.execute(
         select(*columns)
         .where(
