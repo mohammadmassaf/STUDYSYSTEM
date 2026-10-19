@@ -11,37 +11,37 @@
 
 <style>
 /* ============================================================
-   1 · DESIGN TOKENS — light is the base; dark redefines tokens.
+   1 · DESIGN TOKENS - light is the base; dark redefines tokens.
    Palette: settled "dusk grey-violet". Never near-black, never warm cream.
    Series + confidence colours are the validated dataviz ramps.
    ============================================================ */
 :root {
   color-scheme: light;
-  /* grounds & surfaces — cool near-white, faint cyan cast */
+  /* grounds & surfaces - cool near-white, faint cyan cast */
   --bg:#EEF3F4; --paper:#EEF3F4;
   --surface:#FFFFFF; --card:#FFFFFF;
   --surface-2:#E2ECEE; --sunken:#E2ECEE;
   --raise:#FFFFFF;
   --rule:#D2DDE0; --rule-soft:#E5ECEE; --rule-strong:#B6C5CA;
-  /* ink — deep slate on light */
+  /* ink - deep slate on light */
   --ink:#0B1618; --ink-2:#455A61; --ink-3:#6E828A; --ink-4:#9BABB1;
-  /* accent — cyan identity, DEEPENED for readability on white (cyan-700) */
+  /* accent - cyan identity, DEEPENED for readability on white (cyan-700) */
   --accent:#0E7490; --accent-strong:#155E75; --accent-soft:#0891B2; --accent-2:#0D9488;
   --accent-ink:#FFFFFF; --accent-wash:rgba(14,116,144,0.10); --accent-line:rgba(14,116,144,0.28);
-  /* series (courses) — validated categorical ramp, distinct from cyan chrome */
+  /* series (courses) - validated categorical ramp, distinct from cyan chrome */
   --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
-  /* status — spaced hues so none blur together on white; always paired with icon+label */
+  /* status - spaced hues so none blur together on white; always paired with icon+label */
   --good:#047857; --good-wash:rgba(4,120,87,0.12);
   --warn:#946412; --warn-wash:rgba(148,100,18,0.14);
   --serious:#C2410C; --serious-wash:rgba(194,65,12,0.12);
   --critical:#BE123C; --critical-wash:rgba(190,18,60,0.10);
   --done:#5A6B73; --done-wash:rgba(90,107,115,0.12);
-  /* confidence ramp — blue sequential, reads as ordinal against cyan chrome */
+  /* confidence ramp - blue sequential, reads as ordinal against cyan chrome */
   --c1:#86b6ef; --c2:#5598e7; --c3:#2a78d6; --c4:#1c5cab; --c5:#104281;
   --c0-line:#B6C5CA; --lost:#CBD7DB;
   /* radius scale */
   --r1:8px; --r2:12px; --r3:16px; --rpill:999px;
-  /* elevation — cool shadows */
+  /* elevation - cool shadows */
   --sh-1:0 1px 2px rgba(11,22,24,.05);
   --sh-2:0 2px 6px -2px rgba(11,22,24,.10), 0 8px 24px -14px rgba(11,22,24,.20);
   --sh-3:0 12px 40px -12px rgba(11,22,24,.28);
@@ -285,7 +285,7 @@ a.cnav .ct { font-family:var(--f-data); font-size:10.5px; color:var(--ink-3); }
 .tbtn:hover { border-color:var(--ink-3); color:var(--ink); }
 
 /* ============================================================
-   9 · DASHBOARD — Today's Focus hero
+   9 · DASHBOARD - Today's Focus hero
    ============================================================ */
 .focus { position:relative; overflow:hidden; border-radius:var(--r3); border:1px solid var(--rule); box-shadow:var(--sh-2); background:var(--surface); }
 .focus .accentbar { position:absolute; inset:0 auto 0 0; width:4px; }
@@ -633,7 +633,7 @@ footer.foot code { font-family:var(--f-data); font-size:11.5px; color:var(--ink-
   <aside class="rail">
     <div class="brand">
       <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 8v6l9 5 9-5V8"/></svg></div>
-      <div><h1>Semester Console</h1><div class="sub" id="brandSub">—</div></div>
+      <div><h1>Semester Console</h1><div class="sub" id="brandSub">-</div></div>
     </div>
     <nav class="rail-nav" id="nav" aria-label="Primary"></nav>
     <div class="rail-foot" id="railFoot">The study server is the source of truth.</div>
@@ -659,7 +659,7 @@ footer.foot code { font-family:var(--f-data); font-size:11.5px; color:var(--ink-
 
 <script>
 /* ============================================================
-   LOAD — this page holds no study data of its own. GET /state is
+   LOAD - this page holds no study data of its own. GET /state is
    the whole truth (D-19, D-163): the server computes every metric
    and ranking, the browser derives cosmetics only (groupings,
    countdowns, colours). A field the server sends as null renders
@@ -734,14 +734,14 @@ function derive() {
 }
 
 const wTxt  = w => (w == null ? "weight TBD" : w + "%");
-const num = (v, digits) => v == null ? '<span class="unknown">—</span>' : v.toFixed(digits);
-const pct = v => v == null ? '<span class="unknown">—</span>' : v + "%";
+const num = (v, digits) => v == null ? '<span class="unknown">-</span>' : v.toFixed(digits);
+const pct = v => v == null ? '<span class="unknown">-</span>' : v + "%";
 const wCell = w => (w == null ? '<span class="muted">TBD</span>' : w + "%");
 const fmtWhen = a => a.date ? (a.approx ? "~" + fmtDate(a.date) : fmtDate(a.date)) : "TBD";
 const whenLong = a => a.date ? (a.approx ? "~" : "") + fmtLong(a.date) : "TBD";
 
 /* ============================================================
-   THE PLAN — read from the server as it is stored (D-163). The
+   THE PLAN - read from the server as it is stored (D-163). The
    lanes arrive ranked; this page lists them in lane order and
    never re-sorts or re-scores.
    ============================================================ */
@@ -832,7 +832,7 @@ const ICON = {
 const ic = n => `<span class="ic" aria-hidden="true">${ICON[n] || ""}</span>`;
 
 /* ============================================================
-   STATE — this browser's own scratch (in-memory + safe
+   STATE - this browser's own scratch (in-memory + safe
    localStorage): today's completions, personal tasks, the theme.
    NOT study data. Nothing here reaches the server.
    ============================================================ */
@@ -1078,7 +1078,7 @@ function focusHero() {
       <div class="focus-in" style="grid-template-columns:1fr">
         <div class="lead">
           <div class="kicker"><span class="eyebrow">Today's focus</span></div>
-          <h2 class="task">${none ? "No plan yet." : "Plan cleared — nothing left open."}</h2>
+          <h2 class="task">${none ? "No plan yet." : "Plan cleared. Nothing left open."}</h2>
           <p class="why" style="max-width:56ch">${none
             ? "The server has not stored a plan. Ask the host to run <code>study_get_plan</code>; this page only shows a plan, it never makes one."
             : "You've actioned every item the plan shows. Add a personal task below, or ask the host for a fresh plan."}</p>
@@ -1177,7 +1177,7 @@ function planCard() {
 function healthCard(c) {
   const nextAction = planItems().find(i => i.course === c && isOpen(i));
   const examTxt = c.next ? `Exam ${c.next.approx ? "~" : ""}in ${c.daysToNext}d` : "No dated exam";
-  const target = c.targetGrade == null ? "—" : Math.round(c.targetGrade);
+  const target = c.targetGrade == null ? "-" : Math.round(c.targetGrade);
   return `<a class="hcard" href="${courseHref(c)}" style="--cc:${c.color}">
     <div class="top">
       <div><div class="name">${esc(c.name)}</div><div class="code">${esc(c.code)}</div></div>
@@ -1245,7 +1245,7 @@ function timelineSVG(courses) {
   let lastLabelX = -999;
   const bars = marks.map(m => {
     const showLabel = m.x - lastLabelX > 52; if (showLabel) lastLabelX = m.x;
-    const tip = `${esc(m.c.code)} — ${esc(m.a.name)}&#10;${wTxt(m.a.weight)} · ${whenLong(m.a)}` + (m.a.mark !== null ? `&#10;scored ${m.a.mark}` : "&#10;not sat yet");
+    const tip = `${esc(m.c.code)}: ${esc(m.a.name)}&#10;${wTxt(m.a.weight)} · ${whenLong(m.a)}` + (m.a.mark !== null ? `&#10;scored ${m.a.mark}` : "&#10;not sat yet");
     return `<g data-tip="${tip}">
       <rect x="${m.x - 4}" y="${axisY - m.h}" width="8" height="${m.h}" rx="3" fill="${m.c.color}" opacity="${m.past ? 0.34 : m.a.weight == null ? 0.5 : 1}"/>
       ${m.a.weight == null ? `<text x="${clampX(m.x)}" y="${axisY - m.h - 6}" text-anchor="middle" font-size="10.5" font-family="var(--f-data)" fill="var(--ink-3)">?</text>` : ""}
@@ -1309,10 +1309,10 @@ function runProjector(box) {
     : `Average <b>${assume}%</b> on the remaining <b>${c.openWeight}%</b> and you finish at <b>${projected.toFixed(1)}</b>. ${c.next ? `Next up: ${esc(c.next.name)}, ${c.next.weight == null ? "share of the grade not set" : c.next.weight + "% of the grade"}, in ${c.daysToNext} days.` : ""}`;
   const needed = c.openWeight === 0 ? null : (target - c.earned) / c.openWeight * 100;
   const nv = box.querySelector('[data-out="need"]');
-  if (needed === null) { nv.className = "verdict"; nv.innerHTML = `Nothing left to sit — the grade is settled.`; }
+  if (needed === null) { nv.className = "verdict"; nv.innerHTML = `Nothing left to sit. The grade is settled.`; }
   else if (needed > 100) { nv.className = "verdict is-risk"; nv.innerHTML = `<b>${target}% is out of reach.</b> It would take ${needed.toFixed(0)}% on everything remaining, and the ceiling is ${c.ceiling.toFixed(0)}. Aim at ${Math.floor(c.ceiling)} and spend the hours where they still move something.`; }
   else if (needed <= 0) { nv.className = "verdict is-ok"; nv.innerHTML = `<b>Already secured.</b> Even scoring zero on what's left, this course finishes at or above ${target}%.`; }
-  else { const strain = c.standing === null ? null : needed - c.standing; nv.className = "verdict" + (needed > 90 ? " is-risk" : ""); nv.innerHTML = `You need <b>${needed.toFixed(0)}%</b> across the remaining ${c.openWeight}%. ${strain === null ? `Nothing is graded yet, so there's no track record to say whether that's a stretch.` : strain > 8 ? `That's ${strain.toFixed(0)} points above your current ${Math.round(c.standing)} — real work, not a rounding error.` : `That's about where you're already running.`}`; }
+  else { const strain = c.standing === null ? null : needed - c.standing; nv.className = "verdict" + (needed > 90 ? " is-risk" : ""); nv.innerHTML = `You need <b>${needed.toFixed(0)}%</b> across the remaining ${c.openWeight}%. ${strain === null ? `Nothing is graded yet, so there's no track record to say whether that's a stretch.` : strain > 8 ? `That's ${strain.toFixed(0)} points above your current ${Math.round(c.standing)}. That's real work, not a rounding error.` : `That's about where you're already running.`}`; }
 }
 
 function head(title, lede, right) {
@@ -1337,7 +1337,7 @@ PAGES.overview = () => `
   <section class="section">
     <div class="sec-head"><h2>Upcoming assessments</h2><a class="linkbtn" href="#/calendar">Calendar ${ICON.arrow}</a></div>
     <div class="card"><div class="pad">${timelineSVG(DATA.courses)}</div>
-      <div class="strap rt">Bar height is what each assessment is worth — the tall ones are where the grade actually moves. <a class="tlink" href="#/calendar">Open calendar →</a></div>
+      <div class="strap rt">Bar height is what each assessment is worth; the tall ones are where the grade actually moves. <a class="tlink" href="#/calendar">Open calendar →</a></div>
     </div>
   </section>
   <div class="split even">
@@ -1353,13 +1353,13 @@ PAGES.queue = () => {
   <section class="section">
     <div class="sec-head"><h2>Your tasks</h2>${doneCustom ? `<button class="linkbtn" data-action="clearcustom">Clear ${doneCustom} done</button>` : ""}</div>
     <div class="card"><form class="addbar" id="addForm" style="border-top:0">
-      <input class="field ti" id="addTitle" placeholder="Add a task — e.g. re-read UML notes" aria-label="Task title" maxlength="120" autocomplete="off">
+      <input class="field ti" id="addTitle" placeholder="Add a task, e.g. re-read UML notes" aria-label="Task title" maxlength="120" autocomplete="off">
       <select class="field mini" id="addCourse" aria-label="Course"><option value="">No course</option>${DATA.courses.map(c => `<option value="${esc(c.id)}">${esc(c.code)}</option>`).join("")}</select>
       <select class="field mini" id="addMins" aria-label="Minutes">${[15,25,30,45,60,90].map(m => `<option value="${m}"${m === 30 ? " selected" : ""}>${m}m</option>`).join("")}</select>
       <button class="btn btn-primary btn-sm" type="submit">${ICON.plus}Add task</button>
     </form></div>
     ${mine.length ? `<div class="tasklist">${mine.map(taskCard).join("")}</div>`
-      : `<p class="none" style="padding:2px 2px">No personal tasks yet — anything you add here shows under Your tasks on Today and vanishes when you tick it off.</p>`}
+      : `<p class="none" style="padding:2px 2px">No personal tasks yet. Anything you add here shows under Your tasks on Today and vanishes when you tick it off.</p>`}
   </section>
   <section class="section">
     <div class="sec-head"><h2 id="qCount">From the plan</h2>
@@ -1385,10 +1385,10 @@ PAGES.load = () => {
   <section class="card"><div class="pad">
     <span class="eyebrow">Weekly capacity</span>
     <div class="row" style="margin-top:12px;gap:10px;align-items:baseline">
-      <span class="num" style="font-size:28px">${cap == null ? "—" : cap + "h"}</span>
+      <span class="num" style="font-size:28px">${cap == null ? "-" : cap + "h"}</span>
       <span class="muted">${cap == null ? "no capacity declared" : "declared per week"}</span>
     </div>
-    <div class="muted" style="font-size:12.5px;margin-top:8px">${sug == null ? "Timetable suggestion: unknown — no timetable yet." : `Timetable suggestion: ${sug}h`}</div>
+    <div class="muted" style="font-size:12.5px;margin-top:8px">${sug == null ? "Timetable suggestion: unknown, no timetable yet." : `Timetable suggestion: ${sug}h`}</div>
     <div class="row" style="margin-top:14px">${nbTag("hours the plan needs")}</div>
   </div></section>
   <div class="split even">
@@ -1437,7 +1437,7 @@ PAGES.grades = () => `
   ${head("Grades", "Each course's declared target beside what the marks so far add up to. The sums on this page are scratch, worked out here from the marks the server holds. They are not server numbers. A mark the server does not have reads as unknown, not zero.")}
   <section class="card"><div class="card-head"><h3>Standing by course</h3><span class="eyebrow">scratch · graded work only</span></div>
     <div class="table-wrap"><table class="data"><thead><tr><th>Course</th><th>Cr</th><th>Target</th><th>Standing</th><th>Graded</th><th>Banked</th><th>Open</th><th>Ceiling</th><th>Floor</th></tr></thead>
-    <tbody>${DATA.courses.map(c => `<tr><td><span class="swatch" style="background:${c.color}"></span> <a href="${courseHref(c)}">${esc(c.code)}</a></td><td class="muted">${c.credits ?? "—"}</td><td>${c.targetGrade == null ? '<span class="unknown">—</span>' : Math.round(c.targetGrade)}</td><td><b>${c.standing === null ? '<span class="unknown">—</span>' : c.standing.toFixed(1)}</b></td><td class="muted">${pct(c.assessedWeight)}</td><td>${num(c.earned, 1)}</td><td>${pct(c.openWeight)}</td><td>${num(c.ceiling, 0)}</td><td class="muted">${num(c.earned, 0)}</td></tr>`).join("")}</tbody></table></div>
+    <tbody>${DATA.courses.map(c => `<tr><td><span class="swatch" style="background:${c.color}"></span> <a href="${courseHref(c)}">${esc(c.code)}</a></td><td class="muted">${c.credits ?? "-"}</td><td>${c.targetGrade == null ? '<span class="unknown">-</span>' : Math.round(c.targetGrade)}</td><td><b>${c.standing === null ? '<span class="unknown">-</span>' : c.standing.toFixed(1)}</b></td><td class="muted">${pct(c.assessedWeight)}</td><td>${num(c.earned, 1)}</td><td>${pct(c.openWeight)}</td><td>${num(c.ceiling, 0)}</td><td class="muted">${num(c.earned, 0)}</td></tr>`).join("")}</tbody></table></div>
     <div class="strap rt">Ceiling is what you get by acing everything left; floor is what you keep scoring zero. The gap between them is the only part still under your control.</div>
   </section>
   <section class="card"><div class="card-head"><h3>If the rest of the semester goes like this</h3><span class="eyebrow">scratch · one assumption, every course</span></div>
@@ -1477,8 +1477,8 @@ PAGES.course = c => {
     </div></div></section>
 
   <section class="card"><div class="tiles">
-    <div class="tile"><span class="v ${c.targetGrade == null ? "sm" : ""}">${c.targetGrade == null ? "—" : Math.round(c.targetGrade)}</span><span class="k">target</span><span class="sub">${c.targetGrade == null ? "not set" : "declared"}</span></div>
-    <div class="tile"><span class="v">${c.next ? (c.next.approx ? "~" : "") + c.daysToNext : "—"}</span><span class="k">days to exam</span><span class="sub">${c.next ? wTxt(c.next.weight) : "nothing dated"}</span></div>
+    <div class="tile"><span class="v ${c.targetGrade == null ? "sm" : ""}">${c.targetGrade == null ? "-" : Math.round(c.targetGrade)}</span><span class="k">target</span><span class="sub">${c.targetGrade == null ? "not set" : "declared"}</span></div>
+    <div class="tile"><span class="v">${c.next ? (c.next.approx ? "~" : "") + c.daysToNext : "-"}</span><span class="k">days to exam</span><span class="sub">${c.next ? wTxt(c.next.weight) : "nothing dated"}</span></div>
     <div class="tile"><span class="v">${hrs(c.hoursLogged)}</span><span class="k">logged</span><span class="sub">all time</span></div>
     <div class="tile"><span class="v">${q.length}</span><span class="k">in the plan</span><span class="sub">open items</span></div>
   </div></section>
@@ -1492,7 +1492,7 @@ PAGES.course = c => {
 
   <section class="card"><div class="card-head"><h3>How it's graded</h3><span class="eyebrow">${graded} of ${c.assessments.length} back</span></div>
     <div class="table-wrap"><table class="data"><thead><tr><th class="l">Component</th><th>Weight</th><th>When</th><th class="l">Session</th><th>Mark</th></tr></thead>
-    <tbody>${c.assessments.map(a => `<tr><td class="l">${esc(a.name)}</td><td>${wCell(a.weight)}</td><td class="muted">${a.date ? fmtWhen(a) : "ongoing"}</td><td class="muted l">${a.sessionType ? esc(a.sessionType) : "—"}</td><td>${a.mark === null ? '<span class="muted">—</span>' : "<b>" + a.mark + "</b>"}</td></tr>`).join("")}</tbody></table></div>
+    <tbody>${c.assessments.map(a => `<tr><td class="l">${esc(a.name)}</td><td>${wCell(a.weight)}</td><td class="muted">${a.date ? fmtWhen(a) : "ongoing"}</td><td class="muted l">${a.sessionType ? esc(a.sessionType) : "-"}</td><td>${a.mark === null ? '<span class="muted">-</span>' : "<b>" + a.mark + "</b>"}</td></tr>`).join("")}</tbody></table></div>
   </section>
 
   <section class="card"><div class="card-head"><h3>What's still winnable</h3><span class="eyebrow">scratch · ${c.weightsKnown ? c.openWeight + "% unplayed" : "weights TBD"}</span></div>
@@ -1664,9 +1664,9 @@ function wire(page) {
         const delta = lands == null || c.standing == null ? null : lands - c.standing;
         if (delta != null && c.credits != null) { now += c.standing * c.credits; then += lands * c.credits; credits += c.credits; }
         const tone = delta == null ? "var(--ink-3)" : delta < -0.05 ? "var(--critical)" : delta > 0.05 ? "var(--ink)" : "var(--ink-3)";
-        return `<tr><td><span class="swatch" style="background:${c.color}"></span> ${esc(c.code)}</td><td class="muted">${num(c.standing, 1)}</td><td><b>${num(lands, 1)}</b></td><td style="color:${tone}">${delta == null ? "—" : (delta >= 0 ? "+" : "") + delta.toFixed(1)}</td></tr>`;
+        return `<tr><td><span class="swatch" style="background:${c.color}"></span> ${esc(c.code)}</td><td class="muted">${num(c.standing, 1)}</td><td><b>${num(lands, 1)}</b></td><td style="color:${tone}">${delta == null ? "-" : (delta >= 0 ? "+" : "") + delta.toFixed(1)}</td></tr>`;
       }).join("");
-      if (!credits) { $("#semNow").textContent = $("#semThen").textContent = $("#semDelta").textContent = "—"; return; }
+      if (!credits) { $("#semNow").textContent = $("#semThen").textContent = $("#semDelta").textContent = "-"; return; }
       const nowAvg = now / credits, thenAvg = then / credits;
       $("#semNow").textContent = nowAvg.toFixed(1); $("#semThen").textContent = thenAvg.toFixed(1);
       $("#semDelta").textContent = (thenAvg - nowAvg >= 0 ? "+" : "") + (thenAvg - nowAvg).toFixed(1);
