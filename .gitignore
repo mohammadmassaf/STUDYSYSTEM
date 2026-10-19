@@ -9,3 +9,6 @@ __pycache__/
 *.db-shm
 .claude/settings.local.json
 CLAUDE.local.md
+CLAUDE.md
+.claude/
+.pip/
