@@ -356,6 +356,7 @@ RULE_CASES: list[tuple[str, str, dict]] = [
     # practice_item
     ("ck_practice_item_item_ordinal_min", "practice_item", dict(item_ordinal=0)),
     ("ck_practice_item_position_min", "practice_item", dict(position=0)),
+    ("ck_practice_item_page_min", "practice_item", dict(page=0)),
     ("ck_practice_item_past_exam_origin", "practice_item", dict(origin="textbook")),
     ("ck_practice_item_position_past_exam", "practice_item", dict(position=None)),
     ("ck_practice_item_answer_exists", "practice_item", dict(answer_key="R is in 3NF")),

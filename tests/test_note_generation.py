@@ -13,11 +13,13 @@ from studysystem.errors import StudyError
 from studysystem.services.courses import add_course
 from studysystem.services.generation import (
     NOTE_STEPS,
+    confirm_transcription,
     measure,
     start_generation,
     submit_generation,
 )
 from studysystem.services.materials import add_material
+from studysystem.services.past_exams import add_past_exam
 from studysystem.services.profiles import derive_profile
 from studysystem.services.units import write_unit
 from tests._papers import pdf_bytes, pdf_pages, write
@@ -152,6 +154,29 @@ def test_only_the_profiles_papers_send_items(service_engine, user_id, i3302, ch6
     items = start(service_engine, user_id, ch6).payload["rules"]["past_exam_items"]
 
     assert len(items) == 24
+
+
+def test_an_unconfirmed_scan_sends_no_items_until_he_confirms_it(
+    service_engine, user_id, i3302, ch6, tmp_path
+):
+    """D-210: a transcribed scan is not evidence until confirmed - its questions stay out of the
+    note's citations, then join once he confirms it."""
+    path = write(tmp_path / "scan", "scan.pdf", pdf_pages([None, None], pictured={1, 2}))
+    scan = add_past_exam(service_engine, user_id, "I3302", FINAL, "first", "2022-01-20", path)[
+        "past_exam_id"
+    ]
+    task_id = start_generation(service_engine, user_id, "transcription", scan).payload["task_id"]
+    item = {"question": "Scanned question", "marks": 4, "topic": {"proposed_name": NAMES["forms"]}}
+    submit_generation(
+        service_engine, user_id, task_id, {"items": [{**item, "position": 1, "page": 1}]}
+    )
+
+    before = start(service_engine, user_id, ch6).payload["rules"]["past_exam_items"]
+    confirm_transcription(service_engine, user_id, scan)
+    after = start(service_engine, user_id, ch6).payload["rules"]["past_exam_items"]
+
+    assert len(before) == 24
+    assert [i["question"] for i in after].count("Scanned question") == 1
 
 
 def test_a_rejected_item_does_not_travel(service_engine, user_id, ch6):
