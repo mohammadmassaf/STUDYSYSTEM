@@ -397,6 +397,7 @@ practice_item = Table(
         "position", Integer, CheckConstraint("position >= 1", name="position_min"), nullable=True
     ),
     iff("position_past_exam", "position IS NOT NULL", "past_exam_id IS NOT NULL"),
+    Column("page", Integer, CheckConstraint("page >= 1", name="page_min"), nullable=True),
     Column("question", Text, nullable=False),
     Column("answer_key", Text, nullable=True),
     enum_col("answer_provenance", ["verified-source", "unverified", "none"]),
@@ -511,6 +512,7 @@ past_exam = Table(
         nullable=False,
     ),
     fk("transcript_task_id", "generation_task", nullable=True),
+    ts("transcript_confirmed_at", nullable=True),  # a scan counts only once he confirms (D-210)
     ts(),
     UniqueConstraint("slot_id", "content_sha256"),
 )

@@ -31,7 +31,7 @@ from studysystem.db.tables import (
 )
 from tests._study import run_study
 
-HEAD = "0013"
+HEAD = "0014"
 
 
 def stamp() -> str | None:
@@ -957,3 +957,63 @@ def test_0013_keeps_a_profile_and_its_task_and_reads_it_as_assuming_none(empty_e
     columns = {c["name"] for c in inspect(empty_engine).get_columns("exam_profile")}
     assert "assumed_instructor_papers" not in columns
     assert "provisional_instructor" in columns
+
+
+# --- 0014: a scan's confirmation and an item's page (D-210) --------------------------------------
+
+
+def test_0014_stamps_a_transcribed_paper_at_its_tasks_close_and_leaves_the_rest_null(empty_engine):
+    """A paper transcribed before the column counted at submit, so it must keep counting: its stamp
+    is its task's close time. An untranscribed paper stays NULL, and down to 0013 drops both
+    columns."""
+    command.upgrade(migrate.alembic_config(empty_engine), "0013")
+    done, waiting = "7" * 26, "8" * 26
+    with empty_engine.begin() as conn:
+        conn.execute(insert(user).values(id=UID, created_at=AT))
+        conn.execute(
+            insert(course).values(
+                id=COURSE,
+                user_id=UID,
+                code="I3301",
+                name="Computer Architecture",
+                semester_name="Semester 1",
+                instructor_tier="unknown",
+                credits_tier="unknown",
+                created_at=AT,
+            )
+        )
+        conn.execute(
+            insert(assessment_slot).values(
+                id=SLOT, owner_id=UID, course_id=COURSE, name="Final", kind="exam", created_at=AT
+            )
+        )
+        conn.execute(insert(generation_task).values(**_task("a" * 26, "closed")))
+        for paper, sha, task in ((done, "b", "a" * 26), (waiting, "c", None)):
+            conn.execute(
+                insert(past_exam).values(
+                    id=paper,
+                    owner_id=UID,
+                    slot_id=SLOT,
+                    session_type="first",
+                    session_date="2022-04-13",
+                    instructor_tier="unknown",
+                    file_ref="files/x",
+                    content_sha256=sha * 64,
+                    transcript_task_id=task,
+                    created_at=AT,
+                )
+            )
+
+    migrate.upgrade(empty_engine)
+
+    with empty_engine.connect() as conn:
+        stamps = dict(
+            conn.execute(select(past_exam.c.id, past_exam.c.transcript_confirmed_at)).all()
+        )
+    assert stamps == {done: AT, waiting: None}
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0013")
+    assert "transcript_confirmed_at" not in {
+        c["name"] for c in inspect(empty_engine).get_columns("past_exam")
+    }
+    assert "page" not in {c["name"] for c in inspect(empty_engine).get_columns("practice_item")}

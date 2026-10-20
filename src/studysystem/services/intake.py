@@ -175,6 +175,13 @@ def read_pages(file_ref: str) -> list[Page]:
     ]
 
 
+def page_count(file_ref: str) -> int:
+    """How many pages the kept paper has, without drawing any - what `read_pages` would return."""
+    if file_ref.endswith("/"):
+        return sum(1 for _ in (papers_dir() / file_ref.rstrip("/")).iterdir())
+    return len(PdfReader(papers_dir() / file_ref).pages)
+
+
 def _has_image(page) -> bool:
     """Whether an image is placed on the page itself. A figure drawn with the PDF's own lines is
     not an image and is missed - D-49's accepted cost."""

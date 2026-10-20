@@ -176,8 +176,9 @@ def pins_of(statements: Sequence[dict]) -> dict[str, float]:
 
 def paper_set(conn: Connection, user_id: str, slot_id: str) -> list[tuple[str, str]]:
     """The papers a profile of this slot stands on, newest first, as (id, stored date): the
-    transcribed ones with a live item (D-69, D-136, D-159). Two papers on one day fall back to
-    the later-registered id. The statement tool reads the same set (D-180)."""
+    transcribed - and, for a scan, confirmed - ones with a live item (D-69, D-136, D-159,
+    D-210). Two papers on one day fall back to the later-registered id. The statement tool reads
+    the same set (D-180)."""
     return [
         tuple(row)
         for row in conn.execute(
@@ -185,7 +186,8 @@ def paper_set(conn: Connection, user_id: str, slot_id: str) -> list[tuple[str, s
             .where(
                 past_exam.c.owner_id == user_id,
                 past_exam.c.slot_id == slot_id,
-                past_exam.c.transcript_task_id.is_not(None),
+                # counted: stamped - at submit for a typed paper, at his confirm for a scan (D-210)
+                past_exam.c.transcript_confirmed_at.is_not(None),
                 past_exam.c.id.in_(
                     select(practice_item.c.past_exam_id).where(practice_item.c.state == "live")
                 ),
@@ -285,10 +287,11 @@ def derive_profile(
             raise StudyError(
                 code="too_few_papers",
                 message=(
-                    f"{len(past_exam_ids)} transcribed papers with a live question; "
+                    f"{len(past_exam_ids)} counted papers with a live question; "
                     f"a profile needs {MIN_PAPERS}"
                 ),
-                fix="add and transcribe more past papers for this assessment (D-14, D-136)",
+                fix="add and transcribe more past papers for this assessment, and confirm any "
+                "transcribed scan (study_confirm_transcription) (D-14, D-136, D-210)",
                 field_errors=[
                     {"field": "assessment", "problem": "too few papers with a live question"}
                 ],

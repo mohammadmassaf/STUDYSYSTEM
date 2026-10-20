@@ -34,6 +34,7 @@ from sqlalchemy import Connection, Engine, func, insert, select, update
 
 from studysystem.db.tables import (
     assessment_slot,
+    course,
     evidence,
     exam_profile,
     generation_task,
@@ -68,6 +69,16 @@ TRANSCRIPTION_SCHEMA = {
     "required": ["items"],
     "additionalProperties": False,
     "properties": {
+        "header": {
+            "type": "object",
+            "additionalProperties": False,
+            "description": "scanned paper only: what page 1 prints, null for what it does not",
+            "properties": {
+                "date": {"type": ["string", "null"]},
+                "course": {"type": ["string", "null"]},
+                "instructor": {"type": ["string", "null"]},
+            },
+        },
         "items": {
             "type": "array",
             "minItems": 1,
@@ -76,6 +87,11 @@ TRANSCRIPTION_SCHEMA = {
                 "required": ["position", "question", "topic"],
                 "additionalProperties": False,
                 "properties": {
+                    "page": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "scanned paper only: the page the question is on",
+                    },
                     "position": {
                         "type": "integer",
                         "minimum": 1,
@@ -118,7 +134,7 @@ TRANSCRIPTION_SCHEMA = {
                     },
                 },
             },
-        }
+        },
     },
 }
 
@@ -133,6 +149,8 @@ TRANSCRIPTION_STEPS = [
     "answer_key: only an answer printed on the paper; otherwise null.",
     "topic: the id of a topic in rules.topics when one fits; otherwise {proposed_name} with a "
     "short topic name, reusing the same name for questions on the same topic.",
+    "A scanned paper (pages with a picture and no text): give each item the page it is on, and "
+    "send header with what page 1 prints - date, course, instructor, null for any it does not.",
     "Submit with study_submit_generation(task_id, payload), payload matching schema.",
 ]
 
@@ -141,7 +159,10 @@ TRANSCRIPTION_STEPS = [
 ITEM_SCHEMA = TRANSCRIPTION_SCHEMA["properties"]["items"]["items"]
 ENVELOPE_SCHEMA = {
     **TRANSCRIPTION_SCHEMA,
-    "properties": {"items": {"type": "array", "minItems": 1}},
+    "properties": {
+        "items": {"type": "array", "minItems": 1},
+        "header": TRANSCRIPTION_SCHEMA["properties"]["header"],
+    },
 }
 _ITEM_CHECK = Draft202012Validator(ITEM_SCHEMA)
 _ENVELOPE_CHECK = Draft202012Validator(ENVELOPE_SCHEMA)
@@ -593,6 +614,15 @@ def _start_transcription(
     """One paper's transcription task, written alone - or the same open task again (D-45, D-46)."""
     with write_unit(engine) as conn:
         paper = _find_paper(conn, user_id, past_exam_id)
+        if paper.transcript_task_id is not None and paper.transcript_confirmed_at is None:
+            raise StudyError(
+                code="already_transcribed",
+                message="this scan is transcribed and waits for the student to confirm it",
+                fix="compare its read_back with the paper: if it is right, "
+                "study_confirm_transcription; if it is wrong, leave it unconfirmed - it does not "
+                "count, and redoing it arrives with study_rescope_generation (D-210)",
+                field_errors=[{"field": "past_exam_id", "problem": "transcribed, not confirmed"}],
+            )
         if paper.transcript_task_id is not None:
             raise StudyError(
                 code="already_transcribed",
@@ -600,7 +630,6 @@ def _start_transcription(
                 fix="nothing to do - its questions are already in the pool",
                 field_errors=[{"field": "past_exam_id", "problem": "already transcribed"}],
             )
-        _refuse_scan(paper)
         open_task = conn.execute(
             select(generation_task).where(
                 generation_task.c.user_id == user_id,
@@ -734,13 +763,47 @@ def _find_paper(conn: Connection, user_id: str, past_exam_id: str | None):
     return paper
 
 
+def confirm_transcription(engine: Engine, user_id: str, past_exam_id: str | None) -> dict:
+    """He compared a scan's read_back with the paper: stamp `transcript_confirmed_at`, and from
+    now on derive and the note task count the paper (D-210). One row, in a write unit.
+
+    Returns {"past_exam_id", "transcript_confirmed_at"}."""
+    with write_unit(engine) as conn:
+        paper = _find_paper(conn, user_id, past_exam_id)
+        if paper.transcript_task_id is None:
+            raise StudyError(
+                code="not_transcribed",
+                message="this paper has no transcription to confirm",
+                fix="transcribe it first: study_start_generation(kind='transcription', "
+                "past_exam_id), then study_submit_generation",
+                field_errors=[{"field": "past_exam_id", "problem": "not transcribed"}],
+            )
+
+        if paper.transcript_confirmed_at is not None:
+            raise StudyError(
+                code="already_confirmed",
+                message=f"this paper was confirmed at {paper.transcript_confirmed_at}",
+                fix="nothing to do - it already counts toward the exam profile",
+                field_errors=[{"field": "past_exam_id", "problem": "already confirmed"}],
+            )
+
+        stamp = now()  # one value: the reply says exactly what the row holds
+        conn.execute(
+            update(past_exam)
+            .where(past_exam.c.id == paper.id)
+            .values(transcript_confirmed_at=stamp)
+        )
+
+    return {"past_exam_id": paper.id, "transcript_confirmed_at": stamp}
+
+
 def _refuse_scan(paper) -> None:
-    """A paper with no text layer waits for the image path (2.6)."""
+    """An observation still waits for the image path; a transcription reads a scan (D-210)."""
     if paper.has_text_layer == 0:
         raise StudyError(
             code="not_supported_yet",
             message="this paper is a scan with no text layer",
-            fix="scanned papers are read from page images, which are not available yet",
+            fix="an observation task cannot read a scan's page images yet - transcribe it instead",
             field_errors=[{"field": "past_exam_id", "problem": "no text layer"}],
         )
 
@@ -910,7 +973,7 @@ def _note_task(conn: Connection, found, task_id: str, profile) -> Task:
             .join(topic, topic.c.id == practice_item.c.topic_id)
             .where(
                 past_exam.c.slot_id == profile.slot_id,
-                past_exam.c.transcript_task_id.is_not(None),
+                past_exam.c.transcript_confirmed_at.is_not(None),  # counted: stamped (D-210)
                 practice_item.c.state == "live",
             )
             .order_by(past_exam.c.session_date, practice_item.c.position)
@@ -1129,11 +1192,17 @@ def submit_generation(engine: Engine, user_id: str, task_id: str, payload: Any) 
 def _submit_transcription(conn: Connection, user_id: str, task, payload: Any) -> tuple[dict, dict]:
     """One submission for a transcription task, inside the caller's write unit. Returns the
     reply and the fields of its log line."""
-    course_id = conn.execute(
-        select(assessment_slot.c.course_id)
+    # the whole row: a scan (D-210) reads its text layer, its file and its registered header
+    paper = conn.execute(
+        select(past_exam, assessment_slot.c.course_id, course.c.code)
         .join_from(past_exam, assessment_slot)
+        .join(course, course.c.id == assessment_slot.c.course_id)
         .where(past_exam.c.id == task.scope_id)
-    ).scalar_one()
+    ).one()
+    course_id = paper.course_id
+    scan = paper.has_text_layer == 0
+    # counted, never drawn - submit sends no picture out; a typed paper's page is never kept
+    pages = intake.page_count(paper.file_ref) if scan else 0
     accepted_before = set(
         conn.execute(select(practice_item.c.position).where(practice_item.c.task_id == task.id))
         .scalars()
@@ -1143,12 +1212,14 @@ def _submit_transcription(conn: Connection, user_id: str, task, payload: Any) ->
     if env_error is not None:
         judged = Judged(errors=[env_error])
     else:
-        judged = _judge(conn, user_id, course_id, payload["items"], accepted_before)
+        judged = _judge(
+            conn, user_id, course_id, payload["items"], accepted_before, scan=scan, pages=pages
+        )
 
     landed = set()
     for item in judged.accepted:
         topic_id = topics.topic_for(conn, user_id, course_id, item["topic"])
-        _write_item(conn, task, task.scope_id, item, topic_id)
+        _write_item(conn, task, task.scope_id, item, topic_id, item.get("page") if scan else None)
         landed.add(topic_id)
     # an item on an already-active topic may bring a new slot, which only submit sees (D-60)
     active = conn.execute(
@@ -1178,7 +1249,8 @@ def _submit_transcription(conn: Connection, user_id: str, task, payload: Any) ->
         conn.execute(
             update(past_exam)
             .where(past_exam.c.id == task.scope_id)
-            .values(transcript_task_id=task.id)
+            # a typed paper counts at once; a scan, `partial` too, waits for his confirm (D-210)
+            .values(transcript_task_id=task.id, transcript_confirmed_at=None if scan else now())
         )
 
     reply = {
@@ -1191,6 +1263,8 @@ def _submit_transcription(conn: Connection, user_id: str, task, payload: Any) ->
         "item_errors": judged.errors,
         "submissions_left": MAX_SUBMISSIONS - ordinal if status == "open" else 0,
     }
+    if scan:
+        reply.update(_read_back(conn, task.id, paper, pages, payload))
     # an envelope error names no item, so it rejects none (D-52)
     rejected = len({e["item_ordinal"] for e in judged.errors} - {None})
     received = _record_submission(
@@ -1676,10 +1750,50 @@ def _schema_errors(
     return errors
 
 
+def _read_back(conn: Connection, task_id: str, paper, pages: int, payload: Any) -> dict:
+    """A scan's reply additions (D-210): `pages_empty`, the pages no item on the task names -
+    a flag, never a refusal, since a cover may hold no question - and `read_back`, every item on
+    the task beside its page plus page 1's header beside the registered row, for him to compare
+    with the paper before he confirms it."""
+    # read after this submission's writes: items accepted earlier are not in this payload
+    rows = conn.execute(
+        select(practice_item.c.position, practice_item.c.page, practice_item.c.question)
+        .where(practice_item.c.task_id == task_id)
+        .order_by(practice_item.c.position)
+    ).all()
+    used = {r.page for r in rows}
+    # a paper may print no header: a missing one shows as null, never refused
+    read = payload.get("header") if isinstance(payload, dict) else None
+    return {
+        "pages_empty": [p for p in range(1, pages + 1) if p not in used],
+        "read_back": {
+            "header": {
+                "read": read,
+                "registered": {
+                    "date": paper.session_date,
+                    "course": paper.code,
+                    "instructor": paper.instructor,
+                },
+            },
+            "items": [
+                {"position": r.position, "page": r.page, "question": r.question} for r in rows
+            ],
+        },
+    }
+
+
 def _judge(
-    conn: Connection, user_id: str, course_id: str, items: list, accepted_before: set[int]
+    conn: Connection,
+    user_id: str,
+    course_id: str,
+    items: list,
+    accepted_before: set[int],
+    *,
+    scan: bool,
+    pages: int,
 ) -> Judged:
-    """Sort one submission's items into accepted, errors and skipped."""
+    """Sort one submission's items into accepted, errors and skipped. On a scan every item names
+    its page, 1 to `pages` (D-210)."""
     survivors = []
     accepted = []
     skipped = []
@@ -1706,6 +1820,25 @@ def _judge(
             )
         elif item["position"] in accepted_before:
             skipped.append(item["position"])
+        # after the skip: a resent item already on the task is skipped, never an error
+        elif scan and "page" not in item:
+            errors.append(
+                _item_error(
+                    place,
+                    "missing_page",
+                    "page",
+                    "this paper is a scan - give each question the page it is on, from 1",
+                )
+            )
+        elif scan and item["page"] > pages:
+            errors.append(
+                _item_error(
+                    place,
+                    "unknown_page",
+                    "page",
+                    f"this paper has {pages} pages - page {item['page']} is not one of them",
+                )
+            )
         elif "id" in item["topic"] and not topics.is_live_topic(
             conn, user_id, course_id, item["topic"]["id"]
         ):
@@ -1727,7 +1860,9 @@ def _judge(
     return Judged(accepted, errors, skipped)
 
 
-def _write_item(conn: Connection, task, paper_id: str, item: dict, topic_id: str) -> None:
+def _write_item(
+    conn: Connection, task, paper_id: str, item: dict, topic_id: str, page: int | None
+) -> None:
     """One accepted item: its practice_item row and its E1 evidence row (D-50)."""
     item_id = new_id()
     conn.execute(
@@ -1740,6 +1875,7 @@ def _write_item(conn: Connection, task, paper_id: str, item: dict, topic_id: str
             origin="past-exam",
             past_exam_id=paper_id,
             position=item["position"],
+            page=page,  # NULL on a typed paper, whatever the host sent (D-210)
             question=item["question"],
             answer_key=item.get("answer_key"),
             answer_provenance="none" if item.get("answer_key") is None else "verified-source",
