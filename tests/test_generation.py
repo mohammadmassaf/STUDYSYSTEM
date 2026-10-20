@@ -301,10 +301,10 @@ def test_an_unknown_paper_is_not_found(service_engine, user_id, web):
     assert task_count(service_engine) == 0
 
 
-def test_a_scan_waits_for_the_image_path(service_engine, user_id, web, tmp_path):
+def test_an_observation_on_a_scan_waits_for_the_image_path(service_engine, user_id, web, tmp_path):
     scan = register(service_engine, user_id, tmp_path / "in", "scan.pdf", pdf_bytes(None))
 
-    err = refused(service_engine, user_id, "transcription", scan)
+    err = refused(service_engine, user_id, "observation", scan)
 
     assert err.code == "not_supported_yet"
     assert task_count(service_engine) == 0

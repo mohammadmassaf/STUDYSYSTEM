@@ -69,10 +69,14 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "missing position. A tagging's accepted and skipped list topic ids: accepted are "
             "newly linked, skipped were already linked to this material. An observation's "
             "accepted, skipped and item_errors name claims by their place in this payload, "
-            "from 1; skipped claims are already stored for the paper. A note's reply adds "
-            "exports: where each note's markdown and PDF copies were written in the vault, or "
-            "the problem and its fix - the note itself is saved either way, and "
-            "study_export_notes writes what is missing once the problem is fixed."
+            "from 1; skipped claims are already stored for the paper. A scanned paper's "
+            "transcription reply adds pages_empty (pages no item names - check them) and "
+            "read_back (each question beside its page, and page 1's header beside the registered "
+            "paper): show it to the student, who confirms with study_confirm_transcription. "
+            "A note's reply adds exports: where each note's markdown and PDF copies were "
+            "written in the vault, or the problem and its fix - the note itself is saved "
+            "either way, and study_export_notes writes what is missing once the problem is "
+            "fixed."
         ),
     )
     # payload is Any, not dict: a wrong shape (a JSON string, a list) reaches the service's
@@ -84,4 +88,19 @@ def register(mcp: MCPServer, engine: Engine) -> None:
     ) -> CallToolResult:
         return run(
             lambda: generation.submit_generation(engine, current_user(engine), task_id, payload)
+        )
+
+    @mcp.tool(
+        name="study_confirm_transcription",
+        description=(
+            "Confirm a scanned paper's transcription after comparing the submit reply's "
+            "read_back with the paper itself: each question beside its page, and the header "
+            "read from page 1 beside the registered row. A scan counts toward the exam "
+            "profile only once confirmed (D-210). Do not confirm a wrong one: it stays "
+            "uncounted, and redoing it arrives with study_rescope_generation."
+        ),
+    )
+    def study_confirm_transcription(past_exam_id: str) -> CallToolResult:
+        return run(
+            lambda: generation.confirm_transcription(engine, current_user(engine), past_exam_id)
         )

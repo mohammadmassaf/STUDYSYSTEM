@@ -16,7 +16,7 @@ All tools start with `study_`. A failure comes back as `{code, message, field_er
   `study_set_assessment_input`, `study_set_capacity`
 - **Evidence:** `study_add_past_exam`, `study_add_material`
 - **Generation:** `study_start_generation`, `study_submit_generation` (transcription, notes,
-  tagging), `study_export_notes`, `study_get_summary_task`, `study_save_summary`
+  tagging), `study_confirm_transcription`, `study_export_notes`, `study_get_summary_task`, `study_save_summary`
 - **Topics and profiles:** `study_get_topics`, `study_confirm_topic_proposal`,
   `study_derive_profile`
 - **Plan and study loop:** `study_get_plan`, `study_start_session`, `study_submit_attempt`,
