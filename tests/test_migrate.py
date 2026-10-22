@@ -31,7 +31,7 @@ from studysystem.db.tables import (
 )
 from tests._study import run_study
 
-HEAD = "0014"
+HEAD = "0015"
 
 
 def stamp() -> str | None:
@@ -1017,3 +1017,20 @@ def test_0014_stamps_a_transcribed_paper_at_its_tasks_close_and_leaves_the_rest_
         c["name"] for c in inspect(empty_engine).get_columns("past_exam")
     }
     assert "page" not in {c["name"] for c in inspect(empty_engine).get_columns("practice_item")}
+
+
+# --- 0015: a practice task's item count (D-211) ---------------------------------------------------
+
+
+def test_0015_adds_a_nullable_item_count_and_down_to_0014_drops_it(empty_engine):
+    migrate.upgrade(empty_engine)
+
+    (column,) = [
+        c for c in inspect(empty_engine).get_columns("generation_task") if c["name"] == "item_count"
+    ]
+    assert column["nullable"] is True
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0014")
+    assert "item_count" not in {
+        c["name"] for c in inspect(empty_engine).get_columns("generation_task")
+    }

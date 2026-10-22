@@ -663,6 +663,13 @@ generation_task = Table(
         nullable=True,
     ),
     CheckConstraint("parts_sent <= parts", name="parts_sent_max"),
+    # How many items a practice task asked for (D-211, migration 0015); NULL = the host chooses.
+    Column(
+        "item_count",
+        Integer,
+        CheckConstraint("item_count >= 1", name="item_count_min"),
+        nullable=True,
+    ),
     enum_col("status", ["open", "closed", "partial", "superseded", "invalidated"], default="open"),
     fk("superseded_by", "generation_task", nullable=True),
     iff("superseded_by_status", "superseded_by IS NOT NULL", "status = 'superseded'"),

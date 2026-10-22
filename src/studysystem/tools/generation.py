@@ -38,8 +38,12 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "and a course with no active topic yet is refused. kind: 'observation' records "
             "what one past exam paper shows about the exam - its duration, marks, question "
             "count, and the instructor's archetypes, phrasing and traps - pass past_exam_id; a "
-            "paper that already holds observations is refused. Other kinds are not available "
-            "yet. Calling again while a "
+            "paper that already holds observations is refused. kind: 'practice' writes new "
+            "practice questions from one course material - pass material_id, and optionally "
+            "count, how many items to keep (extras are dropped); the rules list the course's "
+            "topics with their ids, and every item needs a topic_id from them and an "
+            "answer_key (stored as unverified); a course with no active topic is refused. "
+            "Other kinds are not available yet. Calling again while a "
             "task is still open returns the same task, so a lost payload can be fetched again."
         ),
     )
@@ -48,10 +52,11 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         past_exam_id: str | None = None,
         material_id: str | None = None,
         part: str | float = 1,  # loose: a bad value gets the structured error (D-36)
+        count: str | float | None = None,  # loose as `part`; a practice's item count
     ) -> CallToolResult:
         return run_task(
             lambda: generation.start_generation(
-                engine, current_user(engine), kind, past_exam_id, material_id, part
+                engine, current_user(engine), kind, past_exam_id, material_id, part, count
             )
         )
 
