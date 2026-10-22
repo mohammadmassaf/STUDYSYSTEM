@@ -345,6 +345,7 @@ RULE_CASES: list[tuple[str, str, dict]] = [
     ("ck_generation_task_parts_sent_min", "generation_task", dict(parts_sent=-1)),
     ("ck_generation_task_parts_sent_max", "generation_task", dict(parts_sent=2)),  # parts is 1
     ("ck_generation_task_layout_hash_len", "generation_task", dict(layout_hash="a" * 63)),
+    ("ck_generation_task_item_count_min", "generation_task", dict(item_count=0)),
     # submission / note / memory_item
     ("ck_submission_ordinal_range", "submission", dict(ordinal=4)),
     ("ck_submission_accepted_min", "submission", dict(accepted_count=-1)),

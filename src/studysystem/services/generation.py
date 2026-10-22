@@ -4,7 +4,7 @@ image on it - and never calls a model itself. A task too big for one reply goes 
 fetched in order (D-145). `study_submit_generation` (1.10) checks what comes back against
 the same `schema`.
 
-Four kinds are built, each for a PDF with a text layer - each page leaves as its text, plus a
+Five kinds are built, each for a PDF with a text layer - each page leaves as its text, plus a
 picture when a figure sits on it (D-49); a scan or a set of photos waits for 2.6:
 - `transcription` (1.9 - 1.10, D-50 - D-55): a past paper becomes `practice_item` rows.
 - `note` (1.14, D-70 - D-74): a material becomes one `note`, aimed by the course's profile - its
@@ -13,6 +13,8 @@ picture when a figure sits on it (D-49); a scan or a set of photos waits for 2.6
   teaches, as `inferred` topic -> material coverage edges the scheduler reads (D-90, D-91).
 - `observation` (2.1a, D-149, D-154): a past paper's format and instructor claims become
   `observation` rows, the input of claim-class routing (2.1b).
+- `practice` (2.7, D-211): a material becomes new `generated` practice items, each on a topic with
+  an `unverified` answer key and a stored novelty score.
 
 Start writes one row, the task (D-45); starting again while it is open hands back a part of the
 same task and adds it to its `bytes_sent` (D-46, D-145). Submit checks the envelope once, then
@@ -24,6 +26,7 @@ import base64
 import hashlib
 import json
 import logging
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
@@ -58,7 +61,7 @@ from studysystem.services.units import write_unit
 log = logging.getLogger(__name__)
 
 KINDS = ("note", "practice", "memory", "transcription", "timetable", "tagging", "observation")
-BUILT = ("transcription", "note", "tagging", "observation")  # the rest arrive with their tasks
+BUILT = ("transcription", "note", "tagging", "observation", "practice")  # the rest arrive later
 
 MAX_POSITION = 200  # no paper has this many questions (live maximum 24); `missing` walks 1..max
 
@@ -406,6 +409,67 @@ OBSERVATION_STEPS = [
     '{"claims": [{"claim_key": ..., "claim_value": {...}, "citation": ...}, ...]}.',
 ]
 
+# A practice task's answer (2.7, D-211): new questions on the course's topics. The server fills in
+# what the host must not get wrong: origin = generated, answer_provenance = unverified (a key the
+# host wrote is never verified, D-16), state, novelty_score. No provenance field - one sent is
+# an `additionalProperties` error for that item.
+PRACTICE_SCHEMA = {
+    "type": "object",
+    "required": ["items"],
+    "additionalProperties": False,
+    "properties": {
+        "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "required": ["question", "answer_key", "topic_id", "source"],
+                "additionalProperties": False,
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "pattern": r"\S",
+                        "description": "one new question, with all a student needs to answer it",
+                    },
+                    "answer_key": {
+                        "type": "string",
+                        "pattern": r"\S",
+                        "description": "the answer you would mark against - every item needs one",
+                    },
+                    "topic_id": {
+                        "type": "string",
+                        "description": "the id of one topic in rules.topics",
+                    },
+                    "source": {
+                        "enum": ["from-material", "model-knowledge"],
+                        "description": "from-material: the pages teach what it asks; "
+                        "model-knowledge: it needs more than the pages",
+                    },
+                },
+            },
+        },
+    },
+}
+PRACTICE_ITEM_SCHEMA = PRACTICE_SCHEMA["properties"]["items"]["items"]
+_PRACTICE_ITEM_CHECK = Draft202012Validator(PRACTICE_ITEM_SCHEMA)
+_PRACTICE_ENVELOPE_CHECK = Draft202012Validator(
+    {**PRACTICE_SCHEMA, "properties": {"items": {"type": "array", "minItems": 1}}}
+)
+
+PRACTICE_STEPS = [
+    "Write new practice questions from this material, each on one topic in rules.topics. Read "
+    "every page first.",
+    "Aim at what the course's exams ask: the questions in rules.topics' past_exam_questions "
+    "show the style. Never copy one - write a new question on the same ground.",
+    "Every item needs question, answer_key, topic_id and source. The answer_key is the answer you "
+    "would mark against; it is stored as unverified, so the student sees it is yours.",
+    "topic_id: an id from rules.topics, exactly as given.",
+    "source: from-material when the pages teach what the question asks, model-knowledge when it "
+    "needs more than the pages. Be honest - it is never checked, only counted.",
+    "When rules.count is set, write that many items. Items past it are dropped.",
+    "Submit with study_submit_generation(task_id, payload), payload matching schema.",
+]
+
 
 @dataclass(frozen=True)
 class Picture:
@@ -584,12 +648,13 @@ def start_generation(
     past_exam_id: str | None = None,
     material_id: str | None = None,
     part: object = 1,
+    count: object = None,
 ) -> Task:
     """Hand the host part `part` of a generation task: the payload {"task_id", "part", "parts",
     "content", "schema", "rules"} and the page pictures that follow it - later parts carry only
     their pages and their slice of the long list (D-145). Each kind takes the parameter named
     for its subject (D-47): `past_exam_id` for a transcription or an observation, `material_id`
-    for a note or a tagging."""
+    for a note, a tagging or a practice. `count` is a practice's: how many items to keep."""
 
     kind = values.choice("kind", kind, KINDS)
     if kind not in BUILT:
@@ -603,6 +668,8 @@ def start_generation(
         return _start_note(engine, user_id, material_id, part)
     if kind == "tagging":
         return _start_tagging(engine, user_id, material_id, part)
+    if kind == "practice":
+        return _start_practice(engine, user_id, material_id, count, part)
     if kind == "observation":
         return _start_observation(engine, user_id, past_exam_id, part)
     return _start_transcription(engine, user_id, kind, past_exam_id, part)
@@ -1070,16 +1137,117 @@ def _start_tagging(engine: Engine, user_id: str, material_id: str | None, part: 
     return sent
 
 
+def _start_practice(
+    engine: Engine, user_id: str, material_id: str | None, count: object, part: object
+) -> Task:
+    """One material's practice task, written alone - or the same open task again, which keeps the
+    count it started with (D-211). A material may start many: each run is more questions. A
+    course with no `active` topic is refused - an item has no topic to land on."""
+    if material_id is None:
+        raise values.invalid(
+            "material_id", "is missing", "send the material_id that study_add_material returned"
+        )
+    wanted = None if count is None else _whole_number("count", count)
+
+    with write_unit(engine) as conn:
+        found = _find_material(conn, user_id, material_id)
+        open_task = conn.execute(
+            select(generation_task).where(
+                generation_task.c.user_id == user_id,
+                generation_task.c.kind == "practice",
+                generation_task.c.scope_type == "material",
+                generation_task.c.scope_id == found.id,
+                generation_task.c.status == "open",
+            )
+        ).one_or_none()
+        item_count = open_task.item_count if open_task else wanted
+
+        task_id = open_task.id if open_task else new_id()
+        # Built before any write: a missing file copy fails here, with nothing written.
+        task = _practice_task(conn, found, task_id, item_count)
+        if not task.payload["rules"]["topics"]:
+            raise StudyError(
+                code="no_active_topics",
+                message=f"the course of {found.filename} has no active topic to write items on",
+                fix="transcribe the course's past papers (kind 'transcription') and accept "
+                "their topics first, then ask for practice",
+                field_errors=[{"field": "material_id", "problem": "course has no active topic"}],
+            )
+        row = dict(
+            id=task_id,
+            user_id=user_id,
+            kind="practice",
+            scope_type="material",
+            scope_id=found.id,
+            exam_profile_id=None,  # a practice item is aimed by topic, not by weight
+            item_count=item_count,
+        )
+        cut = layout(task, ("rules", "topics"), ("task_id",))
+        sent, size = _send(conn, open_task, cut, part, row)
+
+    log.info(
+        json.dumps(
+            {
+                "event": "start_generation",
+                "task_id": task_id,
+                "kind": "practice",
+                "material_id": found.id,
+                "resend": open_task is not None,
+                "pages": len(task.payload["content"]),
+                "pictures": len(task.pictures),
+                "topics": len(task.payload["rules"]["topics"]),
+                "count": item_count,
+                "part": sent.payload["part"],
+                "parts": sent.payload["parts"],
+                "bytes": size,
+            }
+        )
+    )
+    return sent
+
+
+def _whole_number(name: str, raw: object) -> int:
+    """`raw` as a whole number from 1, or the structured error for it."""
+    nb = values.number(name, raw, ge=1)
+    if nb != int(nb):
+        raise values.invalid(name, f"{nb:g} is not a whole number", "send 1, 2, 3...")
+    return int(nb)
+
+
+def _practice_task(conn: Connection, found, task_id: str, item_count: int | None) -> Task:
+    """The task for one material: its pages, the schema, and the rules - how to write the items,
+    the course's `active` topics with their past-exam questions, and the count when one was
+    asked for."""
+    content, pictures = _pages(found.file_ref)
+    rules: dict = {"steps": PRACTICE_STEPS, "topics": _topics_with_questions(conn, found.course_id)}
+    if item_count is not None:
+        rules["count"] = item_count
+    payload = {"task_id": task_id, "content": content, "schema": PRACTICE_SCHEMA, "rules": rules}
+    return Task(payload=payload, pictures=pictures)
+
+
 def _tagging_task(conn: Connection, found, task_id: str) -> Task:
     """The task for one material: its pages, the schema, and the rules - how to decide, and each
     `active` topic of its course with every live past-exam question tagged to it, which is what
     defines the topic (D-104; a rejected question is not evidence, D-136). No weight: tagging is
     a yes or no per topic, not a ranking."""
     content, pictures = _pages(found.file_ref)
+    payload = {
+        "task_id": task_id,
+        "content": content,
+        "schema": TAGGING_SCHEMA,
+        "rules": {"steps": TAGGING_STEPS, "topics": _topics_with_questions(conn, found.course_id)},
+    }
+    return Task(payload=payload, pictures=pictures)
 
+
+def _topics_with_questions(conn: Connection, course_id: str) -> list[dict]:
+    """The course's `active` topics, each with every live past-exam question tagged to it - what
+    defines the topic (D-104; a rejected question is not evidence, D-136). Shared by a tagging
+    and a practice task."""
     rows = conn.execute(
         select(topic.c.id, topic.c.name)
-        .where(topic.c.course_id == found.course_id, topic.c.status == "active")
+        .where(topic.c.course_id == course_id, topic.c.status == "active")
         .order_by(topic.c.id)
     )
     # One entry per topic, filled with its questions below; a topic with none keeps [].
@@ -1106,14 +1274,7 @@ def _tagging_task(conn: Connection, found, task_id: str) -> Task:
                 "question": q.question,
             }
         )
-
-    payload = {
-        "task_id": task_id,
-        "content": content,
-        "schema": TAGGING_SCHEMA,
-        "rules": {"steps": TAGGING_STEPS, "topics": list(entries.values())},
-    }
-    return Task(payload=payload, pictures=pictures)
+    return list(entries.values())
 
 
 def _pages(file_ref: str) -> tuple[list[dict], list[Picture]]:
@@ -1174,6 +1335,8 @@ def submit_generation(engine: Engine, user_id: str, task_id: str, payload: Any) 
             reply, event = _submit_note(conn, user_id, task, payload)
         elif task.kind == "tagging":
             reply, event = _submit_tagging(conn, user_id, task, payload)
+        elif task.kind == "practice":
+            reply, event = _submit_practice(conn, user_id, task, payload)
         elif task.kind == "observation":
             reply, event = _submit_observation(conn, user_id, task, payload)
         else:
@@ -1476,6 +1639,183 @@ def _submit_tagging(conn: Connection, user_id: str, task, payload: Any) -> tuple
         "bytes": received,
     }
     return reply, event
+
+
+def _submit_practice(conn: Connection, user_id: str, task, payload: Any) -> tuple[dict, dict]:
+    """One submission for a practice task, inside the caller's write unit (D-11, D-22, D-211). The
+    envelope is checked once, then each item alone (`_judge_practice`); the first valid items up to
+    `item_count` in all - earlier submissions count - are kept and the rest dropped. Each kept
+    item is a `generated` practice_item: its key `unverified`, its novelty score stored and never
+    a gate. Returns the reply - places in this payload in place of positions, `missing` always
+    empty - and its log line's fields."""
+    course_id = conn.execute(
+        select(material.c.course_id).where(material.c.id == task.scope_id)
+    ).scalar_one()
+
+    env_error = _envelope_error(payload, _PRACTICE_ENVELOPE_CHECK)
+    if env_error is not None:
+        judged = Judged(errors=[env_error])
+    else:
+        judged = _judge_practice(conn, user_id, course_id, payload["items"])
+    if task.item_count is None:
+        kept = judged.accepted
+    else:  # the count is the task's total: earlier submissions' items use it up (D-211)
+        landed = conn.execute(
+            select(func.count())
+            .select_from(practice_item)
+            .where(practice_item.c.task_id == task.id)
+        ).scalar_one()
+        kept = judged.accepted[: max(task.item_count - landed, 0)]
+
+    for item in kept:
+        _write_generated(conn, user_id, task, item)
+
+    ordinal = _next_ordinal(conn, task.id)
+    if not judged.errors:
+        status = "closed"
+    elif ordinal == MAX_SUBMISSIONS:
+        status = "partial"
+    else:
+        status = "open"
+    if status != "open":
+        conn.execute(
+            update(generation_task)
+            .where(generation_task.c.id == task.id)
+            .values(status=status, closed_at=now())
+        )
+
+    reply = {
+        "task_id": task.id,
+        "submission": ordinal,
+        "status": status,
+        "accepted": [item["place"] for item in kept],
+        "skipped": [],
+        "missing": [],
+        "item_errors": judged.errors,
+        "submissions_left": MAX_SUBMISSIONS - ordinal if status == "open" else 0,
+    }
+    # an envelope error names no item, so it rejects none (D-52)
+    rejected = len({e["item_ordinal"] for e in judged.errors} - {None})
+    received = _record_submission(conn, user_id, task, ordinal, payload, reply, len(kept), rejected)
+    event = {
+        "submission": ordinal,
+        "status": status,
+        "accepted": len(kept),
+        "rejected": rejected,
+        "dropped": len(judged.accepted) - len(kept),
+        "parked": sum(1 for item in kept if item["state"] == "needs-review"),
+        "bytes": received,
+    }
+    return reply, event
+
+
+def _judge_practice(conn: Connection, user_id: str, course_id: str, items: list) -> Judged:
+    """Sort one submission's items into `accepted` and `errors`, each item judged alone.
+
+    An accepted entry is the item's own dict plus two fields: "place" (its place in this
+    payload, from 1) and "state" ("live", or "needs-review" when its topic is not `active` -
+    D-22's gate). An error is `_item_error(place, code, field, message)`.
+    """
+
+    accepted = []
+    errors = []
+    for place, item in enumerate(items, start=1):
+        unvalid = _schema_errors(place, item, _PRACTICE_ITEM_CHECK, PRACTICE_ITEM_SCHEMA)
+        if unvalid:
+            errors.extend(unvalid)
+            continue
+        is_usable = topics.is_live_topic(conn, user_id, course_id, item["topic_id"])
+        if not is_usable:
+            errors.append(
+                _item_error(
+                    place,
+                    "unknown_topic",
+                    "topic_id",
+                    f"{item['topic_id']} is not a topic of this course - use an id from "
+                    "rules.topics",
+                )
+            )
+            continue
+        is_live = topics.is_live_topic(conn, user_id, course_id, item["topic_id"], ("active",))
+        state = "needs-review"
+        if is_live:
+            state = "live"
+        accepted.append({**item, "place": place, "state": state})
+    return Judged(accepted, errors)
+
+
+def _shingles(text: str) -> set[str]:
+    """A text as its pairs of neighbouring words, lowercased, punctuation dropped. A text of one
+    word has no pair, so its set is that word - two identical one-word texts still match."""
+    words = re.findall(r"\w+", text.lower())
+    if len(words) < 2:
+        return set(words)
+    return {f"{a} {b}" for a, b in zip(words, words[1:], strict=False)}
+
+
+def _overlap(a: set[str], b: set[str]) -> float:
+    """Shared over total distinct: 1.0 for identical sets, 0.0 for none shared or two empty."""
+    total = a | b
+    return len(a & b) / len(total) if total else 0.0
+
+
+def _novelty(
+    conn: Connection, user_id: str, topic_id: str, question: str
+) -> tuple[float, str | None]:
+    """How close `question` is to what the pool already holds on its topic: (score, nearest) -
+    score 0 to 1 (1.0 = it reproduces an existing item), nearest the practice_item id it scored
+    closest to, or None when the topic has no item yet (D-24, D-211). Lexical: word-pair overlap,
+    no model. The pool is the topic's past-exam and earlier generated items that are not
+    rejected or superseded - an item written earlier in this same submission is in it too. The
+    score is the highest overlap, so a copy of one item is not diluted by a big pool."""
+    mine = _shingles(question)
+    pool = conn.execute(
+        select(practice_item.c.id, practice_item.c.question).where(
+            practice_item.c.user_id == user_id,
+            practice_item.c.topic_id == topic_id,
+            practice_item.c.state.in_(("live", "needs-review")),
+        )
+    ).all()
+    best, nearest = 0.0, None
+    for row in pool:
+        score = _overlap(mine, _shingles(row.question))
+        if nearest is None or score > best:
+            best, nearest = score, row.id
+    return best, nearest
+
+
+def _write_generated(conn: Connection, user_id: str, task, item: dict) -> None:
+    """One kept item: its practice_item row. No evidence row - a generated item is no exam
+    evidence (D-50 is for transcribed questions)."""
+    score, nearest = _novelty(conn, user_id, item["topic_id"], item["question"])
+    ordinal = _next_item_ordinal(conn, task.id)
+    conn.execute(
+        insert(practice_item).values(
+            id=new_id(),
+            user_id=user_id,
+            topic_id=item["topic_id"],
+            task_id=task.id,
+            item_ordinal=ordinal,
+            origin="generated",
+            question=item["question"],
+            answer_key=item["answer_key"],
+            answer_provenance="unverified",  # the host's own key is never verified (D-16, D-211)
+            state=item["state"],
+            source_marker=item["source"],
+            nearest_item_id=nearest,
+            novelty_score=score,
+            created_at=now(),
+        )
+    )
+
+
+def _next_item_ordinal(conn: Connection, task_id: str) -> int:
+    """The next free `item_ordinal` on a task. Items are numbered as they land, not by their
+    place in one payload, so a retry that resends one fixed item does not collide."""
+    top = conn.execute(
+        select(func.max(practice_item.c.item_ordinal)).where(practice_item.c.task_id == task_id)
+    ).scalar_one()
+    return (top or 0) + 1
 
 
 def _submit_observation(conn: Connection, user_id: str, task, payload: Any) -> tuple[dict, dict]:

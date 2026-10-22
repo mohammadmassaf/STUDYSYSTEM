@@ -313,7 +313,7 @@ def test_an_observation_on_a_scan_waits_for_the_image_path(service_engine, user_
 @pytest.mark.parametrize(
     ("kind", "code", "field"),
     [
-        ("practice", "not_supported_yet", "kind"),  # a real kind, not built yet (D-47)
+        ("memory", "not_supported_yet", "kind"),  # a real kind, not built yet (D-47)
         ("quiz", "invalid_value", "kind"),  # not a kind at all
     ],
 )

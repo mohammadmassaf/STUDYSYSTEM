@@ -54,12 +54,25 @@ def _observation(engine, user_id, request):
     return (lambda: start_generation(engine, user_id, "observation", paper)), keeps_one
 
 
+def _practice(engine, user_id, request):
+    chapter = request.getfixturevalue("ch6")
+    real = next(iter(topic_ids(engine).values()))
+    keeps_one = {
+        "items": [
+            {"question": "Q1", "answer_key": "A1", "topic_id": real, "source": "from-material"},
+            {"question": "Q2", "topic_id": real, "source": "from-material"},  # no key: an error
+        ]
+    }
+    return (lambda: start_generation(engine, user_id, "practice", material_id=chapter)), keeps_one
+
+
 # kind -> builder: (start, a payload that keeps part and leaves the task open)
 STARTERS = {
     "transcription": _transcription,
     "note": _note,
     "tagging": _tagging,
     "observation": _observation,
+    "practice": _practice,
 }
 
 
