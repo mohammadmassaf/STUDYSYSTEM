@@ -59,6 +59,27 @@ def _zero_as_unmarked(paper: PaperItems) -> PaperItems:
     return paper
 
 
+def fill_marks(papers: Sequence[PaperItems]) -> list[PaperItems]:
+    """`papers` with each unmarked item given its topic's average printed mark across all of
+    them, None when the topic has no printed mark anywhere. A paper whose printed marks are all
+    0 is read as unmarked first (D-140). Pure. Shared by `topic_weights` and the eval harness,
+    so a paper read alone fills from the same pool as when pooled (D-212)."""
+    papers = [_zero_as_unmarked(paper) for paper in papers]
+    marks = defaultdict(list)
+    for paper in papers:
+        for topic_id, mark in paper:
+            if mark is None:
+                continue
+            marks[topic_id].append(mark)
+    average = {}
+    for topic_id, values in marks.items():
+        average[topic_id] = sum(values) / len(values)
+    return [
+        [(topic_id, average.get(topic_id) if mark is None else mark) for topic_id, mark in paper]
+        for paper in papers
+    ]
+
+
 def topic_weights(papers: Sequence[PaperItems]) -> dict[str, float]:
     """Pooled topic weights for `papers`, given newest first. Returns {topic_id: weight}, the
     weights summing to 100. Pure: reads no database (D-67).
@@ -71,16 +92,7 @@ def topic_weights(papers: Sequence[PaperItems]) -> dict[str, float]:
     I3302's three papers -> files 25.0, MySQL 23.2, sessions 17.2, forms 14.4, cookies 10.7,
     regex 9.5.
     """
-    papers = [_zero_as_unmarked(paper) for paper in papers]
-    marks = defaultdict(list)
-    for paper in papers:
-        for topic_id, mark in paper:
-            if mark is None:
-                continue
-            marks[topic_id].append(mark)
-    average = {}
-    for topic_id, values in marks.items():
-        average[topic_id] = sum(values) / len(values)
+    papers = fill_marks(papers)
     totals = defaultdict(float)  # each topic's share x vote, summed over the papers
     votes = 0
     for index, paper in enumerate(papers):
@@ -92,16 +104,10 @@ def topic_weights(papers: Sequence[PaperItems]) -> dict[str, float]:
             vote = OLDER
         votes += vote
 
-        filled = []  # this paper only: printed mark, else the topic's average, else None
-        for topic_id, mark in paper:
-            if mark is None:
-                filled.append((topic_id, average.get(topic_id)))
-            else:
-                filled.append((topic_id, mark))
-        has_mark = all(m is not None for _, m in filled) and sum(m for _, m in filled) > 0
+        has_mark = all(m is not None for _, m in paper) and sum(m for _, m in paper) > 0
 
         amounts = defaultdict(float)  # marks mode: each item adds its mark; count mode: 1
-        for topic_id, mark in filled:
+        for topic_id, mark in paper:
             amounts[topic_id] += mark if has_mark else 1
         paper_total = sum(amounts.values())
         for topic_id, amount in amounts.items():
