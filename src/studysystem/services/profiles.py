@@ -104,11 +104,13 @@ def topic_weights(papers: Sequence[PaperItems]) -> dict[str, float]:
             vote = OLDER
         votes += vote
 
-        has_mark = all(m is not None for _, m in paper) and sum(m for _, m in paper) > 0
+        # `or 0` only satisfies the type checker: sum runs only when no mark is None, and
+        # marks mode only when has_mark proved it
+        has_mark = all(m is not None for _, m in paper) and sum(m or 0 for _, m in paper) > 0
 
         amounts = defaultdict(float)  # marks mode: each item adds its mark; count mode: 1
         for topic_id, mark in paper:
-            amounts[topic_id] += mark if has_mark else 1
+            amounts[topic_id] += (mark or 0) if has_mark else 1
         paper_total = sum(amounts.values())
         for topic_id, amount in amounts.items():
             totals[topic_id] += amount / paper_total * 100 * vote
