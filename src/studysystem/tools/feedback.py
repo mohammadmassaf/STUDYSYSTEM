@@ -64,7 +64,7 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         description=(
             "Make a proposed directive active, on the student's explicit yes - never on your own "
             "judgement. directive_id is the id study_submit_feedback returned. From then on the "
-            "directive travels with every generation task in its scope."
+            "directive travels with every note and practice task in its scope."
         ),
     )
     def study_confirm_directive(directive_id: str) -> CallToolResult:
