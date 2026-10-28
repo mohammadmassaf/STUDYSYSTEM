@@ -11,9 +11,15 @@ directive (physical-schema.md, *Write units*). A directive is drafted `proposed`
 payload only after `study_confirm_directive` (D-24) - one row, no unit entry.
 """
 
-from sqlalchemy import Engine, and_, exists, insert, or_, select, update
+from sqlalchemy import Connection, Engine, and_, exists, insert, or_, select, update
 
-from studysystem.db.tables import generation_directive, item_rejection, practice_item, topic
+from studysystem.db.tables import (
+    course,
+    generation_directive,
+    item_rejection,
+    practice_item,
+    topic,
+)
 from studysystem.errors import StudyError
 from studysystem.services import values
 from studysystem.services.ids import new_id, now
@@ -233,7 +239,7 @@ def submit_feedback(
 
 def confirm_directive(engine: Engine, user_id: str, directive_id: str) -> dict:
     """His explicit yes (D-24): a `proposed` directive becomes `active`, stamped `confirmed_at`.
-    From then on it rides every payload in its scope (2.10).
+    From then on it rides every note and practice payload in its scope (2.10, D-214).
 
     Refuses `not_found` for an id that is not this user's `proposed` directive - unknown,
     another user's, or already confirmed.
@@ -268,3 +274,43 @@ def confirm_directive(engine: Engine, user_id: str, directive_id: str) -> dict:
         "status": "active",
         "confirmed_at": confirmed_at,
     }
+
+
+def active_directives(conn: Connection, user_id: str, course_id: str) -> list[dict]:
+    """The directives a note or practice task on `course_id` carries (2.10, D-24, D-214): this
+    user's `active` ones whose course is `course_id` or NULL (every course). A topic directive
+    rides whether or not the material covers its topic - a practice task writes on every topic
+    of the course - but only while that topic is `active`, since the payload lists no other.
+    Oldest confirmation first.
+
+    Each entry is {"text", "scope", "applies_to"}: `text` exactly as stored, `scope` the same
+    `topic` | `course` | `all` that study_submit_feedback takes, and `applies_to` the topic's
+    name, the course's code, or None for `all`.
+    """
+    # outer joins: a directive for every course has no course row, one for the course no topic
+    rows = conn.execute(
+        select(generation_directive.c.text, topic.c.name, course.c.code)
+        .outerjoin(course, course.c.id == generation_directive.c.course_id)
+        .outerjoin(topic, topic.c.id == generation_directive.c.topic_id)
+        .where(
+            generation_directive.c.user_id == user_id,
+            generation_directive.c.status == "active",
+            or_(
+                generation_directive.c.course_id == course_id,
+                generation_directive.c.course_id.is_(None),
+            ),
+            or_(generation_directive.c.topic_id.is_(None), topic.c.status == "active"),
+        )
+        .order_by(generation_directive.c.confirmed_at, generation_directive.c.id)
+    ).all()
+    result = []
+    for row in rows:
+        if row.name is not None:
+            scope, applies_to = "topic", row.name
+        elif row.code is not None:
+            scope, applies_to = "course", row.code
+        else:
+            scope, applies_to = "all", None
+        result.append({"text": row.text, "scope": scope, "applies_to": applies_to})
+
+    return result

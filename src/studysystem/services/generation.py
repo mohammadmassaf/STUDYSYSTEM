@@ -51,7 +51,7 @@ from studysystem.db.tables import (
     topic_weight,
 )
 from studysystem.errors import StudyError
-from studysystem.services import claims, intake, notes, topics, values
+from studysystem.services import claims, feedback, intake, notes, topics, values
 from studysystem.services.ids import new_id, now
 from studysystem.services.parts import Part, split
 from studysystem.services.units import write_unit
@@ -257,6 +257,10 @@ NOTE_STEPS = [
     "Order: a title; the legend line '🎯 likely exam target · 💡 tip · ⚠️ common mistake'; Exam "
     "positioning; Layer 1; Layer 2; Layer 3; To-Memorize; Self-check - 3 to 5 recall prompts, "
     "no answers. No frontmatter: the server adds it.",
+    "rules.active_directives are standing instructions the student confirmed: follow each one. "
+    "Its scope says where it applies: topic - only the parts of the note on the topic named in "
+    "applies_to; course or all - the whole note. Skip one that cannot apply to a note, such as "
+    "a rule about practice questions.",
     "Submit with study_submit_generation(task_id, payload): "
     '{"notes": [{"section": 1, "body": the whole note as markdown}]}.',
 ]
@@ -467,6 +471,10 @@ PRACTICE_STEPS = [
     "source: from-material when the pages teach what the question asks, model-knowledge when it "
     "needs more than the pages. Be honest - it is never checked, only counted.",
     "When rules.count is set, write that many items. Items past it are dropped.",
+    "rules.active_directives are standing instructions the student confirmed: follow each one. "
+    "Its scope says where it applies: topic - only items on the topic named in applies_to; "
+    "course or all - every item. Skip one that cannot apply to a question, such as a rule "
+    "about notes.",
     "Submit with study_submit_generation(task_id, payload), payload matching schema.",
 ]
 
@@ -965,6 +973,7 @@ def _start_note(engine: Engine, user_id: str, material_id: str | None, part: obj
                 "pictures": len(task.pictures),
                 "topics": len(task.payload["rules"]["topics"]),
                 "past_exam_items": len(task.payload["rules"]["past_exam_items"]),
+                "directives": len(task.payload["rules"]["active_directives"]),
                 "part": sent.payload["part"],
                 "parts": sent.payload["parts"],
                 "bytes": size,
@@ -1060,7 +1069,12 @@ def _note_task(conn: Connection, found, task_id: str, profile) -> Task:
         "task_id": task_id,
         "content": content,
         "schema": NOTE_SCHEMA,
-        "rules": {"steps": NOTE_STEPS, "topics": weights, "past_exam_items": items},
+        "rules": {
+            "steps": NOTE_STEPS,
+            "topics": weights,
+            "past_exam_items": items,
+            "active_directives": feedback.active_directives(conn, found.user_id, found.course_id),
+        },
     }
     return Task(payload=payload, pictures=pictures)
 
@@ -1197,6 +1211,7 @@ def _start_practice(
                 "pictures": len(task.pictures),
                 "topics": len(task.payload["rules"]["topics"]),
                 "count": item_count,
+                "directives": len(task.payload["rules"]["active_directives"]),
                 "part": sent.payload["part"],
                 "parts": sent.payload["parts"],
                 "bytes": size,
@@ -1216,12 +1231,13 @@ def _whole_number(name: str, raw: object) -> int:
 
 def _practice_task(conn: Connection, found, task_id: str, item_count: int | None) -> Task:
     """The task for one material: its pages, the schema, and the rules - how to write the items,
-    the course's `active` topics with their past-exam questions, and the count when one was
-    asked for."""
+    the course's `active` topics with their past-exam questions, the count when one was asked
+    for, and the directives he confirmed for the course (D-214)."""
     content, pictures = _pages(found.file_ref)
     rules: dict = {"steps": PRACTICE_STEPS, "topics": _topics_with_questions(conn, found.course_id)}
     if item_count is not None:
         rules["count"] = item_count
+    rules["active_directives"] = feedback.active_directives(conn, found.user_id, found.course_id)
     payload = {"task_id": task_id, "content": content, "schema": PRACTICE_SCHEMA, "rules": rules}
     return Task(payload=payload, pictures=pictures)
 
