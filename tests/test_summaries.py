@@ -1,6 +1,6 @@
 """Chapter summaries (1.20, D-131, D-133): Chapter 6 leaves as its pages, what the exams ask of
 it and the summary rules, read-only; the host's text comes back and lands in the course's
-`notes/` as `_summary.md` with its PDF, never over a file. No row is written anywhere - nothing
+`summaries/` as `_summary.md` with its PDF, never over a file. No row is written anywhere - nothing
 else reads a summary.
 
 Every test writes to a vault under tmp_path; conftest unsets the real one."""
@@ -129,8 +129,8 @@ def test_the_summary_lands_as_md_and_pdf_with_its_stamp(
 
     assert out == {
         "material": "PHP_Chapter6_Eng_DataBase.pdf",
-        "md_path": f"{FOLDER}/notes/{MD_FILE}",
-        "pdf_path": f"{FOLDER}/notes/{PDF_FILE}",
+        "md_path": f"{FOLDER}/summaries/{MD_FILE}",
+        "pdf_path": f"{FOLDER}/summaries/{PDF_FILE}",
         "renamed": False,
     }
     text = (vault / out["md_path"]).read_text(encoding="utf-8")
@@ -148,27 +148,28 @@ def test_a_second_summary_takes_2_and_leaves_the_first(
     first = save_summary(service_engine, user_id, ch6, SUMMARY)
     second = save_summary(service_engine, user_id, ch6, "# Shorter\n")
 
-    assert second["md_path"] == f"{FOLDER}/notes/PHP_Chapter6_Eng_DataBase_summary (2).md"
-    assert second["pdf_path"] == f"{FOLDER}/notes/PHP_Chapter6_Eng_DataBase_summary (2).pdf"
+    assert second["md_path"] == f"{FOLDER}/summaries/PHP_Chapter6_Eng_DataBase_summary (2).md"
+    assert second["pdf_path"] == f"{FOLDER}/summaries/PHP_Chapter6_Eng_DataBase_summary (2).pdf"
     assert second["renamed"] is True
     assert (vault / first["md_path"]).read_text(encoding="utf-8").endswith(SUMMARY)
 
 
-def test_a_summary_never_takes_the_notes_name(service_engine, user_id, ch6, vault, declared):
+def test_a_summary_lands_apart_from_the_notes(service_engine, user_id, ch6, vault, declared):
     notes_dir = vault / FOLDER / "notes"
     notes_dir.mkdir()
     (notes_dir / "PHP_Chapter6_Eng_DataBase_notes.md").write_text("the note", encoding="utf-8")
 
     out = save_summary(service_engine, user_id, ch6, SUMMARY)
 
-    assert out["md_path"].endswith(MD_FILE)
+    assert out["md_path"] == f"{FOLDER}/summaries/{MD_FILE}"
     assert (notes_dir / "PHP_Chapter6_Eng_DataBase_notes.md").read_text() == "the note"
+    assert sorted(f.name for f in notes_dir.iterdir()) == ["PHP_Chapter6_Eng_DataBase_notes.md"]
 
 
 def test_an_empty_summary_is_refused(service_engine, user_id, ch6, vault, declared):
     err = refused(lambda: save_summary(service_engine, user_id, ch6, "  \n"))
     assert err.code == "invalid_value"
-    assert not (vault / FOLDER / "notes").exists()
+    assert not (vault / FOLDER / "summaries").exists()
 
 
 def test_no_vault_root_saves_nothing(service_engine, user_id, ch6, declared):
@@ -182,7 +183,7 @@ def test_no_vault_folder_saves_nothing(service_engine, user_id, ch6, vault):
     err = refused(lambda: save_summary(service_engine, user_id, ch6, SUMMARY))
     assert err.code == "vault_not_ready"
     assert "vault_folder" in err.fix
-    assert not (vault / FOLDER / "notes").exists()
+    assert not (vault / FOLDER / "summaries").exists()
 
 
 def test_a_mistyped_folder_is_never_created(service_engine, user_id, ch6, vault):
@@ -210,7 +211,7 @@ def test_a_failed_pdf_keeps_the_md_and_says_so(
     assert "no Chrome" in out["problem"]
     assert "(2)" in out["fix"]
     assert (vault / out["md_path"]).is_file()
-    assert not (vault / FOLDER / "notes" / PDF_FILE).exists()
+    assert not (vault / FOLDER / "summaries" / PDF_FILE).exists()
 
 
 # --- the tools -----------------------------------------------------------------------------
@@ -229,7 +230,7 @@ def test_a_summary_through_the_tools(call, ch6, vault, declared):
     saved = call("study_save_summary", {"material_id": ch6, "markdown": SUMMARY})
 
     assert not saved.is_error
-    assert saved.structured_content["md_path"] == f"{FOLDER}/notes/{MD_FILE}"
+    assert saved.structured_content["md_path"] == f"{FOLDER}/summaries/{MD_FILE}"
 
 
 def test_a_refused_save_comes_back_as_its_error(call, ch6):

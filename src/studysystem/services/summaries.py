@@ -3,7 +3,7 @@ steps, and no row anywhere - nothing else in the system reads a summary:
 - `summary_task` hands the host the material's pages, what the exams ask of it (D-133) and how
   to write the summary - the same pages a note task carries, read-only, so it can be asked for
   again and again;
-- `save_summary` writes the host's text into the course's `notes/` folder as
+- `save_summary` writes the host's text into the course's `summaries/` folder (D-215) as
   `<material stem>_summary.md` with its PDF beside it, the notes' first free name, never
   overwriting (D-73, D-78).
 
@@ -266,7 +266,7 @@ def _memorize_table(body: str) -> str | None:
 
 
 def save_summary(engine: Engine, user_id: str, material_id: str, markdown: str) -> dict:
-    """Write the summary's md, then its PDF, under the course's `notes/`. Returns {"material",
+    """Write the summary's md, then its PDF, under the course's `summaries/`. Returns {"material",
     "md_path", "pdf_path", "renamed"} - paths relative to the vault root, with `/` - plus
     "problem" and "fix" when the md went out but its PDF did not. Raises when nothing could be
     written, so the host keeps its text."""
@@ -311,9 +311,9 @@ def save_summary(engine: Engine, user_id: str, material_id: str, markdown: str) 
     text = _stamp(found.filename) + markdown.rstrip("\n") + "\n"
     name = f"{Path(found.filename).stem}_summary"
     try:
-        notes_dir = root / folder / "notes"
-        notes_dir.mkdir(exist_ok=True)  # notes/ only - its course folder exists
-        target_md, target_pdf = notes._free_name(notes_dir, name)
+        summaries_dir = root / folder / "summaries"
+        summaries_dir.mkdir(exist_ok=True)  # summaries/ only - its course folder exists
+        target_md, target_pdf = notes._free_name(summaries_dir, name)
         # "x" creates or fails: a file that appeared since _free_name looked is never overwritten
         with target_md.open("x", encoding="utf-8", newline="\n") as f:
             f.write(text)
@@ -326,13 +326,13 @@ def save_summary(engine: Engine, user_id: str, material_id: str, markdown: str) 
 
     out = {
         "material": found.filename,
-        "md_path": f"{folder}/notes/{target_md.name}",
+        "md_path": f"{folder}/summaries/{target_md.name}",
         "pdf_path": None,
         "renamed": target_md.name != f"{name}.md",
     }
     problem = _write_pdf(target_pdf, text)
     if problem is None:
-        out["pdf_path"] = f"{folder}/notes/{target_pdf.name}"
+        out["pdf_path"] = f"{folder}/summaries/{target_pdf.name}"
     else:
         out["problem"], out["fix"] = problem
 
