@@ -1689,7 +1689,7 @@ PAGES.load = () => {
 function sittings(list) {
   const groups = [];
   list.forEach(({ c, a }) => {
-    const key = [a.date, a.name, a.weight, a.approx].join("|");
+    const key = [a.date, a.name, a.weight, a.approx, a.time, a.room, a.sessionType, a.kind].join("|");
     let g = groups.find(x => x.key === key);
     if (!g) groups.push(g = { key, a, courses: [], marks: [] });
     g.courses.push(c); g.marks.push(a.mark);
@@ -1697,13 +1697,22 @@ function sittings(list) {
   return groups;
 }
 const courseChips = cs => `<span class="cchips">${cs.map(c => `<a href="${courseHref(c)}"><span class="swatch" style="background:${c.color}"></span>${esc(c.code)}</a>`).join("")}</span>`;
+/* the plan ranks exams only; a project or a lab is on the calendar but never in the plan (D-15, D-20) */
+const sittingName = a => esc(a.name) + (a.kind === "exam" ? "" : ` <span class="pill flag" data-unplanned>${esc(a.kind)} · not planned</span>`);
+const tbd = v => (v == null ? '<span class="muted">TBD</span>' : esc(v));
+/* the walk script reads each row's courses and date from these */
+const sittingData = g => `data-codes="${esc(g.courses.map(c => c.code).join("|"))}" data-date="${esc(g.a.date || "")}"`;
 
 PAGES.calendar = () => {
-  const upcoming = DATA.courses.flatMap(c => c.assessments.filter(a => a.date && d(a.date) >= TODAY).map(a => ({ c, a }))).sort((x, y) => d(x.a.date) - d(y.a.date));
-  const past = DATA.courses.flatMap(c => c.assessments.filter(a => a.date && d(a.date) < TODAY).map(a => ({ c, a }))).sort((x, y) => d(y.a.date) - d(x.a.date));
+  const where = test => DATA.courses.flatMap(c => c.assessments.filter(test).map(a => ({ c, a })));
+  const upcoming = where(a => a.date && d(a.date) >= TODAY).sort((x, y) => d(x.a.date) - d(y.a.date));
+  /* a mark with no date is still behind him - it sorts last, after the dated ones */
+  const past = where(a => a.date ? d(a.date) < TODAY : a.mark !== null)
+    .sort((x, y) => (!x.a.date - !y.a.date) || (x.a.date ? d(y.a.date) - d(x.a.date) : 0));
+  const undated = where(a => !a.date && a.mark === null);
   const nextOne = upcoming[0];
   return `
-  ${head("Calendar", "Every dated assessment in the semester, nearest first. The next one is pinned at the top.")}
+  ${head("Calendar", "Every assessment in the semester with its time and room, nearest first. The next one is pinned at the top. Projects and labs are shown but never planned.")}
   ${nextOne ? `<section class="focus"><span class="accentbar" style="background:${nextOne.c.color}"></span>
     <div class="focus-in"><div class="lead">
       <div class="kicker"><span class="eyebrow">Next assessment</span></div>
@@ -1718,16 +1727,18 @@ PAGES.calendar = () => {
     <div class="cta"><a class="btn btn-secondary btn-block" href="${courseHref(nextOne.c)}">${ICON.book}Open ${esc(nextOne.c.code)}</a></div></div></section>` : ""}
   <section class="card"><div class="card-head"><h3>${DATA.semester.end ? "The run to " + d(DATA.semester.end).toLocaleDateString("en-GB", { month: "long" }) : "Dated assessments"}</h3><span class="eyebrow">height = weight · ? = TBD</span></div>
     <div class="pad">${timelineSVG(DATA.courses)}</div></section>
-  <div class="split even">
-    <section class="card"><div class="card-head"><h3>Ahead</h3><span class="eyebrow">${upcoming.length} to sit</span></div>
-      <div class="table-wrap"><table class="data"><thead><tr><th>When</th><th class="l">What</th><th class="l">Courses</th><th>Weight</th><th>In</th></tr></thead>
-      <tbody>${sittings(upcoming).map(g => `<tr><td class="nw">${fmtWhen(g.a)}</td><td class="l nw">${esc(g.a.name)}</td><td class="l">${courseChips(g.courses)}</td><td>${wCell(g.a.weight)}</td><td>${daysBetween(TODAY, g.a.date)}d</td></tr>`).join("")}</tbody></table></div>
-    </section>
-    <section class="card"><div class="card-head"><h3>Behind you</h3><span class="eyebrow">already dated in the past</span></div>
-      ${past.length ? `<div class="table-wrap"><table class="data"><thead><tr><th>When</th><th class="l">What</th><th class="l">Courses</th><th>Weight</th><th>Mark</th></tr></thead>
-      <tbody>${past.map(({c,a}) => `<tr><td>${fmtDate(a.date)}</td><td class="l">${esc(a.name)}</td><td class="l">${courseChips([c])}</td><td>${wCell(a.weight)}</td><td>${a.mark === null ? '<span class="muted">not back</span>' : a.mark}</td></tr>`).join("")}</tbody></table></div>` : `<div class="pad"><p class="none">Nothing sat yet.</p></div>`}
-    </section>
-  </div>`;
+  <section class="card" id="ahead"><div class="card-head"><h3>Ahead</h3><span class="eyebrow">${upcoming.length} to sit</span></div>
+    <div class="table-wrap"><table class="data"><thead><tr><th>When</th><th>Time</th><th class="l">What</th><th class="l">Session</th><th class="l">Courses</th><th class="l">Room</th><th>Weight</th><th>In</th></tr></thead>
+    <tbody>${sittings(upcoming).map(g => `<tr ${sittingData(g)}><td class="nw">${fmtWhen(g.a)}</td><td class="nw">${tbd(g.a.time)}</td><td class="l nw">${sittingName(g.a)}</td><td class="l muted">${tbd(g.a.sessionType)}</td><td class="l">${courseChips(g.courses)}</td><td class="l nw">${tbd(g.a.room)}</td><td>${wCell(g.a.weight)}</td><td class="nw">${g.a.approx ? "~" : ""}${daysBetween(TODAY, g.a.date)}d</td></tr>`).join("")}</tbody></table></div>
+  </section>
+  ${undated.length ? `<section class="card" id="undated"><div class="card-head"><h3>Date not set</h3><span class="eyebrow">${undated.length} waiting for a date</span></div>
+    <div class="table-wrap"><table class="data"><thead><tr><th class="l">What</th><th class="l">Session</th><th class="l">Courses</th><th>Weight</th></tr></thead>
+    <tbody>${sittings(undated).map(g => `<tr ${sittingData(g)}><td class="l nw">${sittingName(g.a)}</td><td class="l muted">${tbd(g.a.sessionType)}</td><td class="l">${courseChips(g.courses)}</td><td>${wCell(g.a.weight)}</td></tr>`).join("")}</tbody></table></div>
+  </section>` : ""}
+  <section class="card" id="behind"><div class="card-head"><h3>Behind you</h3><span class="eyebrow">sat, or already marked</span></div>
+    ${past.length ? `<div class="table-wrap"><table class="data"><thead><tr><th>When</th><th>Time</th><th class="l">What</th><th class="l">Session</th><th class="l">Courses</th><th class="l">Room</th><th>Weight</th><th>Mark</th></tr></thead>
+    <tbody>${past.map(({c,a}) => `<tr ${sittingData({ courses: [c], a })}><td class="nw">${fmtWhen(a)}</td><td class="nw">${tbd(a.time)}</td><td class="l">${sittingName(a)}</td><td class="l muted">${tbd(a.sessionType)}</td><td class="l">${courseChips([c])}</td><td class="l nw">${tbd(a.room)}</td><td>${wCell(a.weight)}</td><td>${a.mark === null ? '<span class="muted">not back</span>' : a.mark}</td></tr>`).join("")}</tbody></table></div>` : `<div class="pad"><p class="none">Nothing sat yet.</p></div>`}
+  </section>`;
 };
 
 PAGES.grades = () => `

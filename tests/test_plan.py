@@ -580,6 +580,24 @@ def test_guessed_weights_raise_one_grading_item_per_course(service_engine, user_
     assert grading[f"grading:{course_id}"]["marks_unlocked_estimate"] == (100 + 30) * 4
 
 
+def test_a_lab_or_project_weight_is_never_asked_for(service_engine, user_id):
+    """Projects and labs are shown but not planned (D-15, D-220): their guessed weights add no
+    marks to the grading item, and a course whose only guess is a lab raises none."""
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        _exam(conn, user_id, course_id, weight=100.0, weight_tier="inferred")
+        _exam(conn, user_id, course_id, "Lab 1", weight=20.0, weight_tier="inferred", kind="lab")
+        _exam(conn, user_id, course_id, "Project", weight=None, kind="project")
+        lab_only = _course(conn, user_id, "I3304")
+        _exam(conn, user_id, lab_only)  # Final 70, declared
+        _exam(conn, user_id, lab_only, "Lab 1", weight=20.0, weight_tier="inferred", kind="lab")
+
+    grading = _of(_setup(service_engine, user_id), "grading")
+
+    assert list(grading) == [f"grading:{course_id}"]
+    assert grading[f"grading:{course_id}"]["marks_unlocked_estimate"] == 100 * 4
+
+
 def test_an_upcoming_exam_with_no_date_raises_its_own_item(service_engine, user_id):
     with write_unit(service_engine) as conn:
         course_id = _course(conn, user_id)
