@@ -31,7 +31,7 @@ from studysystem.db.tables import (
 )
 from tests._study import run_study
 
-HEAD = "0015"
+HEAD = "0017"
 
 
 def stamp() -> str | None:
@@ -1034,3 +1034,37 @@ def test_0015_adds_a_nullable_item_count_and_down_to_0014_drops_it(empty_engine)
     assert "item_count" not in {
         c["name"] for c in inspect(empty_engine).get_columns("generation_task")
     }
+
+
+# --- 0016: timetable patterns and unplanned courses (D-216) ---------------------------------------
+
+
+def test_0016_adds_the_pattern_columns_and_planned_and_down_to_0015_drops_them(empty_engine):
+    migrate.upgrade(empty_engine)
+
+    meeting = {c["name"]: c for c in inspect(empty_engine).get_columns("class_meeting")}
+    assert meeting["week_parity"]["nullable"] and meeting["group_label"]["nullable"]
+    (planned,) = [c for c in inspect(empty_engine).get_columns("course") if c["name"] == "planned"]
+    assert planned["nullable"] is False
+    assert {"ux_class_meeting_slot", "ux_course_code"} <= reflected_indexes(empty_engine)
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0015")
+    names = {c["name"] for c in inspect(empty_engine).get_columns("class_meeting")}
+    assert not names & {"week_parity", "group_label"}
+    assert "planned" not in {c["name"] for c in inspect(empty_engine).get_columns("course")}
+
+
+# --- 0017: a course can be dropped (D-217) -------------------------------------------------------
+
+
+def test_0017_adds_a_nullable_dropped_at_and_keeps_the_course_code_index(empty_engine):
+    migrate.upgrade(empty_engine)
+
+    (column,) = [
+        c for c in inspect(empty_engine).get_columns("course") if c["name"] == "dropped_at"
+    ]
+    assert column["nullable"] is True
+    assert "ux_course_code" in reflected_indexes(empty_engine)
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0016")
+    assert "dropped_at" not in {c["name"] for c in inspect(empty_engine).get_columns("course")}

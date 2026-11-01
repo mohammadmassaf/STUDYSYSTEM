@@ -681,6 +681,7 @@ a.nav:hover .ic { color:var(--accent); transform:translateX(2px); }
 .sk-block .meta { font-size:12px; color:var(--ink-3); }
 .sk-chip { font-family:var(--f-data); font-size:9.5px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; padding:1px 5px; border-radius:4px; background:color-mix(in oklab, var(--c) 22%, transparent); color:var(--c); }
 .sk-chip.inf { background:none; border:1px dashed var(--c); }
+.sk-block.off { opacity:.45; }
 .sk-now { position:absolute; left:0; right:0; border-top:2px solid var(--accent); z-index:3; pointer-events:none; }
 .sk-now::before { content:""; position:absolute; left:-4px; top:-5px; width:8px; height:8px; border-radius:50%; background:var(--accent); }
 .sk-dayview { display:none; }
@@ -877,6 +878,7 @@ function adapt(s) {
     semester: { name: s.semester.name, start: s.semester.start, end: s.semester.end, endApprox: s.semester.end_approx, today: localISO() },
     weeklyCapacity: s.capacity.declared_hours_per_week,
     capacitySuggestion: s.capacity.suggested_from_timetable,
+    capacitySuggestionId: s.capacity.suggestion_id,
     courses,
     plan: s.plan.current,
     /* null = no timetable entered (unknown), not an empty week */
@@ -1545,6 +1547,15 @@ const skCourse = m => DATA.courses.find(c => c.courseId === m.course_id) || null
 /* the kind says nothing while every class carries the same one */
 const skKinds = () => new Set(DATA.meetings.map(m => m.kind)).size;
 const skDays = () => (DATA.meetings.some(m => m.weekday >= 6) ? 7 : 5);
+/* ISO week number: the week holding this week's Thursday, counted from the one holding Jan 4 */
+function isoWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  return Math.ceil(((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 864e5 + 1) / 7);
+}
+const skParity = () => (isoWeek(TODAY) % 2 ? "odd" : "even");
+/* an odd/even-week class that does not meet this week (D-216) */
+const skOff = m => m.week_parity !== "every" && m.week_parity !== skParity();
 
 /* side-by-side columns for meetings that overlap in one day */
 function skLayout(list) {
@@ -1564,8 +1575,9 @@ function skLayout(list) {
 function skBlock(m, style) {
   const c = skCourse(m);
   const color = c ? c.color : "var(--ink-3)";
-  return `<div class="sk-block" style="--c:${color};${style || ""}">
-    <div class="code">${esc(m.code)}${skKinds() > 1 ? `<span class="sk-chip">${esc(m.kind)}</span>` : ""}${m.tier === "inferred" ? '<span class="sk-chip inf" title="read from an image, not confirmed">unconfirmed</span>' : ""}</div>
+  const off = skOff(m);
+  return `<div class="sk-block${off ? " off" : ""}" style="--c:${color};${style || ""}"${off ? ' title="not this week"' : ""}>
+    <div class="code">${esc(m.code)}${skKinds() > 1 ? `<span class="sk-chip">${esc(m.kind)}</span>` : ""}${m.group_label ? `<span class="sk-chip">${esc(m.group_label)}</span>` : ""}${m.week_parity !== "every" ? `<span class="sk-chip" title="ISO week number">${esc(m.week_parity)} weeks</span>` : ""}${m.tier === "inferred" ? '<span class="sk-chip inf" title="read from an image, not confirmed">unconfirmed</span>' : ""}</div>
     <div class="nm">${esc(c ? c.name : m.code)}</div>
     ${c && c.instructor ? `<div class="meta">${esc(c.instructor)}</div>` : ""}
     <div class="meta">${esc(m.start)}–${esc(m.end)}${m.room ? " · " + esc(m.room) : ""}</div></div>`;
@@ -1604,7 +1616,7 @@ PAGES.schedule = () => {
     <section class="card"><div class="card-head"><h3>No timetable yet</h3></div>
     <div class="pad"><p class="none">The server holds no weekly class schedule yet, so no week is drawn. Ask the host to read your timetable image into the study server.</p></div></section>`;
   return `${head("Schedule", lede)}
-    <div class="sk-controls"><span class="row" style="gap:10px"><span class="eyebrow">${DATA.meetings.length} classes a week</span>${nbTag("alternating weeks and lab groups")}</span>
+    <div class="sk-controls"><span class="row" style="gap:10px"><span class="eyebrow">${DATA.meetings.length} classes a week</span>${DATA.meetings.some(m => m.week_parity !== "every") ? `<span class="muted" style="font-size:12.5px">This is an ${skParity()} week (ISO week ${isoWeek(TODAY)}) - greyed classes meet next week</span>` : ""}</span>
       ${skKinds() > 1 ? `<div class="chips" id="skKind" role="group" aria-label="Filter by kind">
         ${["all", "lecture", "lab", "tutorial"].map(k => `<button class="chip" data-kind="${k}" aria-pressed="${k === SK.kind}">${k === "all" ? "All" : k[0].toUpperCase() + k.slice(1) + "s"}</button>`).join("")}
       </div>` : ""}</div>
@@ -1654,7 +1666,13 @@ PAGES.load = () => {
       <span class="num" style="font-size:28px">${cap == null ? "-" : cap + "h"}</span>
       <span class="muted">${cap == null ? "no capacity declared" : "declared per week"}</span>
     </div>
-    <div class="muted" style="font-size:12.5px;margin-top:8px">${sug == null ? "Timetable suggestion: unknown - no timetable yet." : `Timetable suggestion: ${sug}h`}</div>
+    <div class="muted" style="font-size:12.5px;margin-top:8px">${sug == null ? (DATA.meetings ? "Timetable suggestion: none pending." : "Timetable suggestion: unknown - no timetable yet.") : `Timetable suggestion: ${sug}h a week (half your lecture hours; labs, tutorials and unplanned courses left out)`}</div>
+    ${sug != null && DATA.capacitySuggestionId ? `<form class="row" id="acceptCap" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+      <label class="muted" style="font-size:12.5px" for="acceptFrom">from</label>
+      <input class="field mini" type="date" id="acceptFrom" value="${localISO()}" required>
+      <button class="btn btn-secondary btn-sm" type="submit">Use ${sug}h a week</button>
+      <span class="muted" id="acceptMsg" role="status" style="font-size:12.5px"></span>
+    </form>` : ""}
     <div class="row" style="margin-top:14px">${nbTag("hours the plan needs")}</div>
   </div></section>
   <div class="split even">
@@ -2021,18 +2039,33 @@ document.addEventListener("click", e => { if (STATE && e.target.closest("#themeB
    it. Skipped while a session modal is open or a field has focus, so nothing you are typing goes.
    ============================================================ */
 let lastLoad = Date.now(), reloading = false;
+/* fetch /state and redraw; false when the server answered with an error */
+async function loadState() {
+  const response = await fetch("/state", { headers: { Accept: "application/json" } });
+  if (!response.ok) return false;
+  DATA = adapt(await response.json());
+  applyTheme(); derive(); lastLoad = Date.now(); refresh();
+  return true;
+}
 async function reloadState() {
   if (reloading || !DATA || document.hidden || Date.now() - lastLoad < 10000) return;
   if (SESSION || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
   if ([...document.querySelectorAll("#view input.field, #view textarea")].some(el => el.value)) return;   /* text typed, then clicked away */
   reloading = true;
-  try {
-    const response = await fetch("/state", { headers: { Accept: "application/json" } });
-    if (!response.ok) return;
-    DATA = adapt(await response.json());
-    applyTheme(); derive(); lastLoad = Date.now(); refresh();
-  } catch (err) { /* the server is away: keep what is drawn */ } finally { reloading = false; }
+  try { await loadState(); }
+  catch (err) { /* the server is away: keep what is drawn */ } finally { reloading = false; }
 }
+/* accepting the timetable's suggestion writes a new capacity row (D-216); the old ones stay */
+document.addEventListener("submit", async e => {
+  if (e.target.id !== "acceptCap") return;
+  e.preventDefault();
+  const msg = $("#acceptMsg"), btn = e.target.querySelector("button");
+  btn.disabled = true; msg.textContent = "";
+  try {
+    await post("/capacity/accept", { suggestion_id: DATA.capacitySuggestionId, from_date: $("#acceptFrom").value });
+    if (!(await loadState())) msg.textContent = "Saved. Reload the page to see it.";
+  } catch (err) { msg.textContent = errorText(err); btn.disabled = false; }
+});
 document.addEventListener("visibilitychange", reloadState);
 window.addEventListener("focus", reloadState);
 

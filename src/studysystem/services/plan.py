@@ -802,8 +802,13 @@ def get_plan(
                 course.c.strategy,
                 course.c.conceded,
                 course.c.target_grade,
+                course.c.planned,
+                course.c.dropped_at,
             ).where(course.c.user_id == user_id)
         ).all()
+        # On his timetable, never planned (D-216: English), or not taken at all (D-217: I3350):
+        # no item in any lane.
+        unplanned = {row.id for row in courses if not row.planned or row.dropped_at is not None}
         average_credits = _average_credits(row.credits for row in courses)
         snapshot = {
             row.id: {
@@ -868,7 +873,11 @@ def get_plan(
 
         # Setup lane.
         setup = _setup_items(conn, user_id, today, topics)
-        setup_lane = [dict(item, reason=setup_reason(item)) for item in setup["items"]]
+        setup_lane = [
+            dict(item, reason=setup_reason(item))
+            for item in setup["items"]
+            if item["course_id"] not in unplanned
+        ]
 
         # Review lane: already most overdue first. The schema needs a score off the setup lane,
         # so a review's score is how many days overdue it is - the order the lane already uses.
@@ -883,7 +892,9 @@ def get_plan(
                 "reason": review_reason(row, tz),
             }
             for row in _due_reviews(conn, user_id, today, tz)
+            if row.course_id not in unplanned
         ]
+        study = [i for i in study if i["course_id"] not in unplanned]
 
         # Rank: each lane on its own; ties by D-91, then the id, so every rank is unique.
         lanes = {

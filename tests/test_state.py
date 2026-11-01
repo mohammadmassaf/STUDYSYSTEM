@@ -10,10 +10,10 @@ from sqlalchemy import func, insert, select
 from starlette.testclient import TestClient
 
 from studysystem.dashboard import create_app
-from studysystem.db.tables import class_meeting, plan
+from studysystem.db.tables import class_meeting, plan, plan_item
 from studysystem.services import state
 from studysystem.services.capacity import set_capacity
-from studysystem.services.courses import add_course
+from studysystem.services.courses import add_course, drop_course
 from studysystem.services.ids import new_id, now
 from studysystem.services.plan import get_plan
 from studysystem.services.units import write_unit
@@ -124,6 +124,8 @@ def test_capacity_is_the_row_in_force_today(service_engine, user_id):
         "from_date_tier": "declared",
         "suggested_from_timetable": None,  # no timetable read yet
         "suggested_from_timetable_tier": "unknown",
+        "suggestion_id": None,
+        "suggestion_id_tier": "unknown",
     }
 
 
@@ -189,6 +191,8 @@ def test_the_schema_refuses_a_pair_that_breaks_the_tier_rule(capacity):
         "from_date_tier": "unknown",
         "suggested_from_timetable": None,
         "suggested_from_timetable_tier": "unknown",
+        "suggestion_id": None,
+        "suggestion_id_tier": "unknown",
     }
 
     with pytest.raises(ValidationError):
@@ -240,3 +244,23 @@ def test_get_state_answers_only_our_own_host(service_engine, user_id):
     client = TestClient(create_app(service_engine), base_url="http://evil.example")
 
     assert client.get("/state").status_code == 403
+
+
+def test_a_course_dropped_after_the_plan_leaves_the_stored_plan(service_engine, user_id):
+    """D-217, read side: the stored plan still ranks I3350, built before he dropped it. /state
+    leaves it out; the stored rows stay as they were ranked."""
+    with write_unit(service_engine) as conn:
+        _i3302_and_a_cold_course(conn, user_id)
+    get_plan(service_engine, user_id, TODAY, shown_n=50)
+    dropped = drop_course(service_engine, user_id, "I3350")["course_id"]
+
+    current = state.get_state(service_engine, user_id, TODAY, "test")["plan"]["current"]
+
+    codes = {item["code"] for lane in current["lanes"].values() for item in lane["items"]}
+    assert codes == {"I3302"}
+    assert dropped not in current["strategy_by_course"]
+    with service_engine.connect() as conn:
+        kept = conn.execute(
+            select(func.count()).select_from(plan_item).where(plan_item.c.course_id == dropped)
+        ).scalar_one()
+    assert kept > 0  # history

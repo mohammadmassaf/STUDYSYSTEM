@@ -31,6 +31,7 @@ from studysystem.db.tables import (
     topic_weight,
 )
 from studysystem.errors import StudyError
+from studysystem.services.courses import drop_course
 from studysystem.services.ids import new_id, now
 from studysystem.services.plan import (
     _due_reviews,
@@ -1758,3 +1759,31 @@ def test_hours_on_a_more_papers_key_snooze_it(service_engine, user_id):
 
     assert key not in _of(out, "more-papers")
     assert out["filtered"] == 1
+
+
+def test_a_course_left_out_of_the_plan_gets_no_item_in_any_lane(service_engine, user_id):
+    """A course on his timetable that asks for no study, as English does (D-216): the fixture's
+    cold course, marked planned = 0 here, loses its first-material, past-papers, credits and
+    target-grade items; I3302 keeps its own."""
+    with write_unit(service_engine) as conn:
+        _i3302_and_a_cold_course(conn, user_id)
+        conn.execute(update(course).where(course.c.code == "I3350").values(planned=0))
+
+    result = get_plan(service_engine, user_id, TODAY, shown_n=50)
+
+    codes = {item["code"] for lane in result["lanes"].values() for item in lane["items"]}
+    assert codes == {"I3302"}
+    assert all(row.course_id is not None for row in _plan_rows(service_engine, result["plan_id"]))
+
+
+def test_a_dropped_course_gets_no_item_in_any_lane(service_engine, user_id):
+    """He is not taking it this semester (D-217): I3350 dropped keeps its rows but asks for
+    nothing - only I3302's items remain."""
+    with write_unit(service_engine) as conn:
+        _i3302_and_a_cold_course(conn, user_id)
+    drop_course(service_engine, user_id, "I3350")
+
+    result = get_plan(service_engine, user_id, TODAY, shown_n=50)
+
+    codes = {item["code"] for lane in result["lanes"].values() for item in lane["items"]}
+    assert codes == {"I3302"}
