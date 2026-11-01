@@ -1,13 +1,15 @@
 """Walk every dashboard route at four widths and report console errors and horizontal overflow
-(3.3, D-187), then check the plan's lanes (3.4, D-190). Run by hand against a database copy,
-never in CI:
+(3.3, D-187), then check the plan's lanes (3.4, D-190) and that the Calendar draws every
+assessment on its own card (3.7, D-219). Run by hand against a database copy, never in CI:
 
     STUDYSYSTEM_DATA_DIR=<folder of a database copy> uv run python scripts/walk_dashboard.py
 
 It starts the route itself, drives the installed Chrome, and exits 1 if any visit is not clean.
 """
 
+import collections
 import copy
+import datetime
 import json
 import subprocess
 import sys
@@ -137,8 +139,8 @@ def with_a_review(state: dict) -> dict | None:
 
 
 def with_a_timetable(state: dict) -> dict:
-    """The stored state with a week of classes: the copy holds no meetings (D-207), so the
-    Schedule page would show only its empty state. Two meetings overlap and one is inferred."""
+    """The stored state with a fixed week of classes, so the Schedule page's blocks can be
+    counted whatever the copy holds. Two meetings overlap and one is inferred."""
     courses = state["courses"]
     fake = copy.deepcopy(state)
     spec = [
@@ -164,6 +166,65 @@ def with_a_timetable(state: dict) -> dict:
             for i, (day, start, end, c, kind, tier) in enumerate(spec)
         ]
     }
+    return fake
+
+
+def drawn_sittings(page, card: str) -> collections.Counter:
+    """(course code, date), counted, for every course on every row of one Calendar card;
+    "" = no date. Counted, so a row drawn twice is caught."""
+    pairs = page.eval_on_selector_all(
+        f"#{card} tr[data-codes]",
+        "rows => rows.flatMap(r => r.dataset.codes.split('|').map(c => [c, r.dataset.date]))",
+    )
+    return collections.Counter((code, date) for code, date in pairs)
+
+
+def check_calendar(page, label: str) -> list[str]:
+    """3.7's Done-when (D-219): every assessment /state sends is drawn once, on its own card - a
+    coming one under Ahead, one with no date and no mark under Date not set, the rest under
+    Behind you. Compared as (course, date) pairs, so a lost January row cannot hide behind the
+    same course's November one."""
+    page.goto(f"{BASE}/#/calendar")
+    page.wait_for_selector("#view > *")
+    today = page.evaluate("localISO()")
+    sent = {
+        "ahead": collections.Counter(),
+        "undated": collections.Counter(),
+        "behind": collections.Counter(),
+    }
+    # fetched by the page, so a faked /state is the one compared
+    for a in page.evaluate("fetch('/state').then(r => r.json()).then(s => s.assessment_slots)"):
+        if a["date"] is None:
+            card = "undated" if a["mark"] is None else "behind"
+        else:
+            card = "ahead" if a["date"] >= today else "behind"
+        sent[card][(a["code"], a["date"] or "")] += 1
+    problems = []
+    for card, pairs in sent.items():
+        drawn = drawn_sittings(page, card)
+        if drawn != pairs:
+            missing, extra = sorted((pairs - drawn).elements()), sorted((drawn - pairs).elements())
+            problems.append(f"{label} {card}: not drawn {missing}, drawn but not sent {extra}")
+    january = sorted(code for code, date in drawn_sittings(page, "ahead") if date[:7] == "2027-01")
+    print(f"{label}: January session drawn for {len(january)} courses {january}")
+    return problems
+
+
+def with_a_lab_and_a_project(state: dict) -> dict:
+    """The stored state with a coming lab and a marked project with no date: the copy holds
+    neither, so the "not planned" tag and a marked undated row would never be drawn."""
+    fake = copy.deepcopy(state)
+    first = fake["courses"][0]
+    base = {**fake["assessment_slots"][0], "course_id": first["course_id"], "code": first["code"]}
+    lab_day = (
+        datetime.datetime.now().astimezone().date() + datetime.timedelta(days=40)
+    ).isoformat()
+    fake["assessment_slots"] += [
+        {**base, "assessment_id": "lab", "slot_id": "lab", "name": "Lab 1", "kind": "lab"}
+        | {"date": lab_day, "date_approx": False, "mark": None},
+        {**base, "assessment_id": "proj", "slot_id": "proj", "name": "Project", "kind": "project"}
+        | {"date": None, "date_approx": False, "mark": 15.0},
+    ]
     return fake
 
 
@@ -268,6 +329,22 @@ def main() -> int:
                 )
                 if width > 900 and drawn != len(timetable["timetable"]["meetings"]):
                     problems.append(f"{label}: {drawn} blocks drawn for 6 classes")
+                page.close()
+
+            page = new_page(browser, WIDTHS[0], seen)
+            problems += check_calendar(page, "calendar")
+            page.close()
+
+            extra = with_a_lab_and_a_project(state)
+            for width in WIDTHS:
+                page = new_page(browser, width, seen)
+                page.route(f"{BASE}/state", lambda request: request.fulfill(json=extra))
+                label = f"{width}px #/calendar with a lab and a project"
+                problems += visit(page, "calendar", label, seen)
+                if not page.query_selector("#ahead [data-unplanned]"):
+                    problems.append(f"{label}: the lab has no 'not planned' tag")
+                if width == WIDTHS[0]:
+                    problems += check_calendar(page, label)
                 page.close()
 
             page = new_page(browser, WIDTHS[0], seen)

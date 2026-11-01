@@ -637,11 +637,12 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
         if row.target_grade is None:
             add("target-grade", course_id, course_id, 0.0)
 
-    # grading: one item per course, worth the sum of its guessed weights.
+    # grading: one item per course, worth the sum of its guessed exam weights - a project or lab
+    # is shown, never planned, so its weight is never asked for (D-220).
     guessed = {}
     grading_guess = {}
     for r in assessments:
-        if r.weight_tier in ("unknown", "inferred"):
+        if r.kind == "exam" and r.weight_tier in ("unknown", "inferred"):
             guessed[r.course_id] = guessed.get(r.course_id, 0.0) + weight_of(r)
             grading_guess.setdefault(r.course_id, []).extend(weight_guess(r))
     for course_id, marks in guessed.items():
