@@ -13,7 +13,7 @@ from studysystem.dashboard import create_app
 from studysystem.db.tables import class_meeting, plan, plan_item
 from studysystem.services import state
 from studysystem.services.capacity import set_capacity
-from studysystem.services.courses import add_course, drop_course
+from studysystem.services.courses import add_course, drop_course, set_course_input
 from studysystem.services.ids import new_id, now
 from studysystem.services.plan import get_plan
 from studysystem.services.units import write_unit
@@ -129,7 +129,7 @@ def test_capacity_is_the_row_in_force_today(service_engine, user_id):
     }
 
 
-def _meeting(conn, uid, course_id, weekday, tier, room=None):
+def _meeting(conn, uid, course_id, weekday, tier, room=None, group=None):
     conn.execute(
         insert(class_meeting).values(
             id=new_id(),
@@ -141,6 +141,7 @@ def _meeting(conn, uid, course_id, weekday, tier, room=None):
             room=room,
             kind="lecture",
             tier=tier,
+            group_label=group,
             created_at=now(),
         )
     )
@@ -159,6 +160,28 @@ def test_a_week_with_one_unconfirmed_meeting_is_inferred(service_engine, user_id
     assert (monday["weekday"], monday["room"], monday["room_tier"]) == (1, None, "unknown")
     # The room is as unconfirmed as the meeting it was read with.
     assert (wednesday["room"], wednesday["room_tier"]) == ("B204", "inferred")
+
+
+def test_a_course_with_a_lab_group_sends_only_that_groups_meetings(service_engine, user_id):
+    """D-227: he is in G1 for I3302 - its whole-class meeting and the G1 meeting come, the G2
+    one does not. I3305 has no group set, so every group still comes. Set as "g1": case is not part
+    of the name."""
+    with write_unit(service_engine) as conn:
+        web = _course(conn, user_id)
+        _meeting(conn, user_id, web, 1, "declared")
+        _meeting(conn, user_id, web, 2, "declared", group="G1")
+        _meeting(conn, user_id, web, 3, "declared", group="G2")
+        gui = _course(conn, user_id, "I3305")
+        _meeting(conn, user_id, gui, 4, "declared", group="G2")
+    set_course_input(service_engine, user_id, "I3302", "lab_group", "g1")
+
+    sent = blob(service_engine, user_id)["timetable"]["meetings"]
+
+    assert [(m["code"], m["weekday"], m["group_label"]) for m in sent] == [
+        ("I3302", 1, ""),
+        ("I3302", 2, "G1"),
+        ("I3305", 4, "G2"),
+    ]
 
 
 def test_another_students_rows_never_show(service_engine, user_id, other_user_id):

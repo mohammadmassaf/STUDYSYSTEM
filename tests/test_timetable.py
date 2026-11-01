@@ -199,6 +199,20 @@ def test_one_lab_slot_split_into_three_groups_keeps_all_three(service_engine, us
     assert sorted(r.group_label for r in meetings_in(service_engine)) == ["G1", "G2", "G3"]
 
 
+def test_a_group_label_is_stored_without_its_spaces(service_engine, user_id, courses):
+    """D-227: his lab_group is stored stripped, so " G1 " read off an image must land as "G1" -
+    else his G1 lab never matches and drops off his week. A stripped copy of it is the same slot."""
+    _, reply = submit(
+        service_engine,
+        user_id,
+        meeting("I3305", 3, "14:00", "16:00", "lab", group_label=" G1 "),
+        meeting("I3305", 3, "14:00", "16:00", "lab", group_label="G1"),
+    )
+
+    assert reply["accepted"] == [1]
+    assert [r.group_label for r in meetings_in(service_engine)] == ["G1"]
+
+
 def test_a_whole_class_meeting_has_no_parity_and_no_group(service_engine, user_id, courses):
     """Unknown stays unknown: a missing pattern is NULL, not 'every' or 'all'."""
     submit(service_engine, user_id, meeting("I3302", 2, "09:00", "11:00"))

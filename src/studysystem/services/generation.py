@@ -926,13 +926,10 @@ def _submit_timetable(conn: Connection, user_id: str, task, payload: Any) -> tup
                     )
                 )
                 continue
+            # stored stripped, as his lab_group is, so the two always compare (D-227)
+            group = m["group_label"].strip() if "group_label" in m else None
             key = _slot_key(
-                course_id,
-                m["weekday"],
-                m["start_time"],
-                m["kind"],
-                m.get("week_parity"),
-                m.get("group_label"),
+                course_id, m["weekday"], m["start_time"], m["kind"], m.get("week_parity"), group
             )
             if key in held:
                 errors.append(
@@ -957,7 +954,7 @@ def _submit_timetable(conn: Connection, user_id: str, task, payload: Any) -> tup
                     room=m.get("room"),
                     kind=m["kind"],
                     week_parity=m.get("week_parity"),  # absent = every week (NULL)
-                    group_label=m.get("group_label"),  # absent = the whole class (NULL)
+                    group_label=group,  # absent = the whole class (NULL)
                     tier="inferred",
                     source_task_id=task.id,
                     created_at=now(),

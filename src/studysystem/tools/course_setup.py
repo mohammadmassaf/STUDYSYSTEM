@@ -45,7 +45,9 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "grade) or 'vault_folder' (the course's folder, relative to the vault root, where "
             "its notes are exported - e.g. 'uni/Semester 1 2026-2027/Server-Side Web "
             "Development') or 'no_past_papers' (true when the course has no past papers at all, "
-            "e.g. a new course - the plan stops asking for papers; false if that was wrong). "
+            "e.g. a new course - the plan stops asking for papers; false if that was wrong) or "
+            "'lab_group' (his group in the course's labs, as the timetable names it, e.g. 'G1' - "
+            "his week then shows the whole-class meetings and that group's, not the others). "
             "Setting a value marks it declared; it cannot be set back to "
             "unknown. Pass semester_name only when the code exists in more than one semester."
         ),

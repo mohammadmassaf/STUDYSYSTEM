@@ -150,6 +150,7 @@ course = Table(
     bool_col("planned", default=1),  # 0 = on his timetable, never planned (D-216)
     ts("dropped_at", nullable=True),  # set = not taken this semester, kept as history (D-217)
     bool_col("no_past_papers"),  # 1 = declared: no papers exist, so none is asked for (D-223)
+    Column("lab_group", Text, nullable=True),  # his group in its labs, e.g. G1; NULL = all (D-227)
     ts("conceded_at", nullable=True),
     implies("conceded_at_set", "conceded = 1", "conceded_at IS NOT NULL"),
     Column("source_course_id", Text, nullable=True),
