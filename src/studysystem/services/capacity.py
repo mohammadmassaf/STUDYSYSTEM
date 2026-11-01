@@ -60,15 +60,26 @@ def suggested_hours(meetings: list[dict]) -> float | None:
     return round(minutes / 60 * STUDY_PER_CLASS_HOUR, 2)
 
 
+def pending_suggestion(conn: Connection, user_id: str):
+    """His pending capacity suggestion row, or None."""
+    return conn.execute(
+        select(capacity_suggestion).where(
+            capacity_suggestion.c.user_id == user_id,
+            capacity_suggestion.c.status == "pending",
+        )
+    ).one_or_none()  # at most one: every recount retires the one before
+
+
 def recount_suggestion(
-    conn: Connection, user_id: str, task_id: str
+    conn: Connection, user_id: str, task_id: str, pending
 ) -> tuple[float | None, str | None]:
-    """His one pending suggestion, counted again from his whole week - every meeting he holds,
-    from any task, lectures of planned courses he still takes (D-216, D-217). Called by each
-    timetable submission (`task_id` = that task) and by dropping a course (`task_id` = the
-    pending row's own). A changed number replaces the pending row, the old one `dismissed`; the
-    same number keeps it. Returns the hours and the pending row's id, or (None, None) when
-    nothing counts (no row - unknown, not 0)."""
+    """His one pending suggestion (`pending`, the caller's `pending_suggestion` row), counted
+    again from his whole week - every meeting he holds, from any task, lectures of planned
+    courses he still takes (D-216, D-217). Called by each timetable submission (`task_id` = that
+    task) and by dropping a course (`task_id` = the pending row's own). A changed number
+    replaces the pending row, the old one `dismissed`; the same number keeps it. Returns the
+    hours and the pending row's id, or (None, None) when nothing counts (no row - unknown,
+    not 0)."""
     kept = conn.execute(
         select(class_meeting.c.start_time, class_meeting.c.end_time, class_meeting.c.kind)
         .join_from(class_meeting, course, course.c.id == class_meeting.c.course_id)
@@ -80,12 +91,6 @@ def recount_suggestion(
     ).mappings()
     hours = suggested_hours([dict(m) for m in kept])
 
-    pending = conn.execute(
-        select(capacity_suggestion).where(
-            capacity_suggestion.c.user_id == user_id,
-            capacity_suggestion.c.status == "pending",
-        )
-    ).one_or_none()  # at most one: every recount retires the one before
     if pending is not None and pending.hours_per_week == hours:
         return hours, pending.id
     stamp = now()

@@ -965,21 +965,12 @@ def _submit_timetable(conn: Connection, user_id: str, task, payload: Any) -> tup
             )
             accepted.append(place)
 
-    suggested, suggestion_id = capacity.recount_suggestion(conn, user_id, task.id)
+    suggested, suggestion_id = capacity.recount_suggestion(
+        conn, user_id, task.id, capacity.pending_suggestion(conn, user_id)
+    )
 
     ordinal = _next_ordinal(conn, task.id)
-    if not errors:
-        status = "closed"
-    elif ordinal == MAX_SUBMISSIONS:
-        status = "partial"
-    else:
-        status = "open"
-    if status != "open":
-        conn.execute(
-            update(generation_task)
-            .where(generation_task.c.id == task.id)
-            .values(status=status, closed_at=now())
-        )
+    status = _settle_task(conn, task.id, ordinal, complete=not errors)
 
     reply = {
         "task_id": task.id,
@@ -1682,18 +1673,7 @@ def _submit_transcription(conn: Connection, user_id: str, task, payload: Any) ->
     on_task = positions | accepted_before
     max_pos = max(on_task, default=0)
     missing = sorted(set(range(1, max_pos + 1)) - on_task)
-    if not missing and not judged.errors:
-        status = "closed"
-    elif ordinal == MAX_SUBMISSIONS:
-        status = "partial"
-    else:
-        status = "open"
-    if status != "open":
-        conn.execute(
-            update(generation_task)
-            .where(generation_task.c.id == task.id)
-            .values(status=status, closed_at=now())
-        )
+    status = _settle_task(conn, task.id, ordinal, complete=not missing and not judged.errors)
     if status == "closed" or (status == "partial" and on_task):
         conn.execute(
             update(past_exam)
@@ -1798,18 +1778,7 @@ def _submit_note(conn: Connection, user_id: str, task, payload: Any) -> tuple[di
     sections = {entry["section"] for entry in accepted}
     missing = sorted(NOTE_SECTIONS - on_task - sections)
     ordinal = _next_ordinal(conn, task.id)
-    if not missing and not errors:
-        status = "closed"
-    elif ordinal == MAX_SUBMISSIONS:
-        status = "partial"
-    else:
-        status = "open"
-    if status != "open":
-        conn.execute(
-            update(generation_task)
-            .where(generation_task.c.id == task.id)
-            .values(status=status, closed_at=now())
-        )
+    status = _settle_task(conn, task.id, ordinal, complete=not missing and not errors)
 
     reply = {
         "task_id": task.id,
@@ -1888,18 +1857,7 @@ def _submit_tagging(conn: Connection, user_id: str, task, payload: Any) -> tuple
                     skipped.append(entry["id"])
 
     ordinal = _next_ordinal(conn, task.id)
-    if not errors:
-        status = "closed"
-    elif ordinal == MAX_SUBMISSIONS:
-        status = "partial"
-    else:
-        status = "open"
-    if status != "open":
-        conn.execute(
-            update(generation_task)
-            .where(generation_task.c.id == task.id)
-            .values(status=status, closed_at=now())
-        )
+    status = _settle_task(conn, task.id, ordinal, complete=not errors)
 
     reply = {
         "task_id": task.id,
@@ -1957,18 +1915,7 @@ def _submit_practice(conn: Connection, user_id: str, task, payload: Any) -> tupl
         _write_generated(conn, user_id, task, item)
 
     ordinal = _next_ordinal(conn, task.id)
-    if not judged.errors:
-        status = "closed"
-    elif ordinal == MAX_SUBMISSIONS:
-        status = "partial"
-    else:
-        status = "open"
-    if status != "open":
-        conn.execute(
-            update(generation_task)
-            .where(generation_task.c.id == task.id)
-            .values(status=status, closed_at=now())
-        )
+    status = _settle_task(conn, task.id, ordinal, complete=not judged.errors)
 
     reply = {
         "task_id": task.id,
@@ -2154,18 +2101,7 @@ def _submit_observation(conn: Connection, user_id: str, task, payload: Any) -> t
         _write_claim(conn, user_id, slot_id, task.scope_id, by_place[place])
 
     ordinal = _next_ordinal(conn, task.id)
-    if not errors:
-        status = "closed"
-    elif ordinal == MAX_SUBMISSIONS:
-        status = "partial"
-    else:
-        status = "open"
-    if status != "open":
-        conn.execute(
-            update(generation_task)
-            .where(generation_task.c.id == task.id)
-            .values(status=status, closed_at=now())
-        )
+    status = _settle_task(conn, task.id, ordinal, complete=not errors)
 
     reply = {
         "task_id": task.id,
@@ -2222,6 +2158,25 @@ def _write_claim(conn: Connection, user_id: str, slot_id: str, paper_id: str, cl
             created_at=now(),
         )
     )
+
+
+def _settle_task(conn: Connection, task_id: str, ordinal: int, complete: bool) -> str:
+    """The task's status after this submission: `closed` when nothing is left to fix, `partial`
+    on the last submission allowed, else `open`. A task that stops taking submissions gets its
+    `closed_at`."""
+    if complete:
+        status = "closed"
+    elif ordinal == MAX_SUBMISSIONS:
+        status = "partial"
+    else:
+        status = "open"
+    if status != "open":
+        conn.execute(
+            update(generation_task)
+            .where(generation_task.c.id == task_id)
+            .values(status=status, closed_at=now())
+        )
+    return status
 
 
 def _next_ordinal(conn: Connection, task_id: str) -> int:

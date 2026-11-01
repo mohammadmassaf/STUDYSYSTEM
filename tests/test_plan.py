@@ -1763,8 +1763,8 @@ def test_hours_on_a_more_papers_key_snooze_it(service_engine, user_id):
 
 def test_a_course_left_out_of_the_plan_gets_no_item_in_any_lane(service_engine, user_id):
     """A course on his timetable that asks for no study, as English does (D-216): the fixture's
-    cold course, marked planned = 0 here, loses its first-material, past-papers, credits and
-    target-grade items; I3302 keeps its own."""
+    cold course, marked planned = 0 here, loses its first-material and past-papers items, the
+    only two it raises; I3302 keeps its own."""
     with write_unit(service_engine) as conn:
         _i3302_and_a_cold_course(conn, user_id)
         conn.execute(update(course).where(course.c.code == "I3350").values(planned=0))
