@@ -149,6 +149,7 @@ course = Table(
     bool_col("conceded"),
     bool_col("planned", default=1),  # 0 = on his timetable, never planned (D-216)
     ts("dropped_at", nullable=True),  # set = not taken this semester, kept as history (D-217)
+    bool_col("no_past_papers"),  # 1 = declared: no papers exist, so none is asked for (D-223)
     ts("conceded_at", nullable=True),
     implies("conceded_at_set", "conceded = 1", "conceded_at IS NOT NULL"),
     Column("source_course_id", Text, nullable=True),
@@ -299,7 +300,7 @@ topic = Table(
     ),
     fk("superseded_by", "topic", nullable=True),
     implies("superseded_by_status", "superseded_by IS NOT NULL", "status = 'superseded'"),
-    enum_col("proposed_by", ["material", "profile", "split"]),
+    enum_col("proposed_by", ["material", "profile", "split", "syllabus"]),  # syllabus: D-224
     ts("status_changed_at"),
     ts("created_at"),
 )

@@ -801,7 +801,10 @@ def test_a_two_exam_reason_names_both_and_how_each_share_was_made():
     reason = study_reason(entry, 1.0, 60)
 
     assert "Final exam: 27.5 of 100 marks (profile v2)" in reason
-    assert "Partial exam: 30.0 of 100 marks (equal split, no profile), in 43 days" in reason
+    assert (
+        "Partial exam: 30.0 of 100 marks (100.0% - equal split of 1, no profile, inferred), "
+        "in 43 days"
+    ) in reason
 
 
 def test_inferred_inputs_are_named():

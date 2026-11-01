@@ -24,10 +24,13 @@ COURSE_FIELDS = {
     "instructor": lambda v: values.text("instructor", v),
     "target_grade": lambda v: values.number("target_grade", v, ge=0, le=100),
     "vault_folder": lambda v: values.folder("vault_folder", v),
+    # true: no papers exist, so the plan asks for none (D-223); false undoes a mistaken true
+    "no_past_papers": lambda v: values.flag("no_past_papers", v),
 }
 
-# Inputs that can only ever be declared, so NULL already says "not known" - no tier column.
-NO_TIER = ("target_grade", "vault_folder")
+# Inputs that can only ever be declared - no tier column: NULL (or no_past_papers' default 0)
+# already says "not declared".
+NO_TIER = ("target_grade", "vault_folder", "no_past_papers")
 
 # Fields that sound like course inputs but have another home - the unknown_field fix names it.
 # strategy's tool, study_respond_to_offer, arrives with 4.9; until then the fix names no tool.
@@ -133,7 +136,7 @@ def set_course_input(
     user_id: str,
     code: str,
     field: str,
-    value: float | str | None,
+    value: bool | float | str | None,
     semester_name: str | None = None,
 ) -> dict:
     """Set one declared input on a course (D-37: setting declares, no way back to unknown).

@@ -13,7 +13,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from sqlalchemy import Engine, insert, select
 
-from studysystem.db.tables import CLAIM_KEYS, evidence, observation, topic
+from studysystem.db.tables import CLAIM_KEYS, evidence, exam_profile, observation, topic
 from studysystem.errors import StudyError
 from studysystem.services.claims import CLASS_OF
 from studysystem.services.generation import CLAIM_VALUE_SCHEMAS
@@ -121,6 +121,15 @@ def add_instructor_statement(
     with write_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
         slot_id = find_slot(conn, user_id, course_id, assessment_name)
+        # A topic's share on an exam with no profile (a course with no papers, D-218): the plan
+        # reads it itself (D-221). Format facts only ever reach a profile.
+        to_plan = (
+            claim_key == "topic-marks"
+            and conn.execute(
+                select(exam_profile.c.id).where(exam_profile.c.slot_id == slot_id).limit(1)
+            ).first()
+            is None
+        )
 
         topic_name = None
         if topic_id is not None:
@@ -189,7 +198,12 @@ def add_instructor_statement(
         "topic": {"id": topic_id, "name": topic_name} if topic_id else None,
         "citation": citation,
         "stated": f"{code} {assessment_name}, from the instructor: "
-        f"{_in_words(claim_key, claim_value, topic_name)}. Derive the profile again to use it.",
+        f"{_in_words(claim_key, claim_value, topic_name)}. "
+        + (
+            "The next plan uses it - this exam has no profile."
+            if to_plan
+            else "Derive the profile again to use it."
+        ),
     }
 
 

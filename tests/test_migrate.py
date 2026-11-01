@@ -31,7 +31,7 @@ from studysystem.db.tables import (
 )
 from tests._study import run_study
 
-HEAD = "0017"
+HEAD = "0018"
 
 
 def stamp() -> str | None:
@@ -1068,3 +1068,23 @@ def test_0017_adds_a_nullable_dropped_at_and_keeps_the_course_code_index(empty_e
 
     command.downgrade(migrate.alembic_config(empty_engine), "0016")
     assert "dropped_at" not in {c["name"] for c in inspect(empty_engine).get_columns("course")}
+
+
+# --- 0018: no past papers, and syllabus topics (D-223, D-224) -------------------------------------
+
+
+def test_0018_adds_no_past_papers_and_a_syllabus_source_and_keeps_both_indexes(empty_engine):
+    migrate.upgrade(empty_engine)
+
+    (column,) = [
+        c for c in inspect(empty_engine).get_columns("course") if c["name"] == "no_past_papers"
+    ]
+    assert column["nullable"] is False
+    assert {"ux_course_code", "ux_topic_live"} <= reflected_indexes(empty_engine)
+    with empty_engine.connect() as conn:
+        checks = {c["name"]: c["sqltext"] for c in inspect(conn).get_check_constraints("topic")}
+    assert "'syllabus'" in checks["ck_topic_proposed_by_enum"]
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0017")
+    assert "no_past_papers" not in {c["name"] for c in inspect(empty_engine).get_columns("course")}
+    assert "ux_topic_live" in reflected_indexes(empty_engine)
