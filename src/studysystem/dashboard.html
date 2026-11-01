@@ -12,35 +12,31 @@
 <style>
 /* ============================================================
    1 · DESIGN TOKENS - light is the base; dark redefines tokens.
-   Palette (D-207): rose accent, cool light grounds, pure black in dark.
+   Palette (D-207, D-230, D-231): cyan accent, cool light grounds, pure black in dark; one role per colour.
    Series + confidence colours are the validated dataviz ramps.
    ============================================================ */
 :root {
   color-scheme: light;
   /* grounds & surfaces - cool near-white, faint cyan cast */
-  --bg:#F8F1F3; --paper:#F8F1F3;
+  --bg:#F4F6F7; --paper:#F4F6F7;
   --surface:#FFFFFF; --card:#FFFFFF;
-  --surface-2:#F0E3E7; --sunken:#F0E3E7;
+  --surface-2:#E9EEF0; --sunken:#E9EEF0;
   --raise:#FFFFFF;
-  --rule:#E8D8DD; --rule-soft:#F1E6EA; --rule-strong:#CDB6BE;
+  --rule:#DDE3E6; --rule-soft:#E8ECEE; --rule-strong:#C3CCD1;
   /* ink - deep slate on light */
   --ink:#17141F; --ink-2:#463F55; --ink-3:#645D74; --ink-4:#958EA4;
-  /* accent - cyan identity, DEEPENED for readability on white (cyan-700) */
-  --accent:#E11D48; --accent-strong:#BE123C; --accent-soft:#FB7185; --accent-2:#F43F5E;
-  --accent-ink:#FFFFFF; --accent-wash:rgba(225,29,72,0.10); --accent-line:rgba(225,29,72,0.28);
-  /* series (courses) - validated categorical ramp, distinct from cyan chrome */
-  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
-  /* course colours (8): the schedule and every course swatch */
-  --k1:#4652C9; --k2:#B7790A; --k3:#23895A; --k4:#C83A60; --k5:#7B45C4; --k6:#16799F; --k7:#CF5A1C; --k8:#6E7F12;
+  /* accent - cyan, deepened for readability on white (cyan-600) */
+  --accent:#0891B2; --accent-strong:#0E7490;
+  --accent-ink:#FFFFFF; --accent-wash:rgba(8,145,178,0.10); --accent-line:rgba(8,145,178,0.28);
+  /* course colours (8): one lightness and strength in OKLCH (L .56 C .096 light, L .78 C .114 dark), hues spread */
+  --k1:#4C76AC; --k2:#7D772D; --k3:#9E5C7C; --k4:#048681; --k5:#6F6CAB; --k6:#55824B; --k7:#8A639B; --k8:#A36143;
   /* status - spaced hues so none blur together on white; always paired with icon+label */
   --good:#047857; --good-wash:rgba(4,120,87,0.12);
   --warn:#946412; --warn-wash:rgba(148,100,18,0.14);
   --serious:#C2410C; --serious-wash:rgba(194,65,12,0.12);
   --critical:#BE123C; --critical-wash:rgba(190,18,60,0.10);
   --done:#5A6B73; --done-wash:rgba(90,107,115,0.12);
-  /* confidence ramp - blue sequential, reads as ordinal against cyan chrome */
-  --c1:#86b6ef; --c2:#5598e7; --c3:#2a78d6; --c4:#1c5cab; --c5:#104281;
-  --c0-line:#CDB6BE; --lost:#E3D3D8;
+  --c0-line:#C3CCD1; --lost:#DDE3E6;
   /* radius scale */
   --r1:8px; --r2:12px; --r3:16px; --rpill:999px;
   /* elevation - cool shadows */
@@ -57,21 +53,19 @@
   :root:not([data-theme="light"]) {
     color-scheme: dark;
     --bg:#000000; --paper:#000000;
-    --surface:#0A0A0B; --card:#0A0A0B;
-    --surface-2:#161618; --sunken:#161618;
+    --surface:#0E0E10; --card:#0E0E10;
+    --surface-2:#1A1A1D; --sunken:#1A1A1D;
     --raise:#1A1A1D;
-    --rule:#232326; --rule-soft:#161618; --rule-strong:#35353A;
+    --rule:#232326; --rule-soft:#18181B; --rule-strong:#35353A;
     --ink:#F2F2F3; --ink-2:#C8C8CC; --ink-3:#9A9AA0; --ink-4:#6E6E75;
-    --accent:#FB7185; --accent-strong:#FDA4AF; --accent-soft:#E11D48; --accent-2:#F43F5E;
-    --accent-ink:#000000; --accent-wash:rgba(251,113,133,0.16); --accent-line:rgba(251,113,133,0.34);
-    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
-    --k1:#8C96FF; --k2:#E8B04A; --k3:#5CCB92; --k4:#F17B9A; --k5:#B98BF5; --k6:#5CC0E6; --k7:#F59A64; --k8:#BCD15A;
+    --accent:#22D3EE; --accent-strong:#67E8F9;
+    --accent-ink:#000000; --accent-wash:rgba(34,211,238,0.16); --accent-line:rgba(34,211,238,0.34);
+    --k1:#85BAFF; --k2:#C2BC60; --k3:#EF99C2; --k4:#4ACFC7; --k5:#B0ADFE; --k6:#90C983; --k7:#D3A1EA; --k8:#F49F79;
     --good:#34D399; --good-wash:rgba(52,211,153,0.15);
     --warn:#FBBF24; --warn-wash:rgba(251,191,36,0.15);
     --serious:#FB923C; --serious-wash:rgba(251,146,60,0.16);
     --critical:#FB7185; --critical-wash:rgba(251,113,133,0.15);
     --done:#94A3B8; --done-wash:rgba(148,163,184,0.16);
-    --c1:#1c5cab; --c2:#256abf; --c3:#3987e5; --c4:#6da7ec; --c5:#9ec5f4;
     --c0-line:#35353A; --lost:#232326;
     --sh-1:0 1px 2px rgba(0,0,0,.55);
     --sh-2:0 2px 8px -2px rgba(0,0,0,.6), 0 10px 30px -16px rgba(0,0,0,.85);
@@ -81,21 +75,19 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg:#000000; --paper:#000000;
-  --surface:#0A0A0B; --card:#0A0A0B;
-  --surface-2:#161618; --sunken:#161618;
+  --surface:#0E0E10; --card:#0E0E10;
+  --surface-2:#1A1A1D; --sunken:#1A1A1D;
   --raise:#1A1A1D;
-  --rule:#232326; --rule-soft:#161618; --rule-strong:#35353A;
+  --rule:#232326; --rule-soft:#18181B; --rule-strong:#35353A;
   --ink:#F2F2F3; --ink-2:#C8C8CC; --ink-3:#9A9AA0; --ink-4:#6E6E75;
-  --accent:#FB7185; --accent-strong:#FDA4AF; --accent-soft:#E11D48; --accent-2:#F43F5E;
-  --accent-ink:#000000; --accent-wash:rgba(251,113,133,0.16); --accent-line:rgba(251,113,133,0.34);
-  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
-  --k1:#8C96FF; --k2:#E8B04A; --k3:#5CCB92; --k4:#F17B9A; --k5:#B98BF5; --k6:#5CC0E6; --k7:#F59A64; --k8:#BCD15A;
+  --accent:#22D3EE; --accent-strong:#67E8F9;
+  --accent-ink:#000000; --accent-wash:rgba(34,211,238,0.16); --accent-line:rgba(34,211,238,0.34);
+  --k1:#85BAFF; --k2:#C2BC60; --k3:#EF99C2; --k4:#4ACFC7; --k5:#B0ADFE; --k6:#90C983; --k7:#D3A1EA; --k8:#F49F79;
   --good:#34D399; --good-wash:rgba(52,211,153,0.15);
   --warn:#FBBF24; --warn-wash:rgba(251,191,36,0.15);
   --serious:#FB923C; --serious-wash:rgba(251,146,60,0.16);
   --critical:#FB7185; --critical-wash:rgba(251,113,133,0.15);
   --done:#94A3B8; --done-wash:rgba(148,163,184,0.16);
-  --c1:#1c5cab; --c2:#256abf; --c3:#3987e5; --c4:#6da7ec; --c5:#9ec5f4;
   --c0-line:#35353A; --lost:#232326;
   --sh-1:0 1px 2px rgba(0,0,0,.55);
   --sh-2:0 2px 8px -2px rgba(0,0,0,.6), 0 10px 30px -16px rgba(0,0,0,.85);
@@ -163,11 +155,10 @@ main#view { display:flex; flex-direction:column; gap:22px; min-width:0; }
    ============================================================ */
 .brand { padding:2px 8px; display:flex; align-items:center; gap:11px; }
 .brand .mark {
-  width:34px; height:34px; border-radius:10px; flex:none;
-  background:linear-gradient(150deg, var(--accent), var(--accent-2));
-  display:grid; place-items:center; color:var(--accent-ink); box-shadow:var(--sh-1);
+  width:34px; height:34px; border-radius:9px; flex:none;
+  background:var(--surface-2); color:var(--ink); font:700 17px/1 var(--f-display);
+  display:grid; place-items:center;
 }
-.brand .mark svg { width:19px; height:19px; }
 .brand h1 { font-family:var(--f-display); font-weight:600; font-size:18px; margin:0; letter-spacing:-.01em; line-height:1.1; }
 .brand .sub { font-size:11px; color:var(--ink-3); }
 
@@ -339,7 +330,7 @@ a.cnav .ct { font-family:var(--f-data); font-size:10.5px; color:var(--ink-3); }
 .plan-row .body .t { font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .plan-row .body .m { font-size:12px; color:var(--ink-3); margin-top:2px; display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
 .plan-row .body .m .swatch { width:8px; height:8px; border-radius:3px; }
-.plan-row .dur { font-family:var(--f-data); font-size:12px; color:var(--ink-2); font-variant-numeric:tabular-nums; text-align:right; }
+.plan-row .dur { font-family:var(--f-data); font-size:12px; color:var(--ink-2); font-variant-numeric:tabular-nums; text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
 .plan-row .go { display:none; }
 .plan-row:hover .go, .plan-row.active .go { display:inline-flex; }
 .plan-row.done .tick { background:var(--accent); border-color:var(--accent); }
@@ -351,15 +342,13 @@ a.cnav .ct { font-family:var(--f-data); font-size:10.5px; color:var(--ink-3); }
 .plan-row .live .pulse { width:7px; height:7px; border-radius:50%; background:var(--accent); animation:pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
 .plan-empty { padding:22px 18px; text-align:center; color:var(--ink-3); font-size:13.5px; }
-/* the three lanes of D-15, one tone each (D-191) */
-.lane-review { --lane:var(--warn); --lane-wash:var(--warn-wash); }
-.lane-study { --lane:var(--accent); --lane-wash:var(--accent-wash); }
-.lane-setup { --lane:var(--ink-2); --lane-wash:var(--surface-2); }
-.card.lane { border-left:3px solid var(--lane); }
-.pill.lane { color:var(--lane); background:var(--lane-wash); border-color:transparent; }
-.pill.lane .dot { background:var(--lane); }
+/* the three lanes of D-15 (D-191) carry no colour of their own (D-231): heading, count and icon tell them apart */
+.pill.lane { color:var(--ink-2); background:var(--surface-2); border-color:transparent; }
+.pill.lane .dot { background:var(--ink-3); }
 .lane-h { font-family:var(--f-display); font-weight:600; font-size:17px; margin:0; display:flex; align-items:center; gap:8px; }
-.lane-h::before { content:""; width:10px; height:10px; border-radius:3px; background:var(--lane); }
+.card.lane .card-head h3 { display:flex; align-items:center; gap:8px; }
+.card.lane .card-head h3 .ic, .lane-h .ic { display:inline-flex; color:var(--ink-3); }
+.card.lane .card-head h3 .ic svg, .lane-h .ic svg { width:17px; height:17px; }
 
 /* add-task form */
 .addbar { display:flex; gap:8px; align-items:center; padding:12px 18px; border-top:1px solid var(--rule-soft); flex-wrap:wrap; }
@@ -566,7 +555,7 @@ table.data a:hover { text-decoration:underline; }
 .semprog { text-align:right; min-width:150px; }
 .semprog .eyebrow { display:block; margin-bottom:5px; }
 .semprog .bar { height:6px; border-radius:var(--rpill); background:var(--surface-2); overflow:hidden; }
-.semprog .bar > i { display:block; height:100%; background:linear-gradient(90deg,var(--accent-soft),var(--accent)); border-radius:var(--rpill); }
+.semprog .bar > i { display:block; height:100%; background:var(--accent); border-radius:var(--rpill); }
 .semprog .cap { font-family:var(--f-data); font-size:11px; color:var(--ink-3); margin-top:5px; display:block; }
 .searchbox { position:relative; }
 .searchbox input { width:180px; }
@@ -708,91 +697,97 @@ footer.foot code { font-family:var(--f-data); font-size:11.5px; color:var(--ink-
 .nb { display:inline-flex; align-items:center; font-size:12px; color:var(--ink-3); border:1px dashed var(--rule); border-radius:999px; padding:1px 9px; white-space:nowrap; }
 
 /* ============================================================
-   17 - QUIET GLASS (D-207): frosted only where content passes beneath (rail, top bar, phone nav,
-   modal); cards are near-solid with a hairline edge. One accent wash, no gloss, no glow.
+   17 - TRUE-BLACK FLAT (D-225, D-231; amends D-207's glass): a card is one step lighter than the page,
+   with no border, shadow or blur. Every card is neutral; colour is a mark on data (D-231).
    ============================================================ */
 :root {
-  --glass:rgba(255,255,255,.70); --glass-strong:rgba(255,255,255,.86);
-  --glass-edge:rgba(23,20,31,.09); --blur:saturate(150%) blur(20px);
-  --surface:rgba(255,255,255,.78); --card:rgba(255,255,255,.78); --raise:rgba(255,255,255,.9);
-  --surface-2:rgba(23,20,31,.045); --sunken:rgba(23,20,31,.045);
-  --r1:8px; --r2:12px; --r3:16px;
-  --sh-1:0 1px 2px rgba(23,20,31,.05);
-  --sh-2:0 1px 2px rgba(23,20,31,.05), 0 6px 18px -10px rgba(23,20,31,.16);
-  --sh-3:0 18px 44px -18px rgba(23,20,31,.30);
-  --wash:rgba(225,29,72,.07);
+  --r1:8px; --r2:12px; --r3:14px;
+  --sh-1:none; --sh-2:none; --sh-3:0 18px 44px -18px rgba(23,20,31,.30);
 }
-@media (prefers-color-scheme:dark) { :root:not([data-theme="light"]) {
-  --glass:rgba(16,16,18,.72); --glass-strong:rgba(22,22,26,.88); --glass-edge:rgba(255,255,255,.08);
-  --surface:rgba(14,14,16,.78); --card:rgba(14,14,16,.78); --raise:rgba(24,24,28,.9);
-  --surface-2:rgba(255,255,255,.055); --sunken:rgba(255,255,255,.055);
-  --sh-1:0 1px 2px rgba(0,0,0,.5); --sh-2:0 8px 24px -12px rgba(0,0,0,.8); --sh-3:0 22px 50px -18px rgba(0,0,0,.9);
-  --wash:rgba(251,113,133,.10);
-} }
-:root[data-theme="dark"] {
-  --glass:rgba(16,16,18,.72); --glass-strong:rgba(22,22,26,.88); --glass-edge:rgba(255,255,255,.08);
-  --surface:rgba(14,14,16,.78); --card:rgba(14,14,16,.78); --raise:rgba(24,24,28,.9);
-  --surface-2:rgba(255,255,255,.055); --sunken:rgba(255,255,255,.055);
-  --sh-1:0 1px 2px rgba(0,0,0,.5); --sh-2:0 8px 24px -12px rgba(0,0,0,.8); --sh-3:0 22px 50px -18px rgba(0,0,0,.9);
-  --wash:rgba(251,113,133,.10);
-}
+@media (prefers-color-scheme:dark) { :root:not([data-theme="light"]) { --sh-3:0 22px 50px -18px rgba(0,0,0,.9); } }
+:root[data-theme="dark"] { --sh-3:0 22px 50px -18px rgba(0,0,0,.9); }
 
-/* one quiet accent wash in a corner - enough for the frosted parts to have something to blur */
-body::before { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
-  background:radial-gradient(70vw 55vh at 0% -8%, var(--wash), transparent 65%); }
-
-/* cards: near-solid, hairline edge, one soft shadow. no lift, no gloss. */
-.card, .task, .hcard, .focus, .sk-week, .sk-tabs, .tile {
-  border:1px solid var(--glass-edge); box-shadow:var(--sh-2); border-radius:var(--r3);
-}
-.task:hover, .hcard:hover { transform:none; border-color:var(--rule-strong); box-shadow:var(--sh-2); }
-.card.lane { border-left:1px solid var(--glass-edge); box-shadow:var(--sh-2), inset 3px 0 0 var(--lane); }
-.hcard { border-left:1px solid var(--glass-edge); box-shadow:var(--sh-2), inset 3px 0 0 var(--cc); }
+.card, .task, .hcard, .focus, .sk-week, .sk-tabs, .tile { border:0; box-shadow:none; border-radius:var(--r3); }
+.task:hover, .hcard:hover { transform:none; box-shadow:none; }
+.hcard { box-shadow:inset 3px 0 0 var(--cc); }
 .hcard::before { display:none; }
-.focus { border-left:1px solid var(--glass-edge); }
-.card-head { border-bottom-color:var(--glass-edge); }
+.card-head { border-bottom:0; padding-bottom:4px; }
 
-/* frosted: only what content scrolls beneath */
-.rail, .app.collapsed.peek .rail, .topbar, .mobtop, .mobnav, .session {
-  background:var(--glass); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur);
-}
-.app.collapsed.peek .rail, .session { background:var(--glass-strong); }
-.rail { border-right:1px solid var(--glass-edge); }
-.topbar { border:1px solid var(--glass-edge); border-radius:var(--r3); padding:12px 18px; margin:12px 0 12px; box-shadow:var(--sh-1); }
-.mobtop, .mobnav { border-color:var(--glass-edge); }
-.session { border-radius:20px; box-shadow:var(--sh-3); }
-.session-scrim { background:rgba(10,8,14,.40); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); }
+/* rail, top bar and phone bars sit flat on the page */
+.rail, .topbar, .mobtop, .mobnav { background:var(--bg); border:0; }
+.app.collapsed.peek .rail { background:var(--surface); }
+.topbar { box-shadow:none; border-radius:0; padding:20px 0 14px; margin:0 0 6px; }
+.mobtop { border-bottom:1px solid var(--rule-soft); }
+.mobnav { border-top:1px solid var(--rule-soft); box-shadow:none; }
+.session { background:var(--surface); border-radius:20px; box-shadow:var(--sh-3); }
+.session-scrim { background:rgba(0,0,0,.55); }
 
-/* nav */
-a.nav { border-radius:var(--r1); font-weight:550; }
-a.nav[aria-current="page"] { background:color-mix(in oklab, var(--accent) 12%, transparent); }
+/* nav: the current page is the one with the full-strength label */
+a.nav { border-radius:var(--r1); font-weight:500; color:var(--ink-3); }
+a.nav:hover { background:var(--surface-2); color:var(--ink); }
+a.nav:hover .ic { color:var(--ink); transform:none; }
+a.nav[aria-current="page"] { background:transparent; color:var(--ink); font-weight:600; }
 a.nav[aria-current="page"]::before { display:none; }
-.brand .mark { border-radius:9px; background:var(--accent); box-shadow:none; }
-.rail-toggle { background:transparent; border-color:var(--glass-edge); border-radius:var(--r1); }
+a.nav[aria-current="page"] .ic { color:var(--ink); }
+a.cnav[aria-current="page"] { background:transparent; color:var(--ink); }
+a.nav[aria-current="page"] .n-badge { background:var(--surface-2); color:var(--ink); }
+.rail-toggle { background:transparent; border-color:var(--rule); border-radius:var(--r1); }
 
 /* type: the dashboard's own grotesque, labels in sentence case instead of spaced capitals */
 h1, h2, h3, .page-head h2, .sec-head h2, .greet h2 { letter-spacing:-.015em; }
-.page-head h2 { font-size:30px; font-weight:700; }
+@media (min-width:761px) {
+  .page-head h2, .greet h2 { font-size:34px; font-weight:700; letter-spacing:-.03em; }
+  .focus .task { font-size:38px; line-height:1.08; font-weight:700; letter-spacing:-.025em; }
+}
 .eyebrow { font-family:var(--f-ui); font-size:12px; font-weight:500; letter-spacing:0; text-transform:none; color:var(--ink-3); }
 .nav-title { font-family:var(--f-ui); font-size:11.5px; font-weight:600; letter-spacing:0; text-transform:none; color:var(--ink-3); }
+.tag { font-family:var(--f-ui); font-size:11px; letter-spacing:0; text-transform:none; }
+table.data th { font-family:var(--f-ui); font-size:12px; letter-spacing:0; text-transform:none; }
 
-/* controls: no glow, no capsules except status chips */
+/* controls: one filled accent button per view */
 .btn { border-radius:var(--r1); height:38px; font-weight:600; }
-.btn-primary { box-shadow:none; }
-.btn-secondary, .chip, .pill { background:var(--surface-2); border-color:transparent; }
-.field { border:1px solid var(--glass-edge); border-radius:var(--r1); background:var(--surface); }
+.btn-primary { border-radius:999px; box-shadow:none; }
+.btn-secondary, .btn-ghost, .chip, .pill { background:var(--surface-2); border-color:transparent; }
+.field { border:1px solid var(--rule); border-radius:var(--r1); background:var(--surface); }
 .chip[aria-pressed="true"] { background:var(--ink); color:var(--bg); border-color:transparent; }
-.nb { border-color:var(--glass-edge); }
+.nb { border-color:var(--rule); }
+/* rows answer the pointer */
+.plan-row:not(.active):hover, .task:hover { background:color-mix(in oklab, var(--ink) 4%, transparent); }
 
-/* schedule */
-.sk-block { border-left:0; border-radius:10px; box-shadow:inset 3px 0 0 var(--c);
-  background:color-mix(in oklab, var(--c) 14%, var(--surface)); }
-.sk-col { border-left-color:var(--glass-edge); }
-.sk-col.today { background-color:color-mix(in oklab, var(--accent) 6%, transparent); }
+/* schedule: a flat tint per course; a block read from an image gets a dashed edge, not a chip */
+.sk-week { padding:14px 14px 14px 8px; }
+.sk-col { border-left-color:var(--rule-soft); }
+.sk-col.today { background-color:color-mix(in oklab, var(--ink) 4%, transparent); }
+.sk-block { border-left:0; box-shadow:none; border-radius:8px; background:color-mix(in oklab, var(--c) 20%, var(--surface)); }
+.sk-block:hover { transform:none; box-shadow:none; }
+.sk-block .code { font-family:var(--f-ui); font-size:12.5px; color:color-mix(in oklab, var(--c) 70%, var(--ink)); }
+.sk-block:has(.sk-chip.inf) { outline:1px dashed color-mix(in oklab, var(--c) 55%, transparent); outline-offset:-1px; }
+.sk-chip { font-family:var(--f-ui); text-transform:none; letter-spacing:0; font-size:11px; font-weight:500; background:none; padding:0; color:var(--ink-3); }
+.sk-chip::before { content:"· "; }
+.sk-chip.inf { display:none; }
+.sk-legend .sk-note { flex-basis:100%; }
+
+/* tablet: the rail takes its grid column's 216px; a later width:256px covered 40px of the content */
+@media (max-width:1080px) {
+  .app:not(.collapsed) .rail { width:216px; }
+  .app:not(.collapsed) .rail-top .brand { gap:8px; }
+  .app:not(.collapsed) .rail-top .brand h1 { font-size:12.5px; letter-spacing:-.02em; }
+  .app:not(.collapsed) .rail-top .brand .sub { font-size:10.5px; }
+  .app:not(.collapsed) .rail-top .brand .mark { width:30px; height:30px; }
+}
+/* phone: the Setup and Study rows stack when and what, so the words keep the full width */
+@media (max-width:560px) {
+  .plan-row { grid-template-columns:auto minmax(0,1fr); grid-template-areas:"tick when" "tick body" "tick dur"; gap:1px 12px; align-items:start; }
+  .plan-row > :nth-child(1) { grid-area:tick; margin-top:2px; }
+  .plan-row > :nth-child(2) { grid-area:when; min-width:0; font-size:11px; }
+  .plan-row > :nth-child(3) { grid-area:body; }
+  .plan-row > :nth-child(4) { grid-area:dur; align-items:flex-start; text-align:left; color:var(--ink-3); font-size:11.5px; }
+  .plan-row .go { display:inline-flex; }
+}
 
 .mobmore { position:absolute; right:8px; bottom:calc(100% + 8px); min-width:180px; padding:6px; display:flex; flex-direction:column;
   background:var(--bg);
-  border:1px solid var(--glass-edge); border-radius:var(--r3); box-shadow:var(--sh-3); }
+  border:1px solid var(--rule); border-radius:var(--r3); box-shadow:var(--sh-3); }
 .mobmore a { display:flex; align-items:center; gap:12px; padding:12px; border-radius:var(--r1); color:var(--ink); text-decoration:none; font-weight:600; font-size:14.5px; }
 .mobmore a:hover, .mobmore a[aria-current="page"] { background:var(--surface-2); }
 .mobmore a[aria-current="page"] { color:var(--accent); }
@@ -811,7 +806,7 @@ h1, h2, h3, .page-head h2, .sec-head h2, .greet h2 { letter-spacing:-.015em; }
   <aside class="rail">
     <div class="rail-top">
       <div class="brand">
-        <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9 15.2 2.2 2.2 4.3-4.4"/></svg></div>
+        <div class="mark" aria-hidden="true">S</div>
         <div class="brand-text"><h1>Semester Console</h1><div class="sub" id="brandSub">-</div></div>
       </div>
       <button class="rail-toggle" id="railToggle" type="button" aria-expanded="true" aria-label="Collapse sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
@@ -823,7 +818,7 @@ h1, h2, h3, .page-head h2, .sec-head h2, .greet h2 { letter-spacing:-.015em; }
   <div class="content">
     <div class="mobtop">
       <div class="brand">
-        <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9 15.2 2.2 2.2 4.3-4.4"/></svg></div>
+        <div class="mark" aria-hidden="true">S</div>
         <div><h1 style="font-size:16px">Semester Console</h1></div>
       </div>
       <button class="btn-icon btn-ghost" id="themeMob" aria-label="Toggle theme"></button>
@@ -932,6 +927,7 @@ const whenLong = a => a.date ? (a.approx ? "~" : "") + fmtLong(a.date) : "TBD";
 const LANES = ["review", "study", "setup"];
 const LANE_LABEL = { review: "Review", study: "Study", setup: "Setup", custom: "Task" };
 const LANE_TITLE = { review: "Reviews", study: "Study", setup: "Setup" };
+const LANE_ICON = { review: "clock", study: "book", setup: "flag" };
 const LANE_EMPTY = { review: "No reviews due.", study: "No study items in this plan.", setup: "No setup items in this plan." };
 const CUSTOM_MINS = 30;
 
@@ -1202,7 +1198,7 @@ function sessionBody() {
         <div class="s-controls">
           <button class="btn ${SESSION.paused ? "btn-primary" : "btn-secondary"}" data-sx="pause"${busy}>${SESSION.paused ? ICON.play + "Resume" : ICON.pause + "Pause"}</button>
           <button class="btn btn-secondary" data-sx="skip"${busy}>${ICON.skip}Skip</button>
-          <button class="btn btn-primary" data-sx="done"${busy}>${ICON.check}Complete</button>
+          <button class="btn ${SESSION.paused ? "btn-secondary" : "btn-primary"}" data-sx="done"${busy}>${ICON.check}Complete</button>
         </div>
         <div class="s-note">${SESSION.item.custom
           ? "A personal task stays on this page."
@@ -1261,7 +1257,7 @@ function focusHero() {
   const it = focusItem();
   if (!it) {
     const none = !DATA.plan;
-    return `<section class="focus"><span class="accentbar" style="background:${none ? "var(--ink-3)" : "var(--good)"}"></span>
+    return `<section class="focus"><span class="accentbar" style="background:var(--ink-3)"></span>
       <div class="focus-in" style="grid-template-columns:1fr">
         <div class="lead">
           <div class="kicker"><span class="eyebrow">Today's focus</span></div>
@@ -1285,7 +1281,7 @@ function focusHero() {
         <div class="course">${cSwatch}${cName}</div>
         <h2 class="task">${esc(it.what)}</h2>
         <div class="facts">
-          <div class="fact"><span class="fk">Lane</span><span class="fv">${ic(it.lane === "review" ? "today" : "book")}${LANE_LABEL[it.lane]}</span></div>
+          <div class="fact"><span class="fk">Lane</span><span class="fv">${ic(LANE_ICON[it.lane])}${LANE_LABEL[it.lane]}</span></div>
           <div class="fact"><span class="fk">${it.lane === "setup" ? "Worth" : "Time"}</span><span class="fv">${esc(minsTxt(it))}</span></div>
           <div class="fact"><span class="fk">Plan</span><span class="fv" style="font-weight:500">${esc(planAgeLabel())}</span></div>
         </div>
@@ -1322,7 +1318,7 @@ function planRows(items) {
         <span class="t">${esc(it.what)}${it.custom ? `<span class="tag">yours</span>` : ""}</span>
         <span class="m">${swatch}</span>
       </span>
-      <span class="dur" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <span class="dur">
         <span>${esc(minsTxt(it))}</span>
         ${st !== "done" ? `<button class="btn btn-secondary btn-sm go" data-action="start" data-uid="${esc(it.uid)}">${ICON.play}Start</button>` : ""}
       </span>
@@ -1335,7 +1331,7 @@ function planRows(items) {
 function laneCard(lane) {
   const all = laneItems(lane), items = all.filter(i => itemStatus(i) !== "skipped");
   return `<section class="card lane lane-${lane}" data-lane="${lane}">
-    <div class="card-head"><h3>${LANE_TITLE[lane]}</h3><span class="eyebrow">${esc(laneCount(lane))}</span></div>
+    <div class="card-head"><h3>${ic(LANE_ICON[lane])}${LANE_TITLE[lane]}</h3><span class="eyebrow">${esc(laneCount(lane))}</span></div>
     ${items.length ? planRows(items) : `<div class="plan-empty">${all.length ? "All skipped for today." : LANE_EMPTY[lane]}</div>`}
   </section>`;
 }
@@ -1356,7 +1352,7 @@ function planCard() {
       <select class="field mini" id="addMins" aria-label="Minutes">
         ${[15, 25, 30, 45, 60, 90].map(m => `<option value="${m}"${m === 30 ? " selected" : ""}>${m}m</option>`).join("")}
       </select>
-      <button class="btn btn-primary btn-sm" type="submit">${ICON.plus}Add</button>
+      <button class="btn btn-secondary btn-sm" type="submit">${ICON.plus}Add</button>
     </form>
   </section>`;
 }
@@ -1383,7 +1379,8 @@ function healthCard(c) {
 }
 
 /* task card (Tasks page) */
-function taskCard(it) {
+/* its Start is the view's one filled button only when the caller says so (the plan's first item on Tasks) */
+function taskCard(it, primary = false) {
   const active = SESSION && SESSION.uid === it.uid;
   const st = active ? "active" : itemStatus(it);
   const done = st === "done";
@@ -1404,7 +1401,7 @@ function taskCard(it) {
       <span class="dur">${esc(minsTxt(it))} · ${LANE_LABEL[it.lane]}</span>
       <div class="acts">
         ${done ? `<button class="btn btn-ghost btn-sm" data-action="toggle" data-uid="${esc(it.uid)}">Undo</button>`
-               : `<button class="btn btn-primary btn-sm" data-action="start" data-uid="${esc(it.uid)}">${ICON.play}Start</button>
+               : `<button class="btn ${primary ? "btn-primary" : "btn-secondary"} btn-sm" data-action="start" data-uid="${esc(it.uid)}">${ICON.play}Start</button>
                   <button class="btn btn-secondary btn-sm" data-action="skip" data-uid="${esc(it.uid)}" aria-label="Skip">${ICON.skip}</button>`}
         ${it.custom ? `<button class="btn btn-danger btn-sm btn-icon" data-action="del" data-uid="${esc(it.uid)}" aria-label="Delete task">${ICON.x}</button>` : ""}
       </div>
@@ -1603,7 +1600,7 @@ function skBody() {
   const dayRows = ms.filter(m => m.weekday === SK.day).sort((a, b) => toMin(a.start) - toMin(b.start))
     .map(m => `<div class="sk-row"><div class="t"><b>${esc(m.start)}</b>${esc(m.end)}</div>${skBlock(m)}</div>`).join("");
   const seen = [...new Set(DATA.meetings.map(m => m.course_id))].map(id => DATA.courses.find(c => c.courseId === id)).filter(Boolean);
-  return `<div class="sk-legend">${seen.map(c => `<span style="--c:${c.color}"><i></i>${esc(c.code)} · ${esc(c.name)}</span>`).join("")}</div>
+  return `<div class="sk-legend">${seen.map(c => `<span style="--c:${c.color}"><i></i>${esc(c.code)} · ${esc(c.name)}</span>`).join("")}${DATA.meetings.some(m => m.tier === "inferred") ? '<small class="sk-note">Dashed edge: read from an image, not confirmed yet.</small>' : ""}</div>
     <section class="sk-week" style="--days:${days};--hpx:${SK_HPX}px;--hrs:${hrs}" aria-label="Weekly schedule">${grid}</section>
     <section class="sk-dayview" aria-label="Daily schedule">
       <div class="sk-tabs" role="tablist" id="skTabs">${SK_DAYS.slice(0, days).map((n, i) => `<button type="button" role="tab" data-day="${i + 1}" aria-selected="${i + 1 === SK.day}">${n.slice(0, 3)}</button>`).join("")}</div>
@@ -1634,9 +1631,9 @@ PAGES.queue = () => {
       <input class="field ti" id="addTitle" placeholder="Add a task - e.g. re-read UML notes" aria-label="Task title" maxlength="120" autocomplete="off">
       <select class="field mini" id="addCourse" aria-label="Course"><option value="">No course</option>${DATA.courses.map(c => `<option value="${esc(c.id)}">${esc(c.code)}</option>`).join("")}</select>
       <select class="field mini" id="addMins" aria-label="Minutes">${[15,25,30,45,60,90].map(m => `<option value="${m}"${m === 30 ? " selected" : ""}>${m}m</option>`).join("")}</select>
-      <button class="btn btn-primary btn-sm" type="submit">${ICON.plus}Add task</button>
+      <button class="btn btn-secondary btn-sm" type="submit">${ICON.plus}Add task</button>
     </form></div>
-    ${mine.length ? `<div class="tasklist">${mine.map(taskCard).join("")}</div>`
+    ${mine.length ? `<div class="tasklist">${mine.map(x => taskCard(x)).join("")}</div>`
       : `<p class="none" style="padding:2px 2px">No personal tasks yet - anything you add here shows under Your tasks on Today and vanishes when you tick it off.</p>`}
   </section>
   <section class="section">
@@ -1794,7 +1791,7 @@ PAGES.course = c => {
   <div class="split">
     ${nbCard("Course progress", "Chapters, notes and review dates are not sent by the server yet. Coverage stays unknown until they are.")}
     <section class="card"><div class="card-head"><h3>In the plan</h3><span class="eyebrow">${esc(planAgeLabel())}</span></div>
-      ${q.length ? `<div class="tasklist" style="padding:14px 16px">${q.slice(0, 6).map(taskCard).join("")}</div>${q.length > 6 ? `<div class="strap rt">${q.length - 6} more in <a class="tlink" href="#/queue">Tasks</a>.</div>` : ""}` : `<div class="pad"><p class="none">Nothing in the plan for this course right now.</p></div>`}
+      ${q.length ? `<div class="tasklist" style="padding:14px 16px">${q.slice(0, 6).map(x => taskCard(x)).join("")}</div>${q.length > 6 ? `<div class="strap rt">${q.length - 6} more in <a class="tlink" href="#/queue">Tasks</a>.</div>` : ""}` : `<div class="pad"><p class="none">Nothing in the plan for this course right now.</p></div>`}
     </section>
   </div>
 
@@ -1866,14 +1863,14 @@ function renderMobnav(active) {
 const semCaption = () => SEM.pct != null ? `${SEM.pct}% · wk ${SEM.week}/${SEM.weeks}`
   : SEM.daysLeft != null ? `${SEM.daysLeft} days to finals` : "dates not set";
 
-function renderTopbar() {
+function renderTopbar(active) {
   const now = new Date(); const h = now.getHours();
   const greet = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   const dateStr = TODAY.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
   const semBar = `<div class="bar"><i style="width:${SEM.pct != null ? SEM.pct : 6}%"></i></div><span class="cap num">${semCaption()}</span>`;
   $("#topbar").innerHTML = `
     <div class="greet">
-      <h2>${greet}</h2>
+      ${active === "overview" ? `<h2>${greet}</h2>` : ""}
       <div class="meta">${esc(dateStr)} · <b>${esc(DATA.semester.name)}</b></div>
     </div>
     <div class="head-right">
@@ -1930,7 +1927,7 @@ function render(preserveScroll) {
   const raw = (location.hash || "#/overview").replace(/^#\/?/, "") || "overview";
   const { html, active } = pageFor(raw);
   $("#view").innerHTML = html + `<footer class="foot">Read from the study server (<code>GET /state</code>, generated ${esc(DATA.generatedAt)}). Unknown stays unknown, and a panel the server has no numbers for says so. This page never invents what the server does not know.</footer>`;
-  renderNav(active); renderMobnav(active); renderTopbar();
+  renderNav(active); renderMobnav(active); renderTopbar(active);
   $("#brandSub").textContent = SEM.week ? `Week ${SEM.week} of ${SEM.weeks}` : SEM.daysLeft != null ? `${SEM.daysLeft} days to finals` : "Semester dates not set";
   wire(raw);
   if (!preserveScroll) window.scrollTo({ top: 0, behavior: "instant" });
@@ -1966,9 +1963,10 @@ function wire(page) {
     /* grouped by lane, in lane order (D-191) */
     const group = lane => {
       const all = laneItems(lane), items = showDone ? all : all.filter(isOpen);
+      const first = (focusItem() || {}).uid;
       return `<div class="section lane-${lane}" data-lane="${lane}">
-        <div class="sec-head"><h3 class="lane-h">${LANE_TITLE[lane]}</h3><span class="eyebrow">${esc(laneCount(lane))}</span></div>
-        ${items.length ? `<div class="tasklist">${items.map(taskCard).join("")}</div>`
+        <div class="sec-head"><h3 class="lane-h">${ic(LANE_ICON[lane])}${LANE_TITLE[lane]}</h3><span class="eyebrow">${esc(laneCount(lane))}</span></div>
+        ${items.length ? `<div class="tasklist">${items.map(x => taskCard(x, x.uid === first)).join("")}</div>`
           : `<p class="none">${all.length ? "All cleared." : LANE_EMPTY[lane]}</p>`}
       </div>`;
     };
