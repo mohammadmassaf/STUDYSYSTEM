@@ -26,11 +26,13 @@ COURSE_FIELDS = {
     "vault_folder": lambda v: values.folder("vault_folder", v),
     # true: no papers exist, so the plan asks for none (D-223); false undoes a mistaken true
     "no_past_papers": lambda v: values.flag("no_past_papers", v),
+    # his group in this course's labs (e.g. G1): the week shows only its meetings (D-227)
+    "lab_group": lambda v: values.text("lab_group", v),
 }
 
 # Inputs that can only ever be declared - no tier column: NULL (or no_past_papers' default 0)
 # already says "not declared".
-NO_TIER = ("target_grade", "vault_folder", "no_past_papers")
+NO_TIER = ("target_grade", "vault_folder", "no_past_papers", "lab_group")
 
 # Fields that sound like course inputs but have another home - the unknown_field fix names it.
 # strategy's tool, study_respond_to_offer, arrives with 4.9; until then the fix names no tool.

@@ -14,7 +14,7 @@ import json
 from collections.abc import Callable
 
 from jsonschema import Draft202012Validator
-from sqlalchemy import Connection, Engine, func, select
+from sqlalchemy import Connection, Engine, func, or_, select
 
 from studysystem.db.tables import (
     assessment,
@@ -181,11 +181,21 @@ TIMETABLE_SCHEMA = _record({}, {"meetings": _list(MEETING_SCHEMA)})
 
 def _timetable(conn: Connection, user_id: str, today: datetime.date) -> dict:
     """His week of classes. No meetings entered is unknown, not an empty week; the week is
-    inferred while any meeting in it is."""
+    inferred while any meeting in it is. A course with his lab group set sends its whole-class
+    meetings and that group's only; the other groups' rows stay stored (D-227)."""
+    his_group = or_(
+        class_meeting.c.group_label.is_(None),
+        course.c.lab_group.is_(None),
+        func.lower(class_meeting.c.group_label) == func.lower(course.c.lab_group),
+    )
     rows = conn.execute(
         select(class_meeting, course.c.code)
         .join_from(class_meeting, course, course.c.id == class_meeting.c.course_id)
-        .where(class_meeting.c.user_id == user_id, course.c.dropped_at.is_(None))  # D-217
+        .where(
+            class_meeting.c.user_id == user_id,
+            course.c.dropped_at.is_(None),  # D-217
+            his_group,
+        )
         .order_by(class_meeting.c.weekday, class_meeting.c.start_time, course.c.code)
     ).all()
     meetings = [
