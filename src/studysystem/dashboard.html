@@ -765,6 +765,23 @@ table.data th { font-family:var(--f-ui); font-size:12px; letter-spacing:0; text-
 .sk-chip { font-family:var(--f-ui); text-transform:none; letter-spacing:0; font-size:11px; font-weight:500; background:none; padding:0; color:var(--ink-3); }
 .sk-chip::before { content:"· "; }
 .sk-chip.inf { display:none; }
+/* week blocks: the label line never wraps; a narrow block drops the kind and the instructor,
+   its tooltip keeps every detail */
+.sk-col .sk-block .code, .sk-col .sk-block .meta { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sk-col .sk-block .code { display:block; }
+.sk-col .sk-block .nm { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; overflow-wrap:break-word; hyphens:auto; }
+.sk-block.narrow { padding:6px 7px; }
+.sk-block.narrow .sk-chip.kind, .sk-block.narrow .meta.who { display:none; }
+.sk-block.narrow .nm { font-size:12.5px; -webkit-line-clamp:2; }
+.sk-col .sk-block { container-type:inline-size; }
+/* under 72px a name cannot fit: the block shows its code, group and week pattern, then the time */
+@container (max-width:72px) {
+  .sk-col .sk-block .nm { display:none; }
+  .sk-col .sk-block .code { white-space:normal; }
+  .sk-col .sk-block .code .sk-chip:not(.inf):not(.kind) { display:block; }
+  .sk-col .sk-block .code .sk-chip::before { content:none; }
+  .sk-col .sk-block .meta { font-size:11px; }
+}
 .sk-legend .sk-note { flex-basis:100%; }
 
 /* tablet: the rail takes its grid column's 216px; a later width:256px covered 40px of the content */
@@ -1569,15 +1586,19 @@ function skLayout(list) {
   return out;
 }
 
-function skBlock(m, style) {
+/* narrow = it shares its time with another class, so it gets half the column or less */
+function skBlock(m, style, narrow = false) {
   const c = skCourse(m);
   const color = c ? c.color : "var(--ink-3)";
   const off = skOff(m);
-  return `<div class="sk-block${off ? " off" : ""}" style="--c:${color};${style || ""}"${off ? ' title="not this week"' : ""}>
-    <div class="code">${esc(m.code)}${skKinds() > 1 ? `<span class="sk-chip">${esc(m.kind)}</span>` : ""}${m.group_label ? `<span class="sk-chip">${esc(m.group_label)}</span>` : ""}${m.week_parity !== "every" ? `<span class="sk-chip" title="ISO week number">${esc(m.week_parity)} weeks</span>` : ""}${m.tier === "inferred" ? '<span class="sk-chip inf" title="read from an image, not confirmed">unconfirmed</span>' : ""}</div>
+  const parity = m.week_parity !== "every" ? m.week_parity + " weeks" : "";
+  const when = `${m.start}–${m.end}${m.room ? " · " + m.room : ""}`;
+  const tip = (off ? "Not this week: " : "") + [m.code, m.kind, m.group_label, parity, c ? c.name : "", when].filter(Boolean).join(" · ");
+  return `<div class="sk-block${off ? " off" : ""}${narrow ? " narrow" : ""}" style="--c:${color};${style || ""}" title="${esc(tip)}">
+    <div class="code">${esc(m.code)}${skKinds() > 1 ? `<span class="sk-chip kind">${esc(m.kind)}</span>` : ""}${m.group_label ? `<span class="sk-chip">${esc(m.group_label)}</span>` : ""}${m.week_parity !== "every" ? `<span class="sk-chip" title="ISO week number">${esc(m.week_parity)} weeks</span>` : ""}${m.tier === "inferred" ? '<span class="sk-chip inf" title="read from an image, not confirmed">unconfirmed</span>' : ""}</div>
     <div class="nm">${esc(c ? c.name : m.code)}</div>
-    ${c && c.instructor ? `<div class="meta">${esc(c.instructor)}</div>` : ""}
-    <div class="meta">${esc(m.start)}–${esc(m.end)}${m.room ? " · " + esc(m.room) : ""}</div></div>`;
+    ${c && c.instructor ? `<div class="meta who">${esc(c.instructor)}</div>` : ""}
+    <div class="meta">${esc(when)}</div></div>`;
 }
 
 function skBody() {
@@ -1591,7 +1612,7 @@ function skBody() {
   for (let wd = 1; wd <= days; wd++) {
     const blocks = skLayout(ms.filter(m => m.weekday === wd)).map(x => {
       const w = 100 / x.n;
-      return skBlock(x.m, `top:${(toMin(x.m.start) - start) / 60 * SK_HPX}px;height:${(toMin(x.m.end) - toMin(x.m.start)) / 60 * SK_HPX - 3}px;left:calc(${x.lane * w}% + 3px);width:calc(${w}% - 6px)`);
+      return skBlock(x.m, `top:${(toMin(x.m.start) - start) / 60 * SK_HPX}px;height:${(toMin(x.m.end) - toMin(x.m.start)) / 60 * SK_HPX - 3}px;left:calc(${x.lane * w}% + 3px);width:calc(${w}% - 6px)`, x.n > 1);
     }).join("");
     const nowLine = wd === today && cur >= start && cur <= start + hrs * 60 ? `<div class="sk-now" style="top:${(cur - start) / 60 * SK_HPX}px"></div>` : "";
     grid += `<div class="sk-col ${wd === today ? "today" : ""}">${blocks}${nowLine}</div>`;
