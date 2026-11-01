@@ -6,7 +6,7 @@ never 0 - and moves to `declared` only when Mohammad states it.
 
 from sqlalchemy import Engine, func, insert, select, update
 
-from studysystem.db.tables import capacity_suggestion, course
+from studysystem.db.tables import course
 from studysystem.errors import StudyError
 from studysystem.services import capacity, values
 from studysystem.services.assessments import insert_slot_and_assessment
@@ -115,15 +115,11 @@ def drop_course(engine: Engine, user_id: str, code: str, semester_name: str | No
             )
         stamp = now()
         conn.execute(update(course).where(course.c.id == course_id).values(dropped_at=stamp))
-        task_id = conn.execute(
-            select(capacity_suggestion.c.source_task_id).where(
-                capacity_suggestion.c.user_id == user_id,
-                capacity_suggestion.c.status == "pending",
-            )
-        ).scalar_one_or_none()  # at most one (D-216)
+        pending = capacity.pending_suggestion(conn, user_id)
         suggestion = None
-        if task_id is not None:
-            hours, suggestion_id = capacity.recount_suggestion(conn, user_id, task_id)
+        if pending is not None:
+            task_id = pending.source_task_id
+            hours, suggestion_id = capacity.recount_suggestion(conn, user_id, task_id, pending)
             suggestion = {
                 "task_id": task_id,
                 "hours_per_week": hours,
