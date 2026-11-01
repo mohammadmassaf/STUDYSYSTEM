@@ -11,7 +11,6 @@ import datetime
 import json
 import logging
 import time
-from collections import Counter
 from collections.abc import Iterable, Sequence
 
 from sqlalchemy import (
@@ -48,7 +47,14 @@ from studysystem.db.tables import (
     topic_weight,
 )
 from studysystem.services.ids import new_id, now
-from studysystem.services.profiles import MIN_PAPERS
+from studysystem.services.profiles import (
+    MIN_PAPERS,
+    counting_statements,
+    fit_statements,
+    paper_set,
+    pin_weights,
+    pins_of,
+)
 from studysystem.services.study_loop import retrievability
 from studysystem.services.topics import best_scores
 from studysystem.services.units import write_unit
@@ -85,7 +91,24 @@ def study_score(exams: Sequence[tuple[float, int]], weakness: float, minutes: in
     return proximity_marks * weakness / (minutes / 60)
 
 
-SHARE_NOTES = {"average": "average share, inferred", "equal split": "equal split, no profile"}
+def _share_note(exam: dict) -> str:
+    """How one exam's share of a topic was made, for the reason. Pure.
+
+    -> "profile v2" | "average share, inferred" | "28.6% stated by the instructor, declared" |
+    "11.1% - equal split of 9, no profile, inferred" | "8.9% - equal split of 8 after the
+    stated shares, no profile, inferred"
+    """
+    source = exam["share_source"]
+    if source == "profile":
+        return f"profile v{exam['profile_version']}"
+    if source == "average":
+        return "average share, inferred"
+    if source == "stated":
+        return f"{exam['share']:.1f}% stated by the instructor, declared"
+    after = " after the stated shares" if exam["stated_n"] else ""
+    return f"{exam['share']:.1f}% - equal split of {exam['split_n']}{after}, no profile, inferred"
+
+
 DATE_NOTES = {
     "exact": "",
     "approximate": "approximate date",
@@ -106,7 +129,7 @@ def study_reason(entry: dict, weakness: float, minutes: int) -> str:
     parts = []
     for exam in entry["exams"]:
         marks = exam["weight"] * exam["share"] / 100
-        share = SHARE_NOTES.get(exam["share_source"], f"profile v{exam['profile_version']}")
+        share = _share_note(exam)
         if exam["weight_tier"] != "declared":
             share += f"; exam weight {exam['weight']:g}, {exam['weight_tier']}"
         when = f"in {exam['days']} days"
@@ -190,12 +213,19 @@ def _topic_exams(
     today: datetime.date,
     average_credits: float | None,
     latest_exam_date: datetime.date | None,
+    reach_rows: Sequence | None = None,
+    stated: dict[str, dict[str, float]] | None = None,
 ) -> dict:
     """Group `_study_rows` by topic: {topic_id: the topic's course, credits, stability, and its
     exams - each with marks, days and where each number came from}. Pure: reads no database.
 
     Share: the profile's; a profile without this topic -> 100 / profile_size ("average"); no
-    profile -> 100 / topics reaching that exam ("equal split") (D-89, D-90). Marks = exam weight
+    profile -> 100 / topics reaching that exam ("equal split") (D-89, D-90). The topics reaching
+    an exam are counted over `reach_rows` - every row before the taught filter, `rows` when None
+    (D-222): I3351's Final splits among its 9 outcomes, taught or not. `stated` holds, per
+    assessment id, the instructor's shares on an exam with no profile ({topic_id: percent},
+    `_stated_shares`): a stated topic takes its share ("stated"), the rest split what is left
+    (D-221) - derive's pool math, `pin_weights`, on equal starting shares. Marks = exam weight
     x share / 100 x credits; NULL credits -> `average_credits`, inferred (D-84). Days = date -
     today; NULL date -> `latest_exam_date`, the latest one not yet passed, borrowed (D-86,
     D-142); below 1 -> 1 (D-95).
@@ -209,11 +239,20 @@ def _topic_exams(
     anywhere has a date - uses one shared value (credits 1, days 1): every course or exam is in
     the same case then, so it reorders nothing.
     """
-    # Pass 1: how many topics reach each exam - the equal split's n (D-89, D-90). Distinct
-    # pairs: `_study_rows`' UNION already returns a pair once, whichever path reached it (an
-    # exam edge, a chapter, or both); this keeps a repeated pair from counting a topic twice.
-    pairs = {(row.assessment_id, row.topic_id) for row in rows}
-    reaching = Counter(assessment_id for assessment_id, _ in pairs)
+    # Pass 1: which topics reach each exam - the equal split's pool (D-89, D-90), before the
+    # taught filter (D-222). A set: `_study_rows`' UNION already returns a pair once, whichever
+    # path reached it (an exam edge, a chapter, or both); this keeps a repeated pair from
+    # counting a topic twice.
+    reaching = {}
+    for row in rows if reach_rows is None else reach_rows:
+        reaching.setdefault(row.assessment_id, set()).add(row.topic_id)
+    stated = stated or {}
+    split = {  # assessment id -> {topic id: share}, the stated shares taken out first (D-221)
+        assessment_id: pin_weights(
+            {topic_id: 100 / len(ids) for topic_id in ids}, stated.get(assessment_id, {})
+        )
+        for assessment_id, ids in reaching.items()
+    }
 
     # Pass 2: one exam entry per row, collected under its topic - the merge.
     topics = {}
@@ -250,8 +289,10 @@ def _topic_exams(
         else:
             weight, weight_tier = row.exam_weight, row.exam_weight_tier
 
+        pins = stated.get(row.assessment_id, {})
         if row.exam_profile_id is None:
-            share, share_source = 100 / reaching[row.assessment_id], "equal split"
+            share = split[row.assessment_id][row.topic_id]
+            share_source = "stated" if row.topic_id in pins else "equal split"
         elif row.share is None:
             share, share_source = 100 / row.profile_size, "average"
         else:
@@ -274,6 +315,9 @@ def _topic_exams(
                 "weight_tier": weight_tier,
                 "share": share,
                 "share_source": share_source,
+                # the equal split's n and how many shares were stated, for the reason
+                "split_n": len(reaching[row.assessment_id] - pins.keys()),
+                "stated_n": len(pins),
                 "exam_profile_id": row.exam_profile_id,
                 "profile_version": row.profile_version,
                 "marks": weight * share / 100 * credits,
@@ -449,6 +493,28 @@ def _study_rows(
     return list(conn.execute(query).all())
 
 
+def _stated_shares(conn: Connection, user_id: str, rows: Sequence) -> dict[str, dict[str, float]]:
+    """Per assessment id with no profile in `rows`, the instructor's stated topic shares still
+    counting, as derive reads them (D-177 - D-183): {assessment_id: {topic_id: percent}}. An
+    exam with a profile is absent - derive already used its statements (D-221).
+
+    I3351 after "LO4 is 20 of 70 on the Final" -> {final: {LO4: 28.57}}.
+    """
+    unprofiled = sorted({row.assessment_id for row in rows if row.exam_profile_id is None})
+    slots = conn.execute(
+        select(assessment.c.id, assessment.c.slot_id).where(assessment.c.id.in_(unprofiled))
+    ).all()
+    stated = {}
+    for assessment_id, slot_id in slots:
+        in_set = paper_set(conn, user_id, slot_id)
+        newest_paper = in_set[0][1] if in_set else ""
+        statements, _ = fit_statements(counting_statements(conn, user_id, slot_id, newest_paper))
+        pins = pins_of(statements)
+        if pins:
+            stated[assessment_id] = pins
+    return stated
+
+
 def _first_material(conn: Connection, user_id: str) -> dict[str, str]:
     """D-91's "chapter entered first" key (D-102): per topic, the earliest `added_at` over the
     materials it has an edge to. A topic with no material edge is absent - it sorts last.
@@ -533,9 +599,12 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
                 course.c.credits,
                 course.c.credits_tier,
                 course.c.target_grade,
+                course.c.no_past_papers,
             ).where(course.c.user_id == user_id)
         )
     }
+    # Declared paper-less (D-223): neither papers item asks for what does not exist.
+    paperless = {course_id for course_id, row in courses.items() if row.no_past_papers}
 
     average_credits = _average_credits(row.credits for row in courses.values())
 
@@ -685,7 +754,7 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
     asking = set()  # slots raising past-papers, snoozed or not - before step 4's snooze
     for slot_id, (course_id, weight, name) in slot_weight.items():
         count = papers.get(slot_id, 0)
-        if count < PAPERS_WANTED:
+        if count < PAPERS_WANTED and course_id not in paperless:
             marks = weight if count < MIN_PAPERS else 0.0
             add("past-papers", slot_id, course_id, marks, name, slot_guess[slot_id])
             asking.add(slot_id)
@@ -697,7 +766,7 @@ def _setup_items(conn: Connection, user_id: str, today: datetime.date, topics: d
     left = _unpractised(conn, user_id, topics)
     short = {}  # slot id -> {topic id: its marks on the slot, before credits}
     for topic_id, entry in topics.items():
-        if left.get(topic_id, 0) >= SHORT_OF_QUESTIONS:
+        if left.get(topic_id, 0) >= SHORT_OF_QUESTIONS or entry["course_id"] in paperless:
             continue
         for exam in entry["exams"]:
             slot_id = exam_slot[exam["assessment_id"]]
@@ -830,9 +899,16 @@ def get_plan(
         ).scalar()
         latest_exam_date = datetime.date.fromisoformat(latest) if latest else None
 
-        # Study lane.
+        # Study lane. Every row before the taught filter too: an exam's equal split counts all
+        # the topics that reach it (D-222), and the log counts the untaught (D-123).
+        before_filter = _study_rows(conn, user_id, today, taught_only=False)
         topics = _topic_exams(
-            _study_rows(conn, user_id, today), today, average_credits, latest_exam_date
+            _study_rows(conn, user_id, today),
+            today,
+            average_credits,
+            latest_exam_date,
+            reach_rows=before_filter,
+            stated=_stated_shares(conn, user_id, before_filter),
         )
         first_material = _first_material(conn, user_id)
         study = []
@@ -866,9 +942,7 @@ def get_plan(
         # The two reasons an active topic is left out, counted apart for the log (D-123):
         # no upcoming exam (D-94), or not taught yet with its exams in term (D-118). The rows
         # without the taught filter hold every topic that has an upcoming exam.
-        reachable = len(
-            {row.topic_id for row in _study_rows(conn, user_id, today, taught_only=False)}
-        )
+        reachable = len({row.topic_id for row in before_filter})
         untaught = reachable - len(study)
         no_exam_left = active - reachable
 

@@ -62,9 +62,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "key (and topic) replaces it. A statement cannot be taken back, only replaced by a "
             "newer one - confirm it with the student before calling. Refused with "
             "pins_over_100 when the stated shares "
-            "would pass 100%. Call study_derive_profile afterwards so the profile uses it, and "
-            "repeat stated to the student. semester_name is needed only if the code exists in "
-            "two semesters."
+            "would pass 100%. Call study_derive_profile afterwards so the profile uses it - "
+            "for an exam with no profile (a course with no past papers) the next plan uses it "
+            "directly - and repeat stated to the student. semester_name is needed only if the "
+            "code exists in two semesters."
         ),
     )
     # claim_value is Any, not dict: a wrong shape reaches the service's check and comes back

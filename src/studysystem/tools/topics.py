@@ -8,7 +8,7 @@ from mcp.types import CallToolResult
 from pydantic import WithJsonSchema
 from sqlalchemy import Engine
 
-from studysystem.services import taxonomy, topics
+from studysystem.services import syllabus, taxonomy, topics
 from studysystem.services.users import current_user
 from studysystem.tools.results import run
 
@@ -109,4 +109,33 @@ def register(mcp: MCPServer, engine: Engine) -> None:
     def study_merge_topics(source_id: str, target_id: str) -> CallToolResult:
         return run(
             lambda: taxonomy.merge_topics(engine, current_user(engine), source_id, target_id)
+        )
+
+    @mcp.tool(
+        name="study_add_syllabus_topics",
+        description=(
+            "Make a course's syllabus learning outcomes its topics, for a course with no past "
+            "papers (D-218). Read the syllabus the student gives you and send one name per "
+            "learning outcome in outcomes, numbered as the syllabus numbers them, e.g. 'LO4 "
+            "Manage files, local users and groups, permissions and access control lists'. "
+            "assessment: the exam that examines the whole syllabus, usually 'Final exam' - each "
+            "outcome counts on it with an equal share until the instructor states one "
+            "(study_add_instructor_statement); a Partial reaches an outcome only through a "
+            "chapter tagged to it. Show the student the list and confirm it before calling: "
+            "topics cannot be removed, only split or merged. Then repeat stored to the student. "
+            "Also set no_past_papers with study_set_course_input so the plan stops asking for "
+            "papers. semester_name is needed only if the code exists in two semesters."
+        ),
+    )
+    # outcomes is Any, not list[str]: the service checks its shape (D-36), as children above.
+    def study_add_syllabus_topics(
+        code: str,
+        assessment: str,
+        outcomes: Annotated[Any, WithJsonSchema({"type": "array", "items": {"type": "string"}})],
+        semester_name: str | None = None,
+    ) -> CallToolResult:
+        return run(
+            lambda: syllabus.add_syllabus_topics(
+                engine, current_user(engine), code, assessment, outcomes, semester_name
+            )
         )

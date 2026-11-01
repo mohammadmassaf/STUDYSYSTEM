@@ -44,12 +44,17 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "above 0), 'instructor' (text), 'target_grade' (0-100, percent of the course "
             "grade) or 'vault_folder' (the course's folder, relative to the vault root, where "
             "its notes are exported - e.g. 'uni/Semester 1 2026-2027/Server-Side Web "
-            "Development'). Setting a value marks it declared; it cannot be set back to "
+            "Development') or 'no_past_papers' (true when the course has no past papers at all, "
+            "e.g. a new course - the plan stops asking for papers; false if that was wrong). "
+            "Setting a value marks it declared; it cannot be set back to "
             "unknown. Pass semester_name only when the code exists in more than one semester."
         ),
     )
     def study_set_course_input(
-        code: str, field: str, value: str | float | None, semester_name: str | None = None
+        code: str,
+        field: str,
+        value: bool | str | float | None,  # bool first: true must not become 1.0 (D-223)
+        semester_name: str | None = None,
     ) -> CallToolResult:
         return run(
             lambda: courses.set_course_input(
