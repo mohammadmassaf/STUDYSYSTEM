@@ -120,7 +120,13 @@ def _semester(conn: Connection, user_id: str, today: datetime.date) -> dict:
 # --- capacity -----------------------------------------------------------------
 
 CAPACITY_SCHEMA = _record(
-    {}, {"declared_hours_per_week": NUMBER, "from_date": DATE, "suggested_from_timetable": NUMBER}
+    {},
+    {
+        "declared_hours_per_week": NUMBER,
+        "from_date": DATE,
+        "suggested_from_timetable": NUMBER,
+        "suggestion_id": ID,  # the pending suggestion's, for the accept button
+    },
 )
 
 
@@ -134,17 +140,20 @@ def _capacity(conn: Connection, user_id: str, today: datetime.date) -> dict:
         .limit(1)
     ).first()
     suggested = conn.execute(
-        select(capacity_suggestion.c.hours_per_week)
+        select(capacity_suggestion.c.id, capacity_suggestion.c.hours_per_week)
         .where(capacity_suggestion.c.user_id == user_id, capacity_suggestion.c.status == "pending")
         .order_by(capacity_suggestion.c.id.desc())
         .limit(1)
-    ).scalar()
+    ).first()
     return {
         **_pair(
             "declared_hours_per_week", declared.hours_per_week if declared else None, "declared"
         ),
         **_pair("from_date", declared.from_date if declared else None, "declared"),
-        **_pair("suggested_from_timetable", suggested, "inferred"),
+        **_pair(
+            "suggested_from_timetable", suggested.hours_per_week if suggested else None, "inferred"
+        ),
+        **_pair("suggestion_id", suggested.id if suggested else None, "inferred"),
     }
 
 
@@ -160,6 +169,10 @@ MEETING_SCHEMA = _record(
         "end": TIME,
         "kind": {"enum": ["lecture", "lab", "tutorial"]},
         "tier": {"enum": ["declared", "inferred"]},  # inferred: read off an image, unconfirmed
+        # The pattern is a known fact either way, never unknown (D-216): NULL in the row means
+        # every week / the whole class, so it travels as "every" / "" rather than as a null.
+        "week_parity": {"enum": ["every", "odd", "even"]},  # odd/even by the ISO week number
+        "group_label": TEXT,  # a lab group's label, "" for the whole class
     },
     {"room": TEXT},
 )
@@ -172,7 +185,7 @@ def _timetable(conn: Connection, user_id: str, today: datetime.date) -> dict:
     rows = conn.execute(
         select(class_meeting, course.c.code)
         .join_from(class_meeting, course, course.c.id == class_meeting.c.course_id)
-        .where(class_meeting.c.user_id == user_id)
+        .where(class_meeting.c.user_id == user_id, course.c.dropped_at.is_(None))  # D-217
         .order_by(class_meeting.c.weekday, class_meeting.c.start_time, course.c.code)
     ).all()
     meetings = [
@@ -186,6 +199,8 @@ def _timetable(conn: Connection, user_id: str, today: datetime.date) -> dict:
             **_pair("room", row.room, row.tier),  # a room read off an image is unconfirmed too
             "kind": row.kind,
             "tier": row.tier,
+            "week_parity": row.week_parity or "every",
+            "group_label": row.group_label or "",
         }
         for row in rows
     ]
@@ -268,7 +283,7 @@ def _assessment_slots(conn: Connection, user_id: str, today: datetime.date) -> l
         )
         .join_from(assessment, assessment_slot, assessment_slot.c.id == assessment.c.slot_id)
         .join(course, course.c.id == assessment_slot.c.course_id)
-        .where(assessment.c.user_id == user_id)
+        .where(assessment.c.user_id == user_id, course.c.dropped_at.is_(None))  # D-217
         .order_by(
             assessment.c.date.is_(None), assessment.c.date, course.c.code, assessment_slot.c.name
         )
@@ -354,7 +369,8 @@ def _plan_item(row) -> dict:
 def _plan(conn: Connection, user_id: str, today: datetime.date) -> dict:
     """The latest stored all-courses plan - what the host was last shown (D-163). Reading never
     makes one: a GET that wrote a plan would move the plan in force on every refresh. No plan
-    yet is unknown."""
+    yet is unknown. A course dropped after the plan was built is left out of it here (D-217):
+    the stored rows stay as they were ranked."""
     latest = conn.execute(
         select(plan)
         .where(plan.c.user_id == user_id, plan.c.scope == "all-courses")
@@ -367,7 +383,7 @@ def _plan(conn: Connection, user_id: str, today: datetime.date) -> dict:
         select(plan_item, course.c.code, topic.c.name.label("topic_name"))
         .join_from(plan_item, course, course.c.id == plan_item.c.course_id)
         .outerjoin(topic, topic.c.id == plan_item.c.topic_id)
-        .where(plan_item.c.plan_id == latest.id)
+        .where(plan_item.c.plan_id == latest.id, course.c.dropped_at.is_(None))
         .order_by(plan_item.c.lane, plan_item.c.rank)
     ).all()
     lanes = {
@@ -377,7 +393,16 @@ def _plan(conn: Connection, user_id: str, today: datetime.date) -> dict:
         }
         for lane in ("review", "study", "setup")
     }
-    snapshot = json.loads(latest.strategy_snapshot)
+    dropped = set(
+        conn.execute(
+            select(course.c.id).where(course.c.user_id == user_id, course.c.dropped_at.is_not(None))
+        ).scalars()
+    )
+    snapshot = {
+        key: value
+        for key, value in json.loads(latest.strategy_snapshot).items()
+        if key not in dropped
+    }
     current = {
         "plan_id": latest.id,
         "created_at": latest.created_at,
@@ -427,7 +452,11 @@ def _courses(conn: Connection, user_id: str, today: datetime.date) -> list[dict]
         topics.setdefault(row.course_id, []).append(
             {"topic_id": row.id, "name": row.name, "status": row.status}
         )
-    rows = conn.execute(select(course).where(course.c.user_id == user_id).order_by(course.c.code))
+    rows = conn.execute(
+        select(course)
+        .where(course.c.user_id == user_id, course.c.dropped_at.is_(None))  # D-217
+        .order_by(course.c.code)
+    )
     return [
         {
             "course_id": row.id,

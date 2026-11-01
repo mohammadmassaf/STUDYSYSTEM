@@ -28,7 +28,7 @@ from starlette.routing import Route
 
 from studysystem.db.migrate import current_revision
 from studysystem.errors import StudyError, busy
-from studysystem.services import state, study_loop, values
+from studysystem.services import capacity, state, study_loop, values
 from studysystem.services.users import current_user
 from studysystem.startup import open_database
 
@@ -53,6 +53,7 @@ STATUS = {
 HOURS_FIELDS = ("code", "minutes", "topic_id", "setup_key", "session_id", "voids", "semester_name")
 START_FIELDS = ("code", "mode", "subject_type", "subject_id", "semester_name")
 STOP_FIELDS = ("code", "session_id", "minutes", "setup_key", "semester_name")
+ACCEPT_FIELDS = ("suggestion_id", "from_date")
 
 
 def _error(err: StudyError) -> JSONResponse:
@@ -176,6 +177,12 @@ def create_app(engine: Engine) -> Starlette:
                 study_loop.stop_timer,
                 STOP_FIELDS,
                 ("code", "session_id", "minutes"),
+            ),
+            write(
+                "/capacity/accept",
+                capacity.accept_capacity_suggestion,
+                ACCEPT_FIELDS,
+                ACCEPT_FIELDS,
             ),
         ],
         middleware=[Middleware(BaseHTTPMiddleware, dispatch=_own_host)],

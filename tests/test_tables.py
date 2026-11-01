@@ -298,6 +298,7 @@ RULE_CASES: list[tuple[str, str, dict]] = [
     # class_meeting
     ("ck_class_meeting_weekday_iso", "class_meeting", dict(weekday=8)),
     ("ck_class_meeting_time_order", "class_meeting", dict(start_time="11:00", end_time="10:00")),
+    ("ck_class_meeting_group_not_empty", "class_meeting", dict(group_label="")),
     # capacity
     ("ck_capacity_hours_range", "capacity", dict(hours_per_week=113)),
     ("ck_capacity_suggestion_hours_positive", "capacity_suggestion", dict(hours_per_week=0)),

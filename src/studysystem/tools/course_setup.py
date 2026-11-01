@@ -20,12 +20,21 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         description=(
             "Add a course for a semester. Creates its default 'Final exam' worth 100% of the grade "
             "as an inferred weight, until the real breakdown is set. Credits, instructor and "
-            "target grade start unknown; set them with study_set_course_input."
+            "target grade start unknown; set them with study_set_course_input. planned: false "
+            "for a course the student attends but does not study for (e.g. English) - it shows "
+            "on the timetable and stays out of the plan and the capacity suggestion."
         ),
     )
-    def study_add_course(code: str, name: str, semester_name: str) -> CallToolResult:
+    def study_add_course(
+        code: str,
+        name: str,
+        semester_name: str,
+        planned: bool | str = True,  # loose: "false" from Cowork gets parsed (D-36)
+    ) -> CallToolResult:
         return run(
-            lambda: courses.add_course(engine, current_user(engine), code, name, semester_name)
+            lambda: courses.add_course(
+                engine, current_user(engine), code, name, semester_name, planned
+            )
         )
 
     @mcp.tool(
@@ -110,4 +119,33 @@ def register(mcp: MCPServer, engine: Engine) -> None:
     def study_set_capacity(hours_per_week: str | float, from_date: str) -> CallToolResult:
         return run(
             lambda: capacity.set_capacity(engine, current_user(engine), hours_per_week, from_date)
+        )
+
+    @mcp.tool(
+        name="study_drop_course",
+        description=(
+            "Drop a course the student is not taking this semester, found by its code. Only "
+            "after the student asks for it. It leaves the plan, the Schedule page and the "
+            "dashboard's courses; its topics, papers and past plans stay as history. A pending "
+            "capacity suggestion is counted again without it - the reply gives the new number. "
+            "Pass semester_name only when the code exists in more than one semester."
+        ),
+    )
+    def study_drop_course(code: str, semester_name: str | None = None) -> CallToolResult:
+        return run(lambda: courses.drop_course(engine, current_user(engine), code, semester_name))
+
+    @mcp.tool(
+        name="study_accept_capacity_suggestion",
+        description=(
+            "Accept the study hours a timetable suggested (capacity_suggestion_id from the "
+            "timetable's submit reply), from a date on (YYYY-MM-DD). Only after the student says "
+            "yes to that number: it adds a new capacity row, as study_set_capacity does, and "
+            "marks the suggestion accepted. The capacity declared before stays in its rows."
+        ),
+    )
+    def study_accept_capacity_suggestion(suggestion_id: str, from_date: str) -> CallToolResult:
+        return run(
+            lambda: capacity.accept_capacity_suggestion(
+                engine, current_user(engine), suggestion_id, from_date
+            )
         )

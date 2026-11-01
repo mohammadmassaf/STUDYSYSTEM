@@ -43,7 +43,9 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "count, how many items to keep (extras are dropped); the rules list the course's "
             "topics with their ids, and every item needs a topic_id from them and an "
             "answer_key (stored as unverified); a course with no active topic is refused. "
-            "Other kinds are not available yet. Calling again while a "
+            "kind: 'timetable' reads the student's weekly class timetable from an image you "
+            "hold - pass no id; the rules list the course codes you may use and what to ask "
+            "the student. Other kinds are not available yet. Calling again while a "
             "task is still open returns the same task, so a lost payload can be fetched again."
         ),
     )

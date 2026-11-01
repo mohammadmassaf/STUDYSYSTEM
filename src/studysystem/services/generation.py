@@ -37,6 +37,7 @@ from sqlalchemy import Connection, Engine, func, insert, select, update
 
 from studysystem.db.tables import (
     assessment_slot,
+    class_meeting,
     course,
     evidence,
     exam_profile,
@@ -51,7 +52,7 @@ from studysystem.db.tables import (
     topic_weight,
 )
 from studysystem.errors import StudyError
-from studysystem.services import claims, feedback, intake, notes, topics, values
+from studysystem.services import capacity, claims, feedback, intake, notes, topics, values
 from studysystem.services.ids import new_id, now
 from studysystem.services.parts import Part, split
 from studysystem.services.units import write_unit
@@ -61,7 +62,14 @@ from studysystem.services.units import write_unit
 log = logging.getLogger(__name__)
 
 KINDS = ("note", "practice", "memory", "transcription", "timetable", "tagging", "observation")
-BUILT = ("transcription", "note", "tagging", "observation", "practice")  # the rest arrive later
+BUILT = (
+    "transcription",
+    "note",
+    "tagging",
+    "observation",
+    "practice",
+    "timetable",
+)  # the rest arrive later
 
 MAX_POSITION = 200  # no paper has this many questions (live maximum 24); `missing` walks 1..max
 
@@ -413,6 +421,60 @@ OBSERVATION_STEPS = [
     '{"claims": [{"claim_key": ..., "claim_value": {...}, "citation": ...}, ...]}.',
 ]
 
+# A timetable task's answer (3.6, D-19, D-216): his week as meetings, read off the image. The
+# host holds the image; the server sends only the rules and the course codes it may use.
+_TIME = {"type": "string", "pattern": r"^([01]\d|2[0-3]):[0-5]\d$"}
+_TEXT = {"type": "string", "pattern": r"\S"}
+TIMETABLE_SCHEMA = {
+    "type": "object",
+    "required": ["meetings"],
+    "additionalProperties": False,
+    "properties": {
+        "meetings": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "required": ["course_code", "weekday", "start_time", "end_time", "kind"],
+                "additionalProperties": False,
+                "properties": {
+                    "course_code": _TEXT,
+                    "weekday": {"type": "integer", "minimum": 1, "maximum": 7},
+                    "start_time": _TIME,
+                    "end_time": _TIME,
+                    "kind": {"enum": ["lecture", "lab", "tutorial"]},
+                    "room": _TEXT,
+                    "week_parity": {"enum": ["odd", "even"]},
+                    "group_label": _TEXT,
+                },
+            },
+        }
+    },
+}
+TIMETABLE_MEETING_SCHEMA = TIMETABLE_SCHEMA["properties"]["meetings"]["items"]
+_MEETING_CHECK = Draft202012Validator(TIMETABLE_MEETING_SCHEMA)
+_TIMETABLE_ENVELOPE_CHECK = Draft202012Validator(
+    {**TIMETABLE_SCHEMA, "properties": {"meetings": {"type": "array", "minItems": 1}}}
+)
+
+TIMETABLE_STEPS = [
+    "Read the student's timetable image and list every class meeting in it, one entry each.",
+    "course_code must be one of rules.courses. A code that is not there comes back as an error: "
+    "ask the student whether to add it as a course that is not planned, then send it again.",
+    "kind (lecture, lab or tutorial) is never printed on the image: ask the student for each "
+    "course, never guess it.",
+    "weekday: 1 = Monday ... 7 = Sunday. Times are HH:MM, 24 hours.",
+    "A meeting that happens only in alternating weeks carries week_parity. Ask the student which "
+    "kind of week this week is, then send 'odd' or 'even' by the ISO week number. Leave "
+    "week_parity out for a meeting that happens every week.",
+    "A lab that splits into groups is one entry per group, each with its group_label (G1, G2 ...). "
+    "Leave group_label out for a meeting the whole class attends.",
+    "Show the student the list and wait for their yes before you submit it.",
+    "Submit with study_submit_generation(task_id, payload): "
+    '{"meetings": [{"course_code": ..., "weekday": ..., "start_time": ..., "end_time": ..., '
+    '"kind": ..., "room"?, "week_parity"?, "group_label"?}, ...]}.',
+]
+
 # A practice task's answer (2.7, D-211): new questions on the course's topics. The server fills in
 # what the host must not get wrong: origin = generated, answer_provenance = unverified (a key the
 # host wrote is never verified, D-16), state, novelty_score. No provenance field - one sent is
@@ -680,6 +742,8 @@ def start_generation(
         return _start_practice(engine, user_id, material_id, count, part)
     if kind == "observation":
         return _start_observation(engine, user_id, past_exam_id, part)
+    if kind == "timetable":
+        return _start_timetable(engine, user_id, part)
     return _start_transcription(engine, user_id, kind, past_exam_id, part)
 
 
@@ -744,6 +808,210 @@ def _start_transcription(
         )
     )
     return sent
+
+
+def _start_timetable(engine: Engine, user_id: str, part: object) -> Task:
+    """The user's timetable task, written alone - or the same open task again (D-46). It carries
+    no pages and no pictures - the host already holds the image - only the steps, the schema and
+    every course code the host may use, `planned` or not (D-216)."""
+    with write_unit(engine) as conn:
+        # At most one open timetable task per user: `one_or_none` raises on two.
+        open_task = conn.execute(
+            select(generation_task).where(
+                generation_task.c.user_id == user_id,
+                generation_task.c.kind == "timetable",
+                generation_task.c.scope_type == "user",
+                generation_task.c.scope_id == user_id,
+                generation_task.c.status == "open",
+            )
+        ).one_or_none()
+        task_id = open_task.id if open_task else new_id()
+        courses = [
+            {"code": r.code, "name": r.name}
+            for r in conn.execute(
+                select(course.c.code, course.c.name)
+                .where(course.c.user_id == user_id, course.c.dropped_at.is_(None))
+                .order_by(course.c.code)
+            )
+        ]
+        task = Task(
+            payload={
+                "task_id": task_id,
+                "content": [],
+                "schema": TIMETABLE_SCHEMA,
+                "rules": {"steps": TIMETABLE_STEPS, "courses": courses},
+            },
+            pictures=[],
+        )
+        row = dict(
+            id=task_id,
+            user_id=user_id,
+            kind="timetable",
+            scope_type="user",
+            scope_id=user_id,
+            exam_profile_id=None,  # a timetable reads no weights
+        )
+        # no long list to split: a student's course codes always fit in one part
+        cut = layout(task, None, ("task_id",))
+        sent, size = _send(conn, open_task, cut, part, row)
+
+    log.info(
+        json.dumps(
+            {
+                "event": "start_generation",
+                "task_id": task_id,
+                "kind": "timetable",
+                "resend": open_task is not None,
+                "courses": len(courses),
+                "part": sent.payload["part"],
+                "parts": sent.payload["parts"],
+                "bytes": size,
+            }
+        )
+    )
+    return sent
+
+
+def _submit_timetable(conn: Connection, user_id: str, task, payload: Any) -> tuple[dict, dict]:
+    """One submission for a timetable task, inside the caller's write unit (D-19, D-216). The
+    envelope is checked once, then each meeting alone: its schema, a course code of this user's
+    (any case), an end after its start, and a slot not already held. Each kept meeting is one
+    `class_meeting` row, tier `inferred` until he confirms it. Then his one pending suggestion
+    is counted again from his whole week (`capacity.recount_suggestion`). Returns the reply -
+    places in this payload, as an observation's - and its log line's fields."""
+    by_code = {
+        r.code.lower(): r.id
+        for r in conn.execute(
+            select(course.c.id, course.c.code).where(
+                course.c.user_id == user_id,
+                course.c.dropped_at.is_(None),  # D-217
+            )
+        )
+    }
+    # Every slot this user already holds, from any task: a second copy is an item error here,
+    # never a crash on ux_class_meeting_slot.
+    held = {
+        _slot_key(r.course_id, r.weekday, r.start_time, r.kind, r.week_parity, r.group_label)
+        for r in conn.execute(select(class_meeting).where(class_meeting.c.user_id == user_id))
+    }
+
+    errors: list[dict] = []
+    accepted: list[int] = []
+    env_error = _envelope_error(payload, _TIMETABLE_ENVELOPE_CHECK, "meetings")
+    if env_error is not None:
+        errors.append(env_error)
+    else:
+        for place, m in enumerate(payload["meetings"], start=1):
+            invalid = _schema_errors(place, m, _MEETING_CHECK, TIMETABLE_MEETING_SCHEMA)
+            if invalid:
+                errors.extend(invalid)
+                continue
+            course_id = by_code.get(m["course_code"].lower())
+            if course_id is None:
+                errors.append(
+                    _item_error(
+                        place,
+                        "unknown_course",
+                        "course_code",
+                        f"{m['course_code']} is not one of the student's courses - ask them "
+                        "whether to add it (study_add_course, planned false when it needs no "
+                        "study), then send this meeting again",
+                    )
+                )
+                continue
+            if m["end_time"] <= m["start_time"]:  # HH:MM text sorts as time does
+                errors.append(
+                    _item_error(
+                        place, "time_order", "end_time", "end_time must be after start_time"
+                    )
+                )
+                continue
+            key = _slot_key(
+                course_id,
+                m["weekday"],
+                m["start_time"],
+                m["kind"],
+                m.get("week_parity"),
+                m.get("group_label"),
+            )
+            if key in held:
+                errors.append(
+                    _item_error(
+                        place,
+                        "duplicate_meeting",
+                        "start_time",
+                        "this course already meets in this slot, with the same kind, week "
+                        "pattern and group - leave the copy out",
+                    )
+                )
+                continue
+            held.add(key)
+            conn.execute(
+                insert(class_meeting).values(
+                    id=new_id(),
+                    user_id=user_id,
+                    course_id=course_id,
+                    weekday=m["weekday"],
+                    start_time=m["start_time"],
+                    end_time=m["end_time"],
+                    room=m.get("room"),
+                    kind=m["kind"],
+                    week_parity=m.get("week_parity"),  # absent = every week (NULL)
+                    group_label=m.get("group_label"),  # absent = the whole class (NULL)
+                    tier="inferred",
+                    source_task_id=task.id,
+                    created_at=now(),
+                )
+            )
+            accepted.append(place)
+
+    suggested, suggestion_id = capacity.recount_suggestion(conn, user_id, task.id)
+
+    ordinal = _next_ordinal(conn, task.id)
+    if not errors:
+        status = "closed"
+    elif ordinal == MAX_SUBMISSIONS:
+        status = "partial"
+    else:
+        status = "open"
+    if status != "open":
+        conn.execute(
+            update(generation_task)
+            .where(generation_task.c.id == task.id)
+            .values(status=status, closed_at=now())
+        )
+
+    reply = {
+        "task_id": task.id,
+        "submission": ordinal,
+        "status": status,
+        "accepted": accepted,
+        "skipped": [],
+        "missing": [],
+        "item_errors": errors,
+        "submissions_left": MAX_SUBMISSIONS - ordinal if status == "open" else 0,
+        "suggested_hours_per_week": suggested,
+        "capacity_suggestion_id": suggestion_id,  # study_accept_capacity_suggestion takes it
+    }
+    # an envelope error names no meeting, so it rejects none (D-52)
+    rejected = len({e["item_ordinal"] for e in errors} - {None})
+    received = _record_submission(
+        conn, user_id, task, ordinal, payload, reply, len(accepted), rejected
+    )
+    event = {
+        "submission": ordinal,
+        "status": status,
+        "accepted": len(accepted),
+        "rejected": rejected,
+        "suggested": suggested,
+        "bytes": received,
+    }
+    return reply, event
+
+
+def _slot_key(course_id, weekday, start_time, kind, week_parity, group_label) -> tuple:
+    """What ux_class_meeting_slot keeps unique, with NULL folded to '' as the index folds it."""
+    return (course_id, weekday, start_time, kind, week_parity or "", group_label or "")
 
 
 def _start_observation(
@@ -1355,6 +1623,8 @@ def submit_generation(engine: Engine, user_id: str, task_id: str, payload: Any) 
             reply, event = _submit_practice(conn, user_id, task, payload)
         elif task.kind == "observation":
             reply, event = _submit_observation(conn, user_id, task, payload)
+        elif task.kind == "timetable":
+            reply, event = _submit_timetable(conn, user_id, task, payload)
         else:
             reply, event = _submit_transcription(conn, user_id, task, payload)
 
@@ -2083,7 +2353,9 @@ def _schema_errors(
             name = str(err.path[0])
             if name == "topic":
                 message = TOPIC_SHAPE
-            elif err.validator == "pattern":  # the only pattern is \S: blank text
+            elif err.validator == "pattern" and name in ("start_time", "end_time"):
+                message = f"{name} must be HH:MM, 24 hours (e.g. 08:30)"
+            elif err.validator == "pattern":  # every other pattern is \S: blank text
                 message = f"{name} must contain at least one non-space character"
             else:
                 message = err.message

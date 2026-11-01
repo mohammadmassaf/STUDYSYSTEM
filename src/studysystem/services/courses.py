@@ -6,9 +6,9 @@ never 0 - and moves to `declared` only when Mohammad states it.
 
 from sqlalchemy import Engine, func, insert, select, update
 
-from studysystem.db.tables import course
+from studysystem.db.tables import capacity_suggestion, course
 from studysystem.errors import StudyError
-from studysystem.services import values
+from studysystem.services import capacity, values
 from studysystem.services.assessments import insert_slot_and_assessment
 from studysystem.services.ids import new_id, now
 from studysystem.services.lookups import find_course
@@ -39,12 +39,21 @@ OTHER_HOMES = {
 }
 
 
-def add_course(engine: Engine, user_id: str, code: str, name: str, semester_name: str) -> dict:
+def add_course(
+    engine: Engine,
+    user_id: str,
+    code: str,
+    name: str,
+    semester_name: str,
+    planned: object = True,
+) -> dict:
     """The course, its default final slot and that final's sitting, as one unit (Write units).
-    Returns {"course_id", "slot_id", "assessment_id"}."""
+    `planned` false keeps it on his timetable but out of the plan and the capacity suggestion,
+    e.g. English (D-216). Returns {"course_id", "slot_id", "assessment_id"}."""
     code = values.text("code", code)
     name = values.text("name", name)
     semester_name = values.text("semester_name", semester_name)
+    planned = values.flag("planned", planned)
 
     with write_unit(engine) as conn:
         existing = conn.execute(
@@ -74,6 +83,7 @@ def add_course(engine: Engine, user_id: str, code: str, name: str, semester_name
                 credits=None,
                 credits_tier="unknown",
                 target_grade=None,
+                planned=int(planned),
                 created_at=now(),
             )
         )
@@ -81,6 +91,45 @@ def add_course(engine: Engine, user_id: str, code: str, name: str, semester_name
             conn, user_id, course_id, DEFAULT_FINAL, "exam", 100, "inferred"
         )
     return {"course_id": course_id, **ids}
+
+
+def drop_course(engine: Engine, user_id: str, code: str, semester_name: str | None = None) -> dict:
+    """He does not take this course this semester (D-217): `dropped_at` is set, once. It leaves
+    the plan, the Schedule page, the courses the dashboard shows and the timetable tasks; its
+    topics, papers and meetings stay as history. A pending capacity suggestion is counted again
+    in the same unit, so a dropped course's lectures stop counting at once.
+    Returns {"course_id", "dropped_at", "suggestion"} - the recounted suggestion's task_id,
+    hours_per_week and suggestion_id (both None when nothing counts any more), or None when
+    none was pending."""
+    with write_unit(engine) as conn:
+        course_id = find_course(conn, user_id, code, semester_name)
+        dropped_at = conn.execute(
+            select(course.c.dropped_at).where(course.c.id == course_id)
+        ).scalar_one()
+        if dropped_at is not None:
+            raise StudyError(
+                code="already_dropped",
+                message=f"{code} was dropped on {dropped_at}",
+                fix="nothing to do - it is already out of the plan and the week",
+                field_errors=[{"field": "code", "problem": "already dropped"}],
+            )
+        stamp = now()
+        conn.execute(update(course).where(course.c.id == course_id).values(dropped_at=stamp))
+        task_id = conn.execute(
+            select(capacity_suggestion.c.source_task_id).where(
+                capacity_suggestion.c.user_id == user_id,
+                capacity_suggestion.c.status == "pending",
+            )
+        ).scalar_one_or_none()  # at most one (D-216)
+        suggestion = None
+        if task_id is not None:
+            hours, suggestion_id = capacity.recount_suggestion(conn, user_id, task_id)
+            suggestion = {
+                "task_id": task_id,
+                "hours_per_week": hours,
+                "suggestion_id": suggestion_id,
+            }
+    return {"course_id": course_id, "dropped_at": stamp, "suggestion": suggestion}
 
 
 def set_course_input(

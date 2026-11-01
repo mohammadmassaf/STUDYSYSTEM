@@ -147,6 +147,8 @@ course = Table(
     enum_col("strategy", ["default", "catch-up"], default="default"),
     ts("strategy_changed_at", nullable=True),
     bool_col("conceded"),
+    bool_col("planned", default=1),  # 0 = on his timetable, never planned (D-216)
+    ts("dropped_at", nullable=True),  # set = not taken this semester, kept as history (D-217)
     ts("conceded_at", nullable=True),
     implies("conceded_at_set", "conceded = 1", "conceded_at IS NOT NULL"),
     Column("source_course_id", Text, nullable=True),
@@ -226,10 +228,29 @@ class_meeting = Table(
     CheckConstraint("end_time > start_time", name="time_order"),
     Column("room", Text, nullable=True),
     enum_col("kind", ["lecture", "lab", "tutorial"]),
+    # NULL = every week / the whole class. Odd or even is the ISO week number's (D-216).
+    enum_col("week_parity", ["odd", "even"], nullable=True),
+    Column(
+        "group_label",
+        Text,
+        CheckConstraint("group_label IS NULL OR length(group_label) > 0", name="group_not_empty"),
+        nullable=True,
+    ),
     enum_col("tier", ["declared", "inferred"]),
     fk("source_task_id", "generation_task", nullable=True),
     ts(),
-    UniqueConstraint("course_id", "weekday", "start_time", "kind"),
+)
+# A unique key over nullable columns lets two NULLs differ, so the pattern columns are folded
+# to '' (D-216); the CHECK above keeps a real label from being '' itself.
+Index(
+    "ux_class_meeting_slot",
+    class_meeting.c.course_id,
+    class_meeting.c.weekday,
+    class_meeting.c.start_time,
+    class_meeting.c.kind,
+    func.coalesce(class_meeting.c.week_parity, ""),
+    func.coalesce(class_meeting.c.group_label, ""),
+    unique=True,
 )
 
 capacity = Table(

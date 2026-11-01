@@ -66,6 +66,18 @@ def _practice(engine, user_id, request):
     return (lambda: start_generation(engine, user_id, "practice", material_id=chapter)), keeps_one
 
 
+def _timetable(engine, user_id, request):
+    request.getfixturevalue("web")  # I3302
+    lecture = {"course_code": "I3302", "weekday": 2, "start_time": "09:00", "end_time": "11:00"}
+    keeps_one = {
+        "meetings": [
+            {**lecture, "kind": "lecture"},
+            {**lecture, "weekday": 3},  # no kind: an error
+        ]
+    }
+    return (lambda: start_generation(engine, user_id, "timetable")), keeps_one
+
+
 # kind -> builder: (start, a payload that keeps part and leaves the task open)
 STARTERS = {
     "transcription": _transcription,
@@ -73,6 +85,7 @@ STARTERS = {
     "tagging": _tagging,
     "observation": _observation,
     "practice": _practice,
+    "timetable": _timetable,
 }
 
 

@@ -16,6 +16,8 @@ SETUP_TOOLS = {
     "study_add_assessment",
     "study_set_assessment_input",
     "study_set_capacity",
+    "study_accept_capacity_suggestion",
+    "study_drop_course",
 }
 
 
