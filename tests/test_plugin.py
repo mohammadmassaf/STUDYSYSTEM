@@ -61,7 +61,7 @@ def test_skill_gets_the_plan_before_the_session_and_logs_on_its_item(skill) -> N
 
     # The gate counts an hour only against the plan in force when its session started (D-113).
     assert text.index("study_get_plan") < text.index("study_start_session")
-    assert "topic_id or setup_key" in text
+    assert "material_id (a study chapter), topic_id (a review item" in text
     assert "Always pass the session_id" in text
 
 
@@ -83,6 +83,22 @@ def test_explain_chapter_makes_a_missing_note_before_the_session() -> None:
     # Only /add-chapter links topics (D-236): explain points the student there instead.
     assert "kind `tagging`" not in text
     assert "/add-chapter" in text
+
+
+def test_study_day_shows_chapters_and_asks_explain_or_practice() -> None:
+    # D-238, D-242: a study entry is a chapter, and explaining it belongs to /explain-chapter.
+    # A topic with no chapter has nothing to explain from, so it is practice on the topic (D-244).
+    text = body("study-day")
+
+    assert "`entries`" in text
+    assert "not taught yet" in text
+    assert "explain or practice?" in text
+    assert "`/explain-chapter`" in text
+    assert "subject_type `material`" in text
+
+
+def test_explain_chapter_logs_on_its_chapter_when_no_entry_shows_it() -> None:
+    assert "this chapter's material_id" in body("explain-chapter")
 
 
 def test_study_day_sends_a_first_material_item_to_add_chapter() -> None:

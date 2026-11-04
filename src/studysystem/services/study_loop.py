@@ -253,7 +253,7 @@ def start_session(
                 raise _not_found(
                     "subject_id",
                     f"{subject_type} with this id in {code}",
-                    f"use an id from study_get_topics for {code}",
+                    f"use an id from study_get_topics or study_get_plan for {code}",
                 )
         row = {
             "started_at": started.strftime(TIMESTAMP),
@@ -320,34 +320,38 @@ def log_hours(
     session_id: str | None = None,
     voids: str | None = None,
     semester_name: str | None = None,
+    material_id: str | None = None,
 ) -> dict:
     """Assert the minutes studied on a course - minutes enter here or at the timer's stop (D-17,
     D-198). One write unit: the new `hours_entry`, the entry it `voids`, and the session it closes.
 
-    Scope is a topic, a setup item's key, or neither (course-level, the cold-start case) - never
-    both. A setup key must be one a plan has raised for this course: a mistyped key would
-    snooze nothing (D-22). A session it names must be this course's; a still-open one is ended
-    now. A mistyped entry is never edited: send `voids` with its id - and the corrected minutes,
-    or none to only void it. The work started at the session's start, or `minutes` ago.
+    Scope is a chapter (`material_id`, D-238), a topic, a setup item's key, or none (course-level,
+    the cold-start case) - never two. A chapter must be this course's; whether its hour counts is
+    the gate's answer (D-243). A setup key must be one a plan has raised for this course: a
+    mistyped key would snooze nothing (D-22). A session it names must be this course's; a
+    still-open one is ended now. A mistyped entry is never edited: send `voids` with its id - and
+    the corrected minutes, or none to only void it. The work started at the session's start, or
+    `minutes` ago.
 
     Returns {"hours_entry_id" (None when only voiding), "minutes", "voided"}.
     """
     if minutes is None and voids is None:
         raise values.invalid("minutes", "is missing", "send the minutes studied, 1-720")
-    scoped = [f for f, v in (("topic_id", topic_id), ("setup_key", setup_key)) if v is not None]
+    scopes = (("material_id", material_id), ("topic_id", topic_id), ("setup_key", setup_key))
+    scoped = [f for f, v in scopes if v is not None]
     if minutes is None and (scoped or session_id is not None):
         raise values.invalid(
             (scoped or ["session_id"])[0],
-            "voiding alone writes no entry, so it takes no topic, setup key or session",
+            "voiding alone writes no entry, so it takes no chapter, topic, setup key or session",
             "send the corrected minutes with them, or send voids alone",
         )
     if minutes is not None:
         minutes = _minutes(minutes)
-    if topic_id is not None and setup_key is not None:
+    if len(scoped) > 1:
         raise values.invalid(
-            "setup_key",
-            "hours go to a topic or a setup item, not both",
-            "send topic_id or setup_key, or neither for course-level hours",
+            scoped[-1],
+            "hours go to one of a chapter, a topic or a setup item, not two",
+            "send material_id, topic_id or setup_key, or none for course-level hours",
         )
 
     stamp = now()
@@ -362,6 +366,15 @@ def log_hours(
                 "topic_id",
                 f"topic with this id in {code}",
                 f"use an id from study_get_topics for {code}",
+            )
+        if (
+            material_id is not None
+            and _subject_course(conn, user_id, "material", material_id) != course_id
+        ):
+            raise _not_found(
+                "material_id",
+                f"chapter with this id in {code}",
+                "use a material_id exactly as study_get_plan or study_add_material returned it",
             )
         if setup_key is not None:
             _check_setup_key(conn, user_id, course_id, code, setup_key)
@@ -389,6 +402,7 @@ def log_hours(
                 session_id=session_id,
                 topic_id=topic_id,
                 setup_key=setup_key,
+                material_id=material_id,
                 minutes=minutes,
                 occurred_at=started,
                 source="tool",
@@ -433,10 +447,11 @@ def stop_timer(
 
     `minutes` is what the page counted, pauses left out, 0-720. It may not exceed the minutes
     since the session's `started_at`, rounded up, so a second of drift between the two clocks
-    is no refusal. Under 1 minute ends the session and writes no entry. The entry's topic is the
-    session's subject when that is a topic. A setup item's key comes in `setup_key` (the session
-    has no column for it): one a plan raised for this course, never beside a topic subject. The
-    entry's `occurred_at` is the session's start.
+    is no refusal. Under 1 minute ends the session and writes no entry. The entry's topic or
+    chapter is the session's subject when that is a topic or a material (D-238). A setup item's
+    key comes in `setup_key` (the session has no column for it): one a plan raised for this
+    course, never beside a topic or material subject. The entry's `occurred_at` is the session's
+    start.
 
     I3304, practice on IP addressing, started 19:00 (expires 23:00):
         stop 19:52,    52  -> 52 min `timer` on IP addressing
@@ -453,7 +468,7 @@ def stop_timer(
         session_expired (session_id)  stopped at or after `expires_at`; the fix names
                                       study_log_hours, which records the real minutes as `tool`
         invalid_value (minutes)       more minutes than have passed
-        invalid_value (setup_key)     a setup key on a topic session
+        invalid_value (setup_key)     a setup key on a topic or chapter session
         not_found (setup_key)         a key no plan raised for this course
 
     Returns {"hours_entry_id" (None under 1 minute), "minutes", "session_id", "ended_at"}.
@@ -489,14 +504,15 @@ def stop_timer(
                 "send the minutes the timer counted",
             )
         if setup_key is not None:
-            if session.subject_type == "topic":
+            if session.subject_type in ("topic", "material"):
                 raise values.invalid(
                     "setup_key",
-                    "this session is on a topic, and hours go to a topic or a setup item, not both",
-                    "leave setup_key out: the session's topic gets the minutes",
+                    "this session has its own subject, and hours go to one scope, not two",
+                    "leave setup_key out: the session's subject gets the minutes",
                 )
             _check_setup_key(conn, user_id, course_id, code, setup_key)
         topic_id = session.subject_id if session.subject_type == "topic" else None
+        material_id = session.subject_id if session.subject_type == "material" else None
 
         conn.execute(
             update(study_session).where(study_session.c.id == session_id).values(ended_at=stamp)
@@ -512,6 +528,7 @@ def stop_timer(
                     session_id=session_id,
                     topic_id=topic_id,
                     setup_key=setup_key,
+                    material_id=material_id,
                     minutes=minutes,
                     occurred_at=session.started_at,
                     source="timer",

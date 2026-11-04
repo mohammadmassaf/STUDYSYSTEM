@@ -515,18 +515,61 @@ def _stated_shares(conn: Connection, user_id: str, rows: Sequence) -> dict[str, 
     return stated
 
 
-def _first_material(conn: Connection, user_id: str) -> dict[str, str]:
-    """D-91's "chapter entered first" key (D-102): per topic, the earliest `added_at` over the
-    materials it has an edge to. A topic with no material edge is absent - it sorts last.
+def _first_material(conn: Connection, user_id: str) -> dict:
+    """D-91's "chapter entered first" (D-102): per topic, the row of the material it has an edge
+    to that was added earliest, taught or not (D-243) - its `added_at` is the tie key, and the
+    topic shows under it (D-238). Two added in one second fall back to the id. A topic with no
+    material edge is absent: it sorts last and shows as its own entry (D-244).
 
-    I3302 today, Chapter 6 tagged -> {MySQL: "2026-10-03T19:36:33Z"}."""
+    I3304 today, TCP congestion -> {added_at: "2026-11-04T10:08:30Z", filename: "Chapter 3-
+    Transport layer (2).pdf", id: ...}."""
     rows = conn.execute(
-        select(coverage.c.topic_id, func.min(material.c.added_at))
+        select(coverage.c.topic_id, material.c.id, material.c.added_at, material.c.filename)
         .join_from(coverage, material, material.c.id == coverage.c.material_id)
         .where(coverage.c.user_id == user_id)
-        .group_by(coverage.c.topic_id)
+        .order_by(material.c.added_at, material.c.id)
     )
-    return dict(rows.tuples().all())
+    first = {}
+    for row in rows:
+        first.setdefault(row.topic_id, row)
+    return first
+
+
+def chapter_name(filename: str) -> str:
+    """How a material is named on screen: `material` holds no title, only its file's name. Pure.
+
+    "Chapter 3- Transport layer (2).pdf" -> "Chapter 3- Transport layer (2)"."""
+    return filename.removesuffix(".pdf")
+
+
+def entries_of(items: Iterable[dict]) -> list[dict]:
+    """The shown study items, ranked, as what the student picks from: one entry per chapter
+    (D-238), and one per topic with no chapter (D-244), the best rank first. Pure. An entry takes
+    the best rank among its topics. Its minutes are unknown if any topic's are.
+
+    Ranks 2 and 3 of I3302's Chapter 02 -> {rank: 2, material_id: ..., chapter: "I3302 - Chapter
+    02 - PHP", topics: ["PHP string functions", "PHP forms"], estimated_minutes: 120, ...}.
+    I3303's Signals -> {rank: 10, material_id: None, chapter: None, topic_ids: [its id], ...}.
+    """
+    grouped = {}
+    for item in items:
+        grouped.setdefault(item["material_id"] or item["topic_id"], []).append(item)
+    entries = []
+    for topics in grouped.values():
+        minutes = [topic["estimated_minutes"] for topic in topics]
+        entries.append(
+            {
+                "rank": topics[0]["rank"],
+                "course_id": topics[0]["course_id"],
+                "code": topics[0]["code"],
+                "material_id": topics[0]["material_id"],
+                "chapter": topics[0]["chapter"],
+                "topic_ids": [topic["topic_id"] for topic in topics],
+                "topics": [topic["topic_name"] for topic in topics],
+                "estimated_minutes": None if None in minutes else sum(minutes),
+            }
+        )
+    return entries
 
 
 def _unpractised(conn: Connection, user_id: str, topic_ids: Iterable[str]) -> dict[str, int]:
@@ -841,7 +884,8 @@ def get_plan(
     them are untaught, D-123), lane counts, run time.
 
     Returns {"plan_id", "lanes": {"review" | "study" | "setup": {"items": [the shown items, in
-    full], "hidden": count}}} - only what is returned is marked shown (D-92).
+    full], "hidden": count}}} - only what is returned is marked shown (D-92). The study lane also
+    holds "entries": its shown items grouped by chapter, what the student picks from (D-238).
 
     Refuses `shown_n` below 1, or not whole, before anything is read; "5" counts as 5 (the tool
     types it loosely, so the refusal is this structured one, D-36). Weakness is 1.0 for a topic
@@ -919,6 +963,7 @@ def get_plan(
                 recall = retrievability(entry["stability"], entry["last_reviewed_at"], today, tz)
                 weakness = 1 - recall
             pairs = [(exam["marks"], exam["days"]) for exam in entry["exams"]]
+            first = first_material.get(entry["topic_id"])  # None: no chapter
             study.append(
                 {
                     "topic_id": entry["topic_id"],
@@ -927,7 +972,9 @@ def get_plan(
                     "code": entry["code"],
                     "credits": entry["credits"],
                     "nearest_days": min(exam["days"] for exam in entry["exams"]),
-                    "first_material": first_material.get(entry["topic_id"]),  # None: no chapter
+                    "first_material": first.added_at if first else None,
+                    "material_id": first.id if first else None,
+                    "chapter": chapter_name(first.filename) if first else None,
                     "score": study_score(pairs, weakness, ESTIMATED_MINUTES),
                     "estimated_minutes": ESTIMATED_MINUTES,
                     "exam_profile_id": entry["exam_profile_id"],
@@ -1026,6 +1073,7 @@ def get_plan(
                 "topic_id": item.get("topic_id"),
                 "setup_kind": item.get("setup_kind"),
                 "setup_key": item.get("setup_key"),
+                "material_id": item.get("material_id"),
                 "rank": item["rank"],
                 "shown": int(item["shown"]),
                 "score": item.get("score"),
@@ -1055,7 +1103,7 @@ def get_plan(
             }
         )
     )
-    return {
+    answer = {
         "plan_id": plan_id,
         "lanes": {
             lane: {
@@ -1065,6 +1113,8 @@ def get_plan(
             for lane, items in lanes.items()
         },
     }
+    answer["lanes"]["study"]["entries"] = entries_of(i for i in lanes["study"] if i["shown"])
+    return answer
 
 
 # What the host reads of one item: what to show, and the ids it needs to log time against it.
@@ -1075,6 +1125,7 @@ SHOWN_FIELDS = (
     "topic_name",
     "setup_kind",
     "setup_key",
+    "material_id",
     "target_name",
     "score",
     "marks_unlocked_estimate",

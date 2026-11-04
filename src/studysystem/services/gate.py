@@ -17,14 +17,17 @@ def dogfood_gate(engine: Engine, user_id: str) -> dict:
 
     An hour counts when it is not voided and the plan in force at its `occurred_at` - the newest
     plan created at or before it, ties broken by id - holds a `plan_item` that is shown and is
-    about the same thing: the same `topic_id`, or the same `setup_key` for a setup hour. A
-    course-level hour (both NULL) matches nothing; an hour before any plan has no plan in force.
+    about the same thing: the same `topic_id`, the same `setup_key` for a setup hour, or the same
+    `material_id` for a chapter's hour - the chapter the item was grouped under when the plan was
+    made (D-238, D-240). A course-level hour (all NULL) matches nothing; an hour before any plan
+    has no plan in force.
 
     Returns {"used": bool, "rows": [...]}, rows oldest first, each:
-    {"hours_entry_id", "course_id", "topic_id", "setup_key", "minutes", "occurred_at",
-     "plan_id", "plan_item_id", "lane", "rank", "reason"}. `used` is whether `rows` is non-empty.
-    One row per matching item, not per hour: a topic shown in both the review and the study lane
-    lists its hour twice (D-117), so minutes are never summed over these rows.
+    {"hours_entry_id", "course_id", "topic_id", "setup_key", "material_id", "minutes",
+     "occurred_at", "plan_id", "plan_item_id", "lane", "rank", "reason"}. `used` is whether `rows`
+    is non-empty. One row per matching item, not per hour: a topic shown in both the review and
+    the study lane lists its hour twice, and an hour on a chapter lists once per shown topic under
+    it (D-117), so minutes are never summed over these rows.
     """
     # The plan in force for the outer hour: this user's newest plan made at or before it. Two
     # plans in one second fall back to the id - a ULID, so the later-made plan sorts last.
@@ -41,6 +44,7 @@ def dogfood_gate(engine: Engine, user_id: str) -> dict:
         or_(
             plan_item.c.topic_id == hours_entry.c.topic_id,
             plan_item.c.setup_key == hours_entry.c.setup_key,
+            plan_item.c.material_id == hours_entry.c.material_id,
         ),
         plan_item.c.shown == 1,
     )
@@ -50,6 +54,7 @@ def dogfood_gate(engine: Engine, user_id: str) -> dict:
             hours_entry.c.course_id,
             hours_entry.c.topic_id,
             hours_entry.c.setup_key,
+            hours_entry.c.material_id,
             hours_entry.c.minutes,
             hours_entry.c.occurred_at,
             plan_item.c.plan_id,

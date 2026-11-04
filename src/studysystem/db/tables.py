@@ -473,8 +473,14 @@ hours_entry = Table(
     fk("session_id", "study_session", nullable=True),
     fk("topic_id", "topic", nullable=True),
     Column("setup_key", Text, nullable=True),
-    # at most one scope; both NULL is the cold-start case and is legal
-    CheckConstraint("NOT (topic_id IS NOT NULL AND setup_key IS NOT NULL)", name="one_scope"),
+    fk("material_id", "material", nullable=True),  # a chapter's minutes (D-238)
+    # at most one scope; all NULL is the cold-start case and is legal
+    CheckConstraint(
+        "CASE WHEN topic_id IS NULL THEN 0 ELSE 1 END"
+        " + CASE WHEN setup_key IS NULL THEN 0 ELSE 1 END"
+        " + CASE WHEN material_id IS NULL THEN 0 ELSE 1 END <= 1",
+        name="one_scope",
+    ),
     Column(
         "minutes",
         Integer,
@@ -1028,6 +1034,8 @@ plan_item = Table(
     ),
     implies("marks_unlocked_setup_only", "marks_unlocked_estimate IS NOT NULL", "lane = 'setup'"),
     fk("exam_profile_id", "exam_profile", nullable=True),
+    fk("material_id", "material", nullable=True),  # the chapter a study topic shows under (D-240)
+    implies("chapter_study_only", "material_id IS NOT NULL", "lane = 'study'"),
     UniqueConstraint("plan_id", "lane", "rank"),
 )
 Index("ix_plan_item_user_topic", plan_item.c.user_id, plan_item.c.topic_id)

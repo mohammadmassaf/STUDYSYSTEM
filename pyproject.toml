@@ -1,6 +1,6 @@
 [project]
 name = "studysystem"
-version = "0.1.0"
+version = "0.2.0"
 description = "An MCP server that plans and tracks a student's semester: courses, past exams, topics, a ranked study plan, logged hours."
 readme = "README.md"
 authors = [

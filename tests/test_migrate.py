@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from alembic import command
 from click.testing import CliRunner
-from sqlalchemy import CheckConstraint, func, insert, inspect, select
+from sqlalchemy import CheckConstraint, func, insert, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 
 from studysystem import cli
@@ -31,7 +31,7 @@ from studysystem.db.tables import (
 )
 from tests._study import run_study
 
-HEAD = "0019"
+HEAD = "0020"
 
 
 def stamp() -> str | None:
@@ -1103,3 +1103,65 @@ def test_0019_adds_a_nullable_lab_group_and_keeps_the_course_code_index(empty_en
     command.downgrade(migrate.alembic_config(empty_engine), "0018")
     assert "lab_group" not in {c["name"] for c in inspect(empty_engine).get_columns("course")}
     assert "ux_course_code" in reflected_indexes(empty_engine)
+
+
+# --- 0020: a chapter's scope (D-238, D-240) ------------------------------------------------------
+
+
+def test_0020_adds_the_chapter_columns_and_the_new_scope_rule(empty_engine):
+    migrate.upgrade(empty_engine)
+
+    inspector = inspect(empty_engine)
+    for table in ("hours_entry", "plan_item"):
+        (column,) = [c for c in inspector.get_columns(table) if c["name"] == "material_id"]
+        assert column["nullable"] is True
+        assert any(
+            fk["constrained_columns"] == ["material_id"] and fk["referred_table"] == "material"
+            for fk in inspector.get_foreign_keys(table)
+        )
+    scope = {c["name"]: c["sqltext"] for c in inspector.get_check_constraints("hours_entry")}
+    assert "material_id" in scope["ck_hours_entry_one_scope"]
+    names = {c["name"] for c in inspector.get_check_constraints("plan_item")}
+    assert "ck_plan_item_chapter_study_only" in names
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0019")
+
+    inspector = inspect(empty_engine)
+    for table in ("hours_entry", "plan_item"):
+        assert "material_id" not in {c["name"] for c in inspector.get_columns(table)}
+    scope = {c["name"]: c["sqltext"] for c in inspector.get_check_constraints("hours_entry")}
+    assert "material_id" not in scope["ck_hours_entry_one_scope"]
+
+
+def test_0020_keeps_his_hours_and_plan_items_through_both_rebuilds(empty_engine):
+    # Both tables are rebuilt on SQLite, and existing rows are not rewritten (D-240).
+    _i3302_at_0006(empty_engine)
+    config = migrate.alembic_config(empty_engine)
+    command.upgrade(config, "0019")
+    with empty_engine.begin() as conn:
+        conn.execute(
+            insert(hours_entry).values(
+                id="9" * 26,
+                user_id=UID,
+                course_id=COURSE,
+                setup_key=f"past-papers:{SLOT}",
+                minutes=40,
+                occurred_at=AT,
+                source="tool",
+                created_at=AT,
+            )
+        )
+
+    command.upgrade(config, "0020")
+
+    with empty_engine.connect() as conn:
+        hour = conn.execute(select(hours_entry)).one()
+        item = conn.execute(select(plan_item)).one()
+    assert (hour.minutes, hour.setup_key, hour.material_id) == (40, f"past-papers:{SLOT}", None)
+    assert (item.setup_kind, item.material_id) == ("past-papers", None)
+
+    command.downgrade(config, "0019")
+
+    with empty_engine.connect() as conn:
+        assert conn.execute(text("SELECT minutes FROM hours_entry")).scalar_one() == 40
+        assert conn.execute(text("SELECT setup_kind FROM plan_item")).scalar_one() == "past-papers"

@@ -38,6 +38,7 @@ from studysystem.services.plan import (
     _setup_items,
     _study_rows,
     _topic_exams,
+    entries_of,
     get_plan,
     review_reason,
     setup_reason,
@@ -1163,7 +1164,7 @@ def test_with_no_credits_declared_anywhere_the_reason_says_so():
 # --- chapters: D-90's chapters-so-far rule and D-91's chapter key (1.15b; D-102) ------------
 
 
-def _chapter(conn, uid, course_id, added_at="2026-10-03T19:36:33Z"):
+def _chapter(conn, uid, course_id, added_at="2026-10-03T19:36:33Z", filename=None):
     """A material of `course_id` entered at `added_at`. Returns its id."""
     material_id = new_id()
     conn.execute(
@@ -1171,7 +1172,7 @@ def _chapter(conn, uid, course_id, added_at="2026-10-03T19:36:33Z"):
             id=material_id,
             user_id=uid,
             course_id=course_id,
-            filename=f"Chapter {material_id[-4:]}.pdf",
+            filename=filename or f"Chapter {material_id[-4:]}.pdf",
             file_ref="files/x",
             content_sha256=_sha(),
             media_type="application/pdf",
@@ -1300,6 +1301,186 @@ def test_on_a_tie_the_chapter_entered_first_wins_and_no_chapter_is_last(service_
     items = get_plan(service_engine, user_id, TODAY)["lanes"]["study"]["items"]
 
     assert [item["topic_id"] for item in items] == [ids[2], ids[1], ids[0]]
+
+
+# --- the study lane by chapter (D-238, D-240, D-243, D-244) ------------------------------------
+
+
+def _i3302_taught(conn, uid):
+    """`_i3302_and_a_cold_course`, with its noted chapter tagged to all three topics."""
+    ids = _i3302_and_a_cold_course(conn, uid)
+    chapter = conn.execute(select(material.c.id)).scalar_one()
+    for topic_id in ids.values():
+        _tagged(conn, uid, topic_id, chapter)
+    return ids
+
+
+def _i3304_transport(conn, uid):
+    """I3304 in small, its links as on 2026-11-04: TCP congestion only in Transport (2); TCP
+    reliable transfer in both Transports; TCP vs UDP also in the older part2 chapter. Returns the
+    topic ids and the chapter ids by name."""
+    course_id = _course(conn, uid, "I3304")
+    slot_id, final = _exam(conn, uid, course_id)
+    shares = {"TCP congestion": 50.0, "TCP reliable transfer": 30.0, "TCP vs UDP": 20.0}
+    ids = {name: _topic(conn, uid, course_id, name) for name in shares}
+    for topic_id in ids.values():
+        _edge(conn, uid, topic_id, final)
+    _profile(conn, uid, slot_id, 1, {ids[name]: share for name, share in shares.items()})
+    chapters = {
+        "part2": _chapter(conn, uid, course_id, "2026-10-11T16:37:05Z", "ITN part2.pdf"),
+        "Transport (1)": _chapter(
+            conn, uid, course_id, "2026-11-04T10:08:28Z", "Transport (1).pdf"
+        ),
+        "Transport (2)": _chapter(
+            conn, uid, course_id, "2026-11-04T10:08:30Z", "Transport (2).pdf"
+        ),
+    }
+    for chapter in chapters.values():
+        _noted(conn, uid, chapter)
+    for name, linked in (
+        ("TCP congestion", ["Transport (2)"]),
+        ("TCP reliable transfer", ["Transport (1)", "Transport (2)"]),
+        ("TCP vs UDP", ["part2", "Transport (1)", "Transport (2)"]),
+    ):
+        for chapter in linked:
+            _tagged(conn, uid, ids[name], chapters[chapter])
+    return ids, chapters
+
+
+def test_each_shown_topic_sits_once_under_the_chapter_added_first(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        _, chapters = _i3304_transport(conn, user_id)
+
+    result = get_plan(service_engine, user_id, TODAY)
+
+    entries = result["lanes"]["study"]["entries"]
+    assert [(e["rank"], e["chapter"], e["topics"]) for e in entries] == [
+        (1, "Transport (2)", ["TCP congestion"]),
+        (2, "Transport (1)", ["TCP reliable transfer"]),
+        (3, "ITN part2", ["TCP vs UDP"]),  # D-238's rule: part2 came first, not Transport (1)
+    ]
+    assert entries[0]["material_id"] == chapters["Transport (2)"]
+    # The plan still ranks topics, and each item stores its chapter (D-240).
+    rows = [r for r in _plan_rows(service_engine, result["plan_id"]) if r.lane == "study"]
+    assert [r.material_id for r in rows] == [
+        chapters["Transport (2)"],
+        chapters["Transport (1)"],
+        chapters["part2"],
+    ]
+
+
+def test_the_shown_count_is_topics_then_grouped(service_engine, user_id):
+    # D-238, decision 3: the top N topics are taken, then grouped. The topic below the cut hides
+    # even though its chapter shows.
+    with write_unit(service_engine) as conn:
+        ids = _i3302_taught(conn, user_id)
+
+    study = get_plan(service_engine, user_id, TODAY, shown_n=2)["lanes"]["study"]
+
+    [entry] = study["entries"]
+    assert (entry["rank"], entry["topics"]) == (1, ["MySQL", "sessions"])
+    assert entry["estimated_minutes"] == 120
+    assert [item["topic_id"] for item in study["items"]] == [ids["MySQL"], ids["sessions"]]
+    assert study["hidden"] == 1
+
+
+def test_a_topic_with_no_chapter_is_its_own_entry_in_rank_order(service_engine, user_id):
+    # D-244, I3303's Signals in small, between the two topics of Pipes - Part 1. The exam is in
+    # prep, so Signals is shown although no chapter teaches it, and it takes a shown slot.
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id, "I3303")
+        slot_id, final = _exam(conn, user_id, course_id)
+        shares = {"fork": 50.0, "Signals": 30.0, "Pipes": 20.0}
+        ids = {name: _topic(conn, user_id, course_id, name) for name in shares}
+        for topic_id in ids.values():
+            _edge(conn, user_id, topic_id, final)
+        _profile(conn, user_id, slot_id, 1, {ids[name]: share for name, share in shares.items()})
+        chapter = _chapter(conn, user_id, course_id, filename="Pipes - Part 1.pdf")
+        _tagged(conn, user_id, ids["fork"], chapter)
+        _tagged(conn, user_id, ids["Pipes"], chapter)
+
+    result = get_plan(service_engine, user_id, TODAY)
+
+    entries = result["lanes"]["study"]["entries"]
+    assert [(e["rank"], e["material_id"], e["chapter"], e["topics"]) for e in entries] == [
+        (1, chapter, "Pipes - Part 1", ["fork", "Pipes"]),
+        (2, None, None, ["Signals"]),
+    ]
+    assert entries[1]["topic_ids"] == [ids["Signals"]]
+    assert entries[1]["estimated_minutes"] == 60
+    rows = [r for r in _plan_rows(service_engine, result["plan_id"]) if r.lane == "study"]
+    assert [(r.topic_id, r.material_id, r.shown) for r in rows] == [
+        (ids["fork"], chapter, 1),
+        (ids["Signals"], None, 1),
+        (ids["Pipes"], chapter, 1),
+    ]
+
+
+def test_an_entry_with_a_topic_of_unknown_minutes_has_unknown_minutes():
+    # Unknown stays unknown: a chapter's total is not the sum of the minutes that happen to be set.
+    chapter = {"material_id": "ch", "chapter": "Pipes", "course_id": "c", "code": "I3303"}
+    items = [
+        {**chapter, "rank": 1, "topic_id": "a", "topic_name": "fork", "estimated_minutes": 60},
+        {**chapter, "rank": 2, "topic_id": "b", "topic_name": "Pipes", "estimated_minutes": None},
+    ]
+
+    [entry] = entries_of(items)
+
+    assert entry["estimated_minutes"] is None
+
+
+def test_a_topic_moves_under_its_chapter_in_the_next_plan_once_tagged(service_engine, user_id):
+    # D-244: the entry is the plan's; a later tagging reaches the next plan.
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id, "I3303")
+        slot_id, final = _exam(conn, user_id, course_id)
+        signals = _topic(conn, user_id, course_id, "Signals")
+        _edge(conn, user_id, signals, final)
+        _profile(conn, user_id, slot_id, 1, {signals: 100.0})
+    before = get_plan(service_engine, user_id, TODAY)["lanes"]["study"]["entries"]
+    with write_unit(service_engine) as conn:
+        chapter = _chapter(conn, user_id, course_id)
+        _tagged(conn, user_id, signals, chapter)
+
+    after = get_plan(service_engine, user_id, TODAY)["lanes"]["study"]["entries"]
+
+    assert [e["material_id"] for e in before] == [None]
+    assert [e["material_id"] for e in after] == [chapter]
+
+
+def test_a_topic_groups_under_its_first_chapter_even_when_it_is_not_taught(service_engine, user_id):
+    # D-243: the chapter added first wins, taught or not.
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id, "I3304")
+        slot_id, final = _exam(conn, user_id, course_id)
+        reliable = _topic(conn, user_id, course_id, "TCP reliable transfer")
+        _edge(conn, user_id, reliable, final)
+        _profile(conn, user_id, slot_id, 1, {reliable: 100.0})
+        untaught = _chapter(conn, user_id, course_id, "2026-11-01T10:00:00Z")
+        taught = _chapter(conn, user_id, course_id, "2026-11-02T10:00:00Z")
+        _noted(conn, user_id, taught)
+        _tagged(conn, user_id, reliable, taught)
+        _tagged(conn, user_id, reliable, untaught)
+
+    study = get_plan(service_engine, user_id, TODAY)["lanes"]["study"]
+
+    assert study["items"][0]["material_id"] == untaught
+
+
+def test_two_chapters_added_in_one_second_fall_back_to_the_id(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        slot_id, final = _exam(conn, user_id, course_id)
+        mysql = _topic(conn, user_id, course_id, "MySQL")
+        _edge(conn, user_id, mysql, final)
+        _profile(conn, user_id, slot_id, 1, {mysql: 100.0})
+        chapters = [_chapter(conn, user_id, course_id) for _ in range(2)]
+        for chapter in reversed(chapters):
+            _tagged(conn, user_id, mysql, chapter)
+
+    study = get_plan(service_engine, user_id, TODAY)["lanes"]["study"]
+
+    assert study["items"][0]["material_id"] == min(chapters)
 
 
 # --- taught so far (1.19; D-118 - D-121) ------------------------------------------------------

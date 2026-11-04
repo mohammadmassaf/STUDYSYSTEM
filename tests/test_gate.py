@@ -11,8 +11,17 @@ from studysystem.server import create_server
 from studysystem.services.courses import add_course
 from studysystem.services.gate import dogfood_gate
 from studysystem.services.ids import new_id, now
+from studysystem.services.plan import get_plan
+from studysystem.services.study_loop import log_hours, start_session
 from studysystem.services.units import write_unit
 from tests._client import tool_names
+from tests.test_plan import (
+    TODAY,
+    _chapter,
+    _i3302_and_a_cold_course,
+    _i3304_transport,
+    _tagged,
+)
 
 SEM = "Semester 1 2026-2027"
 
@@ -63,7 +72,7 @@ def _plan(engine, uid, created_at):
     return plan_id
 
 
-def _study_item(engine, uid, plan_id, course_id, topic_id, rank, shown):
+def _study_item(engine, uid, plan_id, course_id, topic_id, rank, shown, material_id=None):
     item_id = new_id()
     with write_unit(engine) as conn:
         conn.execute(
@@ -74,6 +83,7 @@ def _study_item(engine, uid, plan_id, course_id, topic_id, rank, shown):
                 lane="study",
                 course_id=course_id,
                 topic_id=topic_id,
+                material_id=material_id,
                 rank=rank,
                 shown=int(shown),
                 score=1.0,
@@ -104,7 +114,17 @@ def _setup_item(engine, uid, plan_id, course_id, rank, shown):
     return item_id
 
 
-def _hours(engine, uid, course_id, occurred_at, *, topic_id=None, setup_key=None, voided=False):
+def _hours(
+    engine,
+    uid,
+    course_id,
+    occurred_at,
+    *,
+    topic_id=None,
+    setup_key=None,
+    material_id=None,
+    voided=False,
+):
     entry_id = new_id()
     with write_unit(engine) as conn:
         conn.execute(
@@ -114,6 +134,7 @@ def _hours(engine, uid, course_id, occurred_at, *, topic_id=None, setup_key=None
                 course_id=course_id,
                 topic_id=topic_id,
                 setup_key=setup_key,
+                material_id=material_id,
                 minutes=60,
                 occurred_at=occurred_at,
                 source="tool",
@@ -151,6 +172,7 @@ def test_2_an_hour_on_a_shown_topic_counts(service_engine, user_id, web, mysql):
                 "course_id": web,
                 "topic_id": mysql,
                 "setup_key": None,
+                "material_id": None,
                 "minutes": 60,
                 "occurred_at": "2026-10-09T19:10:00Z",
                 "plan_id": p7,
@@ -315,3 +337,126 @@ def test_the_gate_tool_returns_the_service_answer(call):
 
     assert not result.is_error
     assert result.structured_content == {"used": False, "rows": []}
+
+
+# --- a chapter's hour (D-238, D-240) -----------------------------------------------------------
+
+
+def test_transport_2_picked_studied_and_logged_counts(service_engine, user_id):
+    # The whole flow: the plan shows the chapter, the session starts on it, 60 minutes go on it.
+    with write_unit(service_engine) as conn:
+        _, chapters = _i3304_transport(conn, user_id)
+    plan_id = get_plan(service_engine, user_id, TODAY)["plan_id"]
+    transport = chapters["Transport (2)"]
+    session = start_session(service_engine, user_id, "I3304", "practice", "material", transport)
+
+    entry = log_hours(
+        service_engine,
+        user_id,
+        "I3304",
+        60,
+        material_id=transport,
+        session_id=session["session_id"],
+    )
+
+    gate = dogfood_gate(service_engine, user_id)
+    assert gate["used"] is True
+    [row] = gate["rows"]
+    assert (row["hours_entry_id"], row["minutes"], row["material_id"]) == (
+        entry["hours_entry_id"],
+        60,
+        transport,
+    )
+    assert (row["topic_id"], row["setup_key"]) == (None, None)
+    assert (row["plan_id"], row["lane"], row["rank"]) == (plan_id, "study", 1)
+
+
+def test_an_hour_on_a_shown_topic_with_no_chapter_counts(service_engine, user_id):
+    # D-244: its entry names no chapter, so its minutes go on the topic, and the gate's topic rule
+    # already proves them.
+    with write_unit(service_engine) as conn:
+        ids = _i3302_and_a_cold_course(conn, user_id)
+    entries = get_plan(service_engine, user_id, TODAY)["lanes"]["study"]["entries"]
+    assert entries[0]["material_id"] is None
+    mysql = ids["MySQL"]
+    session = start_session(service_engine, user_id, "I3302", "practice", "topic", mysql)
+
+    log_hours(
+        service_engine, user_id, "I3302", 30, topic_id=mysql, session_id=session["session_id"]
+    )
+
+    [row] = dogfood_gate(service_engine, user_id)["rows"]
+    assert (row["topic_id"], row["material_id"], row["rank"]) == (mysql, None, 1)
+
+
+def test_a_chapter_hour_lists_once_per_shown_topic_under_it(service_engine, user_id, web, mysql):
+    # D-117: one hour, two proofs - and the hidden third topic of the chapter proves nothing.
+    forms = _topic(service_engine, user_id, web, "PHP forms")
+    regex = _topic(service_engine, user_id, web, "PHP regex")
+    with write_unit(service_engine) as conn:
+        chapter = _chapter(conn, user_id, web)
+    p7 = _plan(service_engine, user_id, "2026-10-09T19:00:00Z")
+    _study_item(service_engine, user_id, p7, web, mysql, 1, True, chapter)
+    _study_item(service_engine, user_id, p7, web, forms, 2, True, chapter)
+    _study_item(service_engine, user_id, p7, web, regex, 3, False, chapter)
+    entry = _hours(service_engine, user_id, web, "2026-10-09T19:10:00Z", material_id=chapter)
+
+    rows = dogfood_gate(service_engine, user_id)["rows"]
+
+    assert sorted((row["hours_entry_id"], row["rank"]) for row in rows) == [(entry, 1), (entry, 2)]
+
+
+def test_a_chapter_hour_with_only_hidden_topics_does_not_count(service_engine, user_id, web, mysql):
+    with write_unit(service_engine) as conn:
+        chapter = _chapter(conn, user_id, web)
+    p7 = _plan(service_engine, user_id, "2026-10-09T19:00:00Z")
+    _study_item(service_engine, user_id, p7, web, mysql, 11, False, chapter)
+    _hours(service_engine, user_id, web, "2026-10-09T19:10:00Z", material_id=chapter)
+
+    assert dogfood_gate(service_engine, user_id)["used"] is False
+
+
+def test_a_chapter_hour_under_a_plan_stored_before_chapters_does_not_count(
+    service_engine, user_id, web, mysql
+):
+    # D-240, accepted: the old plan's shown item names no chapter.
+    with write_unit(service_engine) as conn:
+        chapter = _chapter(conn, user_id, web)
+    p6 = _plan(service_engine, user_id, "2026-10-05T18:54:00Z")
+    _study_item(service_engine, user_id, p6, web, mysql, 1, True)
+    _hours(service_engine, user_id, web, "2026-10-09T19:10:00Z", material_id=chapter)
+
+    assert dogfood_gate(service_engine, user_id)["used"] is False
+
+
+def test_a_course_level_hour_still_matches_nothing(service_engine, user_id, web, mysql):
+    # NULL = NULL is never true: an item with no chapter must not match an hour with no chapter.
+    p6 = _plan(service_engine, user_id, "2026-10-05T18:54:00Z")
+    _study_item(service_engine, user_id, p6, web, mysql, 1, True)
+    _hours(service_engine, user_id, web, "2026-10-09T19:10:00Z")
+
+    assert dogfood_gate(service_engine, user_id)["used"] is False
+
+
+def test_a_later_tagging_does_not_change_an_old_hour(service_engine, user_id):
+    # D-240's reason: the grouping is the one stored when the plan was made. A later tagging links
+    # TCP congestion to the older part2 chapter, its first chapter now, and the hour still counts.
+    with write_unit(service_engine) as conn:
+        ids, chapters = _i3304_transport(conn, user_id)
+    transport = chapters["Transport (2)"]
+    get_plan(service_engine, user_id, TODAY)
+    session = start_session(service_engine, user_id, "I3304", "practice", "material", transport)
+    log_hours(
+        service_engine,
+        user_id,
+        "I3304",
+        60,
+        material_id=transport,
+        session_id=session["session_id"],
+    )
+
+    with write_unit(service_engine) as conn:
+        _tagged(conn, user_id, ids["TCP congestion"], chapters["part2"])
+
+    [row] = dogfood_gate(service_engine, user_id)["rows"]
+    assert row["material_id"] == transport

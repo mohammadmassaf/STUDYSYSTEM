@@ -390,6 +390,12 @@ RULE_CASES: list[tuple[str, str, dict]] = [
     ("ck_study_session_position_walkthrough_only", "study_session", dict(mode="mock")),
     ("ck_study_session_ended_after_start", "study_session", dict(ended_at="2026-09-20T00:00:00Z")),
     ("ck_hours_entry_one_scope", "hours_entry", dict(setup_key="grading:" + C)),
+    ("ck_hours_entry_one_scope", "hours_entry", dict(material_id=M)),
+    (
+        "ck_hours_entry_one_scope",
+        "hours_entry",
+        dict(topic_id=None, setup_key="grading:" + C, material_id=M),
+    ),
     ("ck_hours_entry_minutes_range", "hours_entry", dict(minutes=721)),
     (
         "ck_attempt_no_session_only_offline",
@@ -410,6 +416,7 @@ RULE_CASES: list[tuple[str, str, dict]] = [
     ("ck_plan_item_setup_key_for_setup", "plan_item", dict(setup_key="grading:" + C)),
     ("ck_plan_item_score_unless_setup", "plan_item", dict(score=None)),
     ("ck_plan_item_estimated_minutes_min", "plan_item", dict(estimated_minutes=0)),
+    ("ck_plan_item_chapter_study_only", "plan_item", dict(lane="review", material_id=M)),
     (
         "ck_plan_item_setup_has_no_minutes",
         "plan_item",

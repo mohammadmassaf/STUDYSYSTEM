@@ -30,6 +30,7 @@ from studysystem.services.study_loop import log_hours, start_session, submit_att
 from studysystem.services.units import write_unit
 from tests._client import tool_names
 from tests._papers import pdf_bytes, write
+from tests.test_plan import _chapter
 
 SEM = "Semester 1 2026-2027"
 TODAY = datetime.date(2026, 10, 7)
@@ -441,6 +442,84 @@ def test_logged_minutes_close_the_session(service_engine, user_id, web):
     )
     assert entry.occurred_at == session["started_at"]
     assert ended is not None
+
+
+def _a_chapter(engine, uid, course_id):
+    with write_unit(engine) as conn:
+        return _chapter(conn, uid, course_id)
+
+
+def test_a_chapters_minutes_go_on_the_chapter(service_engine, user_id, web):
+    # D-238: a third scope beside the topic and the setup key.
+    chapter = _a_chapter(service_engine, user_id, web["course_id"])
+    session = start_session(service_engine, user_id, "I3302", "practice", "material", chapter)
+
+    log_hours(
+        service_engine, user_id, "I3302", 60, material_id=chapter, session_id=session["session_id"]
+    )
+
+    with service_engine.connect() as conn:
+        entry = conn.execute(select(hours_entry)).one()
+    assert (entry.material_id, entry.topic_id, entry.setup_key) == (chapter, None, None)
+    assert (entry.minutes, entry.source, entry.occurred_at) == (
+        60,
+        "tool",
+        session["started_at"],
+    )
+
+
+@pytest.mark.parametrize(
+    ("scopes", "field"),
+    [
+        (("material_id", "topic_id"), "topic_id"),
+        (("material_id", "setup_key"), "setup_key"),
+        (("topic_id", "setup_key"), "setup_key"),
+    ],
+)
+def test_minutes_go_on_one_scope_only(service_engine, user_id, web, scopes, field):
+    sent = dict.fromkeys(scopes, "anything")
+
+    with pytest.raises(StudyError) as err:
+        log_hours(service_engine, user_id, "I3302", 30, **sent)
+
+    assert err.value.code == "invalid_value"
+    assert err.value.field_errors[0]["field"] == field
+    with service_engine.connect() as conn:
+        assert conn.execute(select(func.count()).select_from(hours_entry)).scalar_one() == 0
+
+
+def test_a_chapter_of_another_course_is_refused(service_engine, user_id, web):
+    # Same course invariant (physical-schema.md).
+    other = add_course(service_engine, user_id, "I3304", "Networks", SEM)["course_id"]
+    chapter = _a_chapter(service_engine, user_id, other)
+
+    with pytest.raises(StudyError) as err:
+        log_hours(service_engine, user_id, "I3302", 30, material_id=chapter)
+
+    assert err.value.code == "not_found"
+    assert err.value.field_errors[0]["field"] == "material_id"
+
+
+def test_the_tool_logs_a_chapters_minutes(call, service_engine, user_id, web):
+    chapter = _a_chapter(service_engine, user_id, web["course_id"])
+
+    result = call("study_log_hours", {"code": "I3302", "minutes": 60, "material_id": chapter})
+
+    assert not result.is_error
+    with service_engine.connect() as conn:
+        assert conn.execute(select(hours_entry.c.material_id)).scalar_one() == chapter
+
+
+def test_voiding_alone_takes_no_chapter(service_engine, user_id, web):
+    chapter = _a_chapter(service_engine, user_id, web["course_id"])
+    entry = log_hours(service_engine, user_id, "I3302", 30, material_id=chapter)
+
+    with pytest.raises(StudyError) as err:
+        log_hours(
+            service_engine, user_id, "I3302", voids=entry["hours_entry_id"], material_id=chapter
+        )
+
+    assert err.value.field_errors[0]["field"] == "material_id"
 
 
 def test_hours_on_a_setup_item_hide_it_from_the_next_plan(service_engine, user_id, web):

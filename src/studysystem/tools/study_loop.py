@@ -27,9 +27,9 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "of its own pages or slides, start to end - exam weight decides how deep each part "
             "goes, never the order), 'mock' (a paper sat cold) or "
             "'review-quiz' (due reviews). Optionally name what it is about: subject_type "
-            "'topic', 'material' or 'past-exam' with subject_id from study_get_topics. A "
-            "session records no time - log the minutes with study_log_hours when done; one "
-            "left open expires after 4 hours."
+            "'topic', 'material' or 'past-exam' with subject_id from study_get_topics, or a "
+            "material_id from study_get_plan. A session records no time - log the minutes with "
+            "study_log_hours when done; one left open expires after 4 hours."
         ),
     )
     def study_start_session(
@@ -78,9 +78,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         name="study_log_hours",
         description=(
             "Log the minutes the student says they studied a course (1-720) - the only way "
-            "time is recorded; ask, never estimate. Scope them to a topic_id, or to a setup "
-            "item's setup_key exactly as study_get_plan returned it (that item then leaves the "
-            "plan for 7 days), or neither for course-level time - never both. Pass the "
+            "time is recorded; ask, never estimate. Scope them to a chapter's material_id, a "
+            "topic_id, or a setup item's setup_key exactly as study_get_plan returned it (that "
+            "setup item then leaves the plan for 7 days), or none for course-level time - never "
+            "two. Pass the "
             "session_id to close that session. To fix a mistyped entry, send voids with its "
             "hours_entry_id plus the correct minutes; send voids alone to cancel it."
         ),
@@ -93,6 +94,7 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         session_id: str | None = None,
         voids: str | None = None,
         semester_name: str | None = None,
+        material_id: str | None = None,
     ) -> CallToolResult:
         return run(
             lambda: study_loop.log_hours(
@@ -105,5 +107,6 @@ def register(mcp: MCPServer, engine: Engine) -> None:
                 session_id,
                 voids,
                 semester_name,
+                material_id,
             )
         )

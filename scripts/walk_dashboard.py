@@ -98,15 +98,17 @@ def lane_codes(page, lane: str) -> list[str]:
 
 
 def check_lanes(page, plan: dict) -> list[str]:
-    """3.4's Done-when (D-190): every shown item sits in its own lane's card, and a course with
-    a first-material item - nothing taught yet - never shows under Study."""
+    """3.4's Done-when (D-190): every shown item sits in its own lane's card, the study lane as
+    its entries (D-238), and a course with a first-material item - nothing taught yet - never
+    shows under Study."""
     lanes = plan["lanes"]
     page.goto(f"{BASE}/#/overview")
     page.wait_for_selector("#view > *")
     problems = []
     drawn = {lane: lane_codes(page, lane) for lane in lanes}
     for lane in lanes:
-        sent = [item["code"] for item in lanes[lane]["items"]]
+        rows = lanes[lane]["entries"] if lane == "study" else lanes[lane]["items"]
+        sent = [row["code"] for row in rows]
         print(f"{lane}: {len(drawn[lane])} drawn {drawn[lane]}")
         if drawn[lane] != sent:
             problems.append(f"lane {lane}: /state sends {sent}, the page draws {drawn[lane]}")
