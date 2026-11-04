@@ -12,3 +12,4 @@ CLAUDE.local.md
 CLAUDE.md
 .claude/
 .pip/
+dist/
