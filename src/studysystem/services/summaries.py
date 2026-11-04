@@ -4,8 +4,8 @@ steps, and no row anywhere - nothing else in the system reads a summary:
   to write the summary - the same pages a note task carries, read-only, so it can be asked for
   again and again;
 - `save_summary` writes the host's text into the course's `summaries/` folder (D-215) as
-  `<material stem>_summary.md` with its PDF beside it, the notes' first free name, never
-  overwriting (D-73, D-78).
+  `md/<material stem>_summary.md` with its PDF in `pdf/` (D-237), the notes' first free name,
+  never overwriting (D-73, D-78).
 
 Unlike the note export, a save raises when the vault is not ready: the summary lives only in the
 host's reply, so the host must hear "not saved" and keep the text to send again.
@@ -311,9 +311,9 @@ def save_summary(engine: Engine, user_id: str, material_id: str, markdown: str) 
     text = _stamp(found.filename) + markdown.rstrip("\n") + "\n"
     name = f"{Path(found.filename).stem}_summary"
     try:
-        summaries_dir = root / folder / "summaries"
-        summaries_dir.mkdir(exist_ok=True)  # summaries/ only - its course folder exists
-        target_md, target_pdf = notes._free_name(summaries_dir, name)
+        target_md, target_pdf = notes._free_name(root / folder / "summaries", name)
+        # summaries/ and md/ only - the course folder exists
+        target_md.parent.mkdir(parents=True, exist_ok=True)
         # "x" creates or fails: a file that appeared since _free_name looked is never overwritten
         with target_md.open("x", encoding="utf-8", newline="\n") as f:
             f.write(text)
@@ -326,13 +326,13 @@ def save_summary(engine: Engine, user_id: str, material_id: str, markdown: str) 
 
     out = {
         "material": found.filename,
-        "md_path": f"{folder}/summaries/{target_md.name}",
+        "md_path": f"{folder}/summaries/md/{target_md.name}",
         "pdf_path": None,
         "renamed": target_md.name != f"{name}.md",
     }
     problem = _write_pdf(target_pdf, text)
     if problem is None:
-        out["pdf_path"] = f"{folder}/summaries/{target_pdf.name}"
+        out["pdf_path"] = f"{folder}/summaries/pdf/{target_pdf.name}"
     else:
         out["problem"], out["fix"] = problem
 
@@ -352,6 +352,7 @@ def _write_pdf(target: Path, text: str) -> tuple[str, str] | None:
     except (RuntimeError, OSError) as e:
         return f"the PDF could not be made: {e}", later
     try:
+        target.parent.mkdir(parents=True, exist_ok=True)
         # "xb": create-only, in bytes - a PDF is binary, not text
         with target.open("xb") as f:
             f.write(data)

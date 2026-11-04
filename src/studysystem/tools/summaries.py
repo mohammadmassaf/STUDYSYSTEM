@@ -39,9 +39,9 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         name="study_save_summary",
         description=(
             "Save a summary written from study_get_summary_task into the vault: the markdown "
-            "goes to the course's summaries/ folder as <material>_summary.md, with a PDF copy "
-            "beside it. Never overwrites - a name already taken gets (2), (3)... Returns the "
-            "paths written; a PDF that failed comes back as problem and fix, the markdown "
+            "goes to the course's summaries/md/ folder as <material>_summary.md, with a PDF copy "
+            "in summaries/pdf/. Never overwrites - a name already taken gets (2), (3)... Returns "
+            "the paths written; a PDF that failed comes back as problem and fix, the markdown "
             "being saved. An error means nothing was saved: fix it and send the same text "
             "again. Send the whole summary as markdown, with no frontmatter."
         ),

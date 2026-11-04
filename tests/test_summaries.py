@@ -1,7 +1,7 @@
 """Chapter summaries (1.20, D-131, D-133): Chapter 6 leaves as its pages, what the exams ask of
 it and the summary rules, read-only; the host's text comes back and lands in the course's
-`summaries/` as `_summary.md` with its PDF, never over a file. No row is written anywhere - nothing
-else reads a summary.
+`summaries/md/` as `_summary.md` with its PDF in `summaries/pdf/` (D-237), never over a file. No
+row is written anywhere - nothing else reads a summary.
 
 Every test writes to a vault under tmp_path; conftest unsets the real one."""
 
@@ -129,8 +129,8 @@ def test_the_summary_lands_as_md_and_pdf_with_its_stamp(
 
     assert out == {
         "material": "PHP_Chapter6_Eng_DataBase.pdf",
-        "md_path": f"{FOLDER}/summaries/{MD_FILE}",
-        "pdf_path": f"{FOLDER}/summaries/{PDF_FILE}",
+        "md_path": f"{FOLDER}/summaries/md/{MD_FILE}",
+        "pdf_path": f"{FOLDER}/summaries/pdf/{PDF_FILE}",
         "renamed": False,
     }
     text = (vault / out["md_path"]).read_text(encoding="utf-8")
@@ -148,20 +148,33 @@ def test_a_second_summary_takes_2_and_leaves_the_first(
     first = save_summary(service_engine, user_id, ch6, SUMMARY)
     second = save_summary(service_engine, user_id, ch6, "# Shorter\n")
 
-    assert second["md_path"] == f"{FOLDER}/summaries/PHP_Chapter6_Eng_DataBase_summary (2).md"
-    assert second["pdf_path"] == f"{FOLDER}/summaries/PHP_Chapter6_Eng_DataBase_summary (2).pdf"
+    assert second["md_path"] == f"{FOLDER}/summaries/md/PHP_Chapter6_Eng_DataBase_summary (2).md"
+    assert second["pdf_path"] == f"{FOLDER}/summaries/pdf/PHP_Chapter6_Eng_DataBase_summary (2).pdf"
     assert second["renamed"] is True
     assert (vault / first["md_path"]).read_text(encoding="utf-8").endswith(SUMMARY)
 
 
+def test_a_kept_pdf_moves_the_whole_pair(service_engine, user_id, ch6, vault, declared):
+    """He deleted last year's md but kept its PDF: the new pair must not split (D-78, D-237)."""
+    pdf_dir = vault / FOLDER / "summaries" / "pdf"
+    pdf_dir.mkdir(parents=True)
+    (pdf_dir / PDF_FILE).write_bytes(b"last year")
+
+    out = save_summary(service_engine, user_id, ch6, SUMMARY)
+
+    assert out["md_path"] == f"{FOLDER}/summaries/md/PHP_Chapter6_Eng_DataBase_summary (2).md"
+    assert out["pdf_path"] == f"{FOLDER}/summaries/pdf/PHP_Chapter6_Eng_DataBase_summary (2).pdf"
+    assert (pdf_dir / PDF_FILE).read_bytes() == b"last year"
+
+
 def test_a_summary_lands_apart_from_the_notes(service_engine, user_id, ch6, vault, declared):
-    notes_dir = vault / FOLDER / "notes"
-    notes_dir.mkdir()
+    notes_dir = vault / FOLDER / "notes" / "md"
+    notes_dir.mkdir(parents=True)
     (notes_dir / "PHP_Chapter6_Eng_DataBase_notes.md").write_text("the note", encoding="utf-8")
 
     out = save_summary(service_engine, user_id, ch6, SUMMARY)
 
-    assert out["md_path"] == f"{FOLDER}/summaries/{MD_FILE}"
+    assert out["md_path"] == f"{FOLDER}/summaries/md/{MD_FILE}"
     assert (notes_dir / "PHP_Chapter6_Eng_DataBase_notes.md").read_text() == "the note"
     assert sorted(f.name for f in notes_dir.iterdir()) == ["PHP_Chapter6_Eng_DataBase_notes.md"]
 
@@ -211,7 +224,7 @@ def test_a_failed_pdf_keeps_the_md_and_says_so(
     assert "no Chrome" in out["problem"]
     assert "(2)" in out["fix"]
     assert (vault / out["md_path"]).is_file()
-    assert not (vault / FOLDER / "summaries" / PDF_FILE).exists()
+    assert not (vault / FOLDER / "summaries" / "pdf" / PDF_FILE).exists()
 
 
 # --- the tools -----------------------------------------------------------------------------
@@ -230,7 +243,7 @@ def test_a_summary_through_the_tools(call, ch6, vault, declared):
     saved = call("study_save_summary", {"material_id": ch6, "markdown": SUMMARY})
 
     assert not saved.is_error
-    assert saved.structured_content["md_path"] == f"{FOLDER}/summaries/{MD_FILE}"
+    assert saved.structured_content["md_path"] == f"{FOLDER}/summaries/md/{MD_FILE}"
 
 
 def test_a_refused_save_comes_back_as_its_error(call, ch6):
