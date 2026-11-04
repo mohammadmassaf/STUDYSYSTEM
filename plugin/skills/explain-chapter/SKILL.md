@@ -17,9 +17,9 @@ so such a note is read from its file.
 1. Get the plan:
 
 <!-- shared:plan-step -->
-Call `study_get_plan` and show the student every item it returns, lane by lane. Keep the one
-this chapter serves: a first-material setup item for this course, or a study or review topic
-the chapter teaches. Ask the student to confirm it.
+Call `study_get_plan` and show the student every item it returns, lane by lane, the study lane
+as its `entries`. Keep the one this chapter serves: a first-material setup item for this course,
+this chapter's study entry, or a review topic the chapter teaches. Ask the student to confirm it.
 <!-- /shared:plan-step -->
 
 2. Call `study_add_material` with the path (kind `chapter` unless it is clearly slides) to get
@@ -46,12 +46,13 @@ part, then call `study_submit_generation` until it reports no errors (at most 3 
      paragraphs, and no bullet summary of a slide.
    - Where the note marks an exam target, go deeper and show how the exam asks it.
    - End with one short question that checks the student understood, then stop and wait.
-6. Log the minutes:
+6. Log the minutes. If no shown item fits, still pass this chapter's material_id: the minutes stay
+   on the chapter, and the gate does not count them:
 
 <!-- shared:log-step -->
 When the student says they are done, ask how many minutes they studied. Never estimate them.
 Log them with `study_log_hours`. Always pass the session_id if a session was started, even when
-no item fits. Also pass the item's topic_id or setup_key exactly as `study_get_plan` returned
-it; leave out both of those only if no shown item fits, and say so. If the student spent no
-time, log nothing.
+no item fits. Also pass the item's material_id (a study chapter), topic_id (a review item, or a
+study topic with no chapter) or setup_key exactly as `study_get_plan` returned it; leave out all
+three only if no shown item fits, and say so. If the student spent no time, log nothing.
 <!-- /shared:log-step -->

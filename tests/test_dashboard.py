@@ -16,7 +16,9 @@ from studysystem.db.migrate import head_revision
 from studysystem.db.tables import hours_entry, study_session
 from studysystem.services import study_loop
 from studysystem.services.courses import add_course
+from studysystem.services.units import write_unit
 from tests._study import run_study
+from tests.test_plan import _chapter
 
 SEM = "Semester 1 2026-2027"
 OWN = "http://127.0.0.1:8765"
@@ -70,6 +72,18 @@ def test_post_hours_logs_through_the_service(client, service_engine, web):
         row = conn.execute(select(hours_entry)).one()
     assert row.id == body["hours_entry_id"]
     assert row.minutes == 40
+
+
+def test_post_hours_takes_a_chapter(client, service_engine, user_id, web):
+    # The route's fields are the service's: a chapter's minutes pass through, as a topic's do.
+    with write_unit(service_engine) as conn:
+        chapter = _chapter(conn, user_id, web["course_id"])
+
+    response = client.post("/hours", json={"code": "I3302", "minutes": 40, "material_id": chapter})
+
+    assert response.status_code == 200
+    with service_engine.connect() as conn:
+        assert conn.execute(select(hours_entry.c.material_id)).scalar_one() == chapter
 
 
 def test_an_error_has_the_shape_the_tool_returns(client, call, web):

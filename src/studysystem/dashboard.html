@@ -958,14 +958,35 @@ function toItem(lane, it) {
     marks: it.marks_unlocked_estimate ?? null, marksTier: it.marks_unlocked_estimate_tier
   };
 }
+/* the study lane: the server's entries, one per chapter (D-238) or per topic with no chapter
+   (D-244). A plan stored before D-240 has no chapter at all, so its topics carry no label. */
+function entryItem(e, l) {
+  const anyChapter = l.entries.some(x => x.material_id);
+  const alone = anyChapter ? `${e.topics[0]} (not taught yet)` : e.topics[0];
+  return {
+    uid: "study:" + (e.material_id || e.topic_ids[0]),
+    lane: "study", rank: e.rank, course: DATA.courses.find(c => c.courseId === e.course_id) || null,
+    what: e.material_id ? `${e.chapter}: ${e.topics.join(", ")}` : alone,
+    why: l.items.filter(it => e.topic_ids.includes(it.topic_id)).map(it => it.reason).join(" | "),
+    topicId: e.material_id ? null : e.topic_ids[0], setupKey: null, materialId: e.material_id,
+    mins: e.estimated_minutes, marks: null
+  };
+}
+function laneEntries(lane) {
+  const l = DATA.plan.lanes[lane];
+  if (lane === "study") return l.entries.map(e => entryItem(e, l));
+  return l.items.map(it => toItem(lane, it));
+}
 function planItems() {
   if (!DATA.plan) return [];
-  return LANES.flatMap(lane => DATA.plan.lanes[lane].items.map(it => toItem(lane, it)));
+  return LANES.flatMap(laneEntries);
 }
 const laneItems = lane => planItems().filter(i => i.lane === lane);
 function laneCount(lane) {
   const l = DATA.plan.lanes[lane];
-  return `${l.items.length} shown${l.hidden ? ` · ${l.hidden} held back` : ""}`;
+  const n = lane === "study" ? l.entries.filter(e => e.material_id).length : 0;
+  const chapters = n ? `${n} chapter${n === 1 ? "" : "s"} · ` : "";
+  return `${chapters}${l.items.length} ${chapters ? "topics " : ""}shown${l.hidden ? ` · ${l.hidden} held back` : ""}`;
 }
 function planAge() {
   if (!DATA.plan) return null;
@@ -1139,7 +1160,8 @@ async function beginSession() {
   const s = SESSION;
   if (!s || s.busy || !s.mode || running()) return;
   const body = { code: s.item.course.code, mode: s.mode };
-  if (s.item.topicId) Object.assign(body, { subject_type: "topic", subject_id: s.item.topicId });
+  if (s.item.materialId) Object.assign(body, { subject_type: "material", subject_id: s.item.materialId });
+  else if (s.item.topicId) Object.assign(body, { subject_type: "topic", subject_id: s.item.topicId });
   s.busy = true; s.error = null; renderSession();
   try { s.id = (await post("/sessions", body)).session_id; s.tick = setInterval(tickSession, 1000); }
   catch (err) { s.error = errorText(err); }

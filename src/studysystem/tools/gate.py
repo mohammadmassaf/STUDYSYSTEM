@@ -15,9 +15,9 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         description=(
             "Check whether the study plan has really been used: returns every logged hour that "
             "matches an item a plan showed, in the plan current when the work started, and "
-            "used = true if there is any. An hour logged with no topic or setup key, on an item "
-            "the plan did not show, or voided, does not count. An hour appears once per plan "
-            "item it matches, so do not sum minutes over the rows. Read only."
+            "used = true if there is any. An hour logged with no chapter, topic or setup key, on "
+            "an item the plan did not show, or voided, does not count. An hour appears once per "
+            "plan item it matches, so do not sum minutes over the rows. Read only."
         ),
     )
     def study_get_gate() -> CallToolResult:

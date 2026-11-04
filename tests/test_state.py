@@ -6,18 +6,18 @@ import importlib.metadata
 
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, update
 from starlette.testclient import TestClient
 
 from studysystem.dashboard import create_app
-from studysystem.db.tables import class_meeting, plan, plan_item
+from studysystem.db.tables import class_meeting, material, plan, plan_item
 from studysystem.services import state
 from studysystem.services.capacity import set_capacity
 from studysystem.services.courses import add_course, drop_course, set_course_input
 from studysystem.services.ids import new_id, now
 from studysystem.services.plan import get_plan
 from studysystem.services.units import write_unit
-from tests.test_plan import SEM, TODAY, _course, _i3302_and_a_cold_course
+from tests.test_plan import SEM, TODAY, _course, _i3302_and_a_cold_course, _i3302_taught
 
 OWN = "http://127.0.0.1:8765"
 
@@ -89,6 +89,51 @@ def test_the_plan_is_the_latest_stored_one_and_none_is_written(service_engine, u
     assert [item["setup_kind"] for item in setup] == ["first-material", "past-papers"]
     assert all(item["marks_unlocked_estimate_tier"] == "inferred" for item in setup)
     assert set(current["strategy_by_course"].values()) == {"default"}
+
+
+def test_the_study_lane_comes_grouped_by_chapter(service_engine, user_id):
+    # D-238: the page lists what the server grouped. Both front doors read one grouping.
+    with write_unit(service_engine) as conn:
+        _i3302_taught(conn, user_id)
+    made = get_plan(service_engine, user_id, TODAY, shown_n=2)["lanes"]["study"]["entries"]
+
+    study = blob(service_engine, user_id)["plan"]["current"]["lanes"]["study"]
+
+    with service_engine.connect() as conn:
+        filename = conn.execute(select(material.c.filename)).scalar_one()
+    [entry] = study["entries"]
+    assert entry["chapter"] == filename.removesuffix(".pdf")
+    assert (entry["rank"], entry["topics"]) == (1, ["MySQL", "sessions"])
+    assert (entry["estimated_minutes"], entry["estimated_minutes_tier"]) == (120, "inferred")
+    assert entry["material_id"] == made[0]["material_id"]
+    assert (study["items"][0]["material_id"], study["items"][0]["material_id_tier"]) == (
+        made[0]["material_id"],
+        "inferred",
+    )
+
+
+def test_a_plan_stored_before_chapters_lists_its_topics_alone(service_engine, user_id):
+    # D-240: its items stay NULL, so each topic is its own entry until a new plan. A topic with
+    # no chapter in a new plan has the same shape (D-244).
+    with write_unit(service_engine) as conn:
+        ids = _i3302_taught(conn, user_id)
+    get_plan(service_engine, user_id, TODAY, shown_n=2)
+    with write_unit(service_engine) as conn:
+        conn.execute(update(plan_item).values(material_id=None))
+
+    sent = blob(service_engine, user_id)["plan"]
+
+    state.CHECKS["plan"].validate(sent)
+    study = sent["current"]["lanes"]["study"]
+    assert [(e["rank"], e["topic_ids"]) for e in study["entries"]] == [
+        (1, [ids["MySQL"]]),
+        (2, [ids["sessions"]]),
+    ]
+    assert (study["entries"][0]["material_id"], study["entries"][0]["material_id_tier"]) == (
+        None,
+        "unknown",
+    )
+    assert (study["items"][0]["chapter"], study["items"][0]["chapter_tier"]) == (None, "unknown")
 
 
 def test_each_assessment_carries_its_newest_profile_or_unknown(service_engine, user_id):

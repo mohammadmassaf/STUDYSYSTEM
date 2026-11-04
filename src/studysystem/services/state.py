@@ -25,11 +25,13 @@ from studysystem.db.tables import (
     course,
     exam_profile,
     hours_entry,
+    material,
     plan,
     plan_item,
     topic,
 )
 from studysystem.services.ids import now
+from studysystem.services.plan import chapter_name, entries_of
 from studysystem.services.topics import TAGGABLE as LIVE_TOPICS  # the live statuses
 from studysystem.services.units import read_unit
 
@@ -327,10 +329,22 @@ _ITEM = {"rank": {"type": "integer", "minimum": 1}, "course_id": ID, "code": TEX
 REVIEW_ITEM_SCHEMA = _record({**_ITEM, "topic_id": ID, "topic_name": TEXT, "score": NUMBER})
 STUDY_ITEM_SCHEMA = _record(
     {**_ITEM, "topic_id": ID, "topic_name": TEXT, "score": NUMBER},
-    {"estimated_minutes": {"type": "integer", "minimum": 1}},
+    # no chapter: a topic with none (D-244), or an item stored before D-240
+    {"estimated_minutes": {"type": "integer", "minimum": 1}, "material_id": ID, "chapter": TEXT},
 )
 SETUP_ITEM_SCHEMA = _record(
     {**_ITEM, "setup_kind": TEXT, "setup_key": TEXT}, {"marks_unlocked_estimate": NUMBER}
+)
+ENTRY_SCHEMA = _record(
+    {
+        "rank": {"type": "integer", "minimum": 1},
+        "course_id": ID,
+        "code": TEXT,
+        "topic_ids": _list(ID),
+        "topics": _list(TEXT),
+    },
+    # no chapter: a topic with none (D-244), or a plan stored before D-240
+    {"material_id": ID, "chapter": TEXT, "estimated_minutes": {"type": "integer", "minimum": 1}},
 )
 
 
@@ -350,7 +364,13 @@ CURRENT_PLAN_SCHEMA = _record(
         "lanes": _record(
             {
                 "review": _lane(REVIEW_ITEM_SCHEMA),
-                "study": _lane(STUDY_ITEM_SCHEMA),
+                "study": _record(
+                    {
+                        "items": _list(STUDY_ITEM_SCHEMA),
+                        "hidden": COUNT,
+                        "entries": _list(ENTRY_SCHEMA),
+                    }
+                ),
                 "setup": _lane(SETUP_ITEM_SCHEMA),
             }
         ),
@@ -373,6 +393,10 @@ def _plan_item(row) -> dict:
     item.update(topic_id=row.topic_id, topic_name=row.topic_name, score=row.score)
     if row.lane == "study":
         item.update(_pair("estimated_minutes", row.estimated_minutes, "inferred"))
+        item.update(_pair("material_id", row.material_id, "inferred"))
+        item.update(
+            _pair("chapter", chapter_name(row.filename) if row.filename else None, "inferred")
+        )
     return item
 
 
@@ -390,9 +414,10 @@ def _plan(conn: Connection, user_id: str, today: datetime.date) -> dict:
     if latest is None:
         return _pair("current", None, "inferred")
     rows = conn.execute(
-        select(plan_item, course.c.code, topic.c.name.label("topic_name"))
+        select(plan_item, course.c.code, topic.c.name.label("topic_name"), material.c.filename)
         .join_from(plan_item, course, course.c.id == plan_item.c.course_id)
         .outerjoin(topic, topic.c.id == plan_item.c.topic_id)
+        .outerjoin(material, material.c.id == plan_item.c.material_id)
         .where(plan_item.c.plan_id == latest.id, course.c.dropped_at.is_(None))
         .order_by(plan_item.c.lane, plan_item.c.rank)
     ).all()
@@ -403,6 +428,15 @@ def _plan(conn: Connection, user_id: str, today: datetime.date) -> dict:
         }
         for lane in ("review", "study", "setup")
     }
+    lanes["study"]["entries"] = [
+        {
+            **entry,
+            **_pair("material_id", entry["material_id"], "inferred"),
+            **_pair("chapter", entry["chapter"], "inferred"),
+            **_pair("estimated_minutes", entry["estimated_minutes"], "inferred"),
+        }
+        for entry in entries_of(lanes["study"]["items"])
+    ]
     dropped = set(
         conn.execute(
             select(course.c.id).where(course.c.user_id == user_id, course.c.dropped_at.is_not(None))

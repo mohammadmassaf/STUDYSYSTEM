@@ -50,7 +50,16 @@ STATUS = {
 
 # Each write's service arguments, by the same names: study_log_hours's, study_start_session's,
 # and the timer's stop (D-198).
-HOURS_FIELDS = ("code", "minutes", "topic_id", "setup_key", "session_id", "voids", "semester_name")
+HOURS_FIELDS = (
+    "code",
+    "minutes",
+    "topic_id",
+    "setup_key",
+    "material_id",
+    "session_id",
+    "voids",
+    "semester_name",
+)
 START_FIELDS = ("code", "mode", "subject_type", "subject_id", "semester_name")
 STOP_FIELDS = ("code", "session_id", "minutes", "setup_key", "semester_name")
 ACCEPT_FIELDS = ("suggestion_id", "from_date")

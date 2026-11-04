@@ -25,8 +25,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "items - inputs or materials worth getting, ranked by the marks they could unlock. "
             "Each item carries the reason it was picked, naming every guessed input. Returns "
             "the top shown_n of each lane plus how many more each lane holds; show the student "
-            "every item returned, since the plan records them as shown. Every call saves a new "
-            "plan."
+            "every item returned, since the plan records them as shown. The study lane also "
+            "returns entries: show it as those, one per chapter with its topics, or one per topic "
+            "with no chapter, marked not taught yet. Log a chapter's minutes with its "
+            "material_id, and a topic's with its topic_id. Every call saves a new plan."
         ),
     )
     def study_get_plan(shown_n: str | float = plan.SHOWN_N) -> CallToolResult:

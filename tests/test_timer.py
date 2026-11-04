@@ -15,6 +15,7 @@ from studysystem.services.ids import new_id, now
 from studysystem.services.plan import get_plan
 from studysystem.services.study_loop import log_hours, start_session, stop_timer
 from studysystem.services.units import write_unit
+from tests.test_plan import _chapter
 
 SEM = "Semester 1 2026-2027"
 TODAY = datetime.date(2026, 10, 7)
@@ -277,3 +278,43 @@ def test_minutes_are_whole_and_0_to_720(service_engine, user_id, session, minute
     assert (err.value.code, err.value.field_errors[0]["field"]) == ("invalid_value", "minutes")
     with service_engine.connect() as conn:
         assert conn.execute(select(func.count()).select_from(hours_entry)).scalar_one() == 0
+
+
+# --- a chapter's session (D-238) ---------------------------------------------------------------
+
+
+@pytest.fixture
+def chapter(service_engine, user_id, nets):
+    with write_unit(service_engine) as conn:
+        return _chapter(conn, user_id, nets["course_id"])
+
+
+@pytest.mark.parametrize("mode", ["practice", "explain-chapter"])
+def test_a_chapter_sessions_minutes_go_on_the_chapter(
+    service_engine, user_id, chapter, mode, monkeypatch
+):
+    started = start_session(service_engine, user_id, "I3304", mode, "material", chapter)
+    start = datetime.datetime.fromisoformat(started["started_at"])
+    stamp = (start + datetime.timedelta(minutes=60)).strftime(study_loop.TIMESTAMP)
+    monkeypatch.setattr(study_loop, "now", lambda: stamp)
+
+    stop_timer(service_engine, user_id, "I3304", started["session_id"], 60)
+
+    [entry] = _entries(service_engine)
+    assert (entry.material_id, entry.topic_id, entry.setup_key) == (chapter, None, None)
+    assert (entry.minutes, entry.source) == (60, "timer")
+
+
+def test_a_setup_key_on_a_chapter_session_is_refused(service_engine, user_id, nets, chapter):
+    # Hours go to one scope. The key is a real one, so only the session's subject refuses it.
+    key = next(
+        item["setup_key"]
+        for item in get_plan(service_engine, user_id, TODAY)["lanes"]["setup"]["items"]
+    )
+    started = start_session(service_engine, user_id, "I3304", "practice", "material", chapter)
+
+    with pytest.raises(StudyError) as err:
+        stop_timer(service_engine, user_id, "I3304", started["session_id"], 0, setup_key=key)
+
+    assert err.value.field_errors[0]["field"] == "setup_key"
+    assert _entries(service_engine) == []
