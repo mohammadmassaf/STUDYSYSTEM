@@ -1,6 +1,6 @@
-"""The note export (D-10, D-72, D-73, D-78, D-79, D-81): the database holds a note's body; the vault
-gets two one-way copies beside each other - the stamped markdown, and a PDF printed from the
-same text, the copy he studies from - never the source of truth.
+"""The note export (D-10, D-72, D-73, D-78, D-79, D-81, D-237): the database holds a note's body;
+the vault gets two one-way copies - the stamped markdown in `notes/md/`, and a PDF printed from the
+same text in `notes/pdf/`, the copy he studies from - never the source of truth.
 
 The export runs after the submission's write unit commits, so a failed file write never rolls
 back a note: the note stays in the database with `exported_path` or `pdf_path` NULL, and the
@@ -8,7 +8,7 @@ next export writes whichever file is missing.
 
 A file is never overwritten - a name already taken gets the first free `(2)`, `(3)`... so a new
 version of a chapter never lands on the old note and its annotations. The md and the PDF take
-that name as a pair: one file alone takes it for both.
+that name as a pair: one file alone, in either folder, takes it for both.
 
 The export never raises. The note is already committed when it runs, so an error here would tell
 the host its note failed when it did not; every problem comes back as an entry with its fix.
@@ -46,8 +46,8 @@ def vault_dir() -> Path | None:
 
 def export_notes(engine: Engine, user_id: str, task_id: str) -> list[dict]:
     """Write every file this task's notes are missing - the md, the PDF or both - into the
-    course's `notes/` folder, and record where each went. The submit's export (D-72). Returns
-    one entry per note it tried, in order: {"section", "material", "exported_path",
+    course's `notes/md/` and `notes/pdf/` folders, and record where each went. The submit's export
+    (D-72). Returns one entry per note it tried, in order: {"section", "material", "exported_path",
     "pdf_path", "renamed"}, plus "problem" and "fix" when a path is still None. A task whose
     notes have both files returns []."""
     return _export_where(engine, user_id, note.c.task_id == task_id)
@@ -156,15 +156,15 @@ def _export(engine: Engine, rows: list) -> list[dict]:
             # no md yet (a new note): pick a pair free as both md and PDF, write the md and
             # record it at once, so a crash before the PDF never writes the md twice (D-79)
             try:
-                notes_dir = root / folder / "notes"
-                notes_dir.mkdir(exist_ok=True)  # notes/ only - its course folder exists
                 name = _note_name(r.filename, r.section_ordinal)
-                target_md, target_pdf = _free_name(notes_dir, name)
+                target_md, target_pdf = _free_name(root / folder / "notes", name)
+                # notes/ and md/ only - the course folder exists
+                target_md.parent.mkdir(parents=True, exist_ok=True)
                 # "x" creates or fails, so a file that appeared since _free_name looked is never
                 # overwritten; utf-8 because a note carries 🎯 and Windows' default codec cannot
                 with target_md.open("x", encoding="utf-8", newline="\n") as f:
                     f.write(text)
-                md_relative = f"{folder}/notes/{target_md.name}"
+                md_relative = f"{folder}/notes/md/{target_md.name}"
                 _record(engine, r.id, exported_path=md_relative)
             except OSError as e:
                 # no md, no PDF: a PDF alone would take the pair's name (D-78)
@@ -188,11 +188,11 @@ def _export(engine: Engine, rows: list) -> list[dict]:
                 )
                 continue
             renamed = target_md.name != f"{name}.md"
-            pdf_relative = f"{folder}/notes/{target_pdf.name}"
+            pdf_relative = f"{folder}/notes/pdf/{target_pdf.name}"
         else:
             # the md is out already (Chapter 6): its PDF takes the md's recorded name, so a
             # `(2)` md gets a `(2)` PDF (D-78)
-            pdf_relative = md_relative.removesuffix(".md") + ".pdf"
+            pdf_relative = f"{folder}/notes/pdf/{Path(md_relative).stem}.pdf"
 
         entry = {
             "section": r.section_ordinal,
@@ -224,6 +224,7 @@ def _write_pdf(
             "the md is in the vault; study_export_notes tries the PDF again",
         )
     try:
+        target.parent.mkdir(parents=True, exist_ok=True)
         # "xb": create-only, in bytes - a PDF is binary, not text
         with target.open("xb") as f:
             f.write(data)
@@ -274,15 +275,15 @@ def _note_name(filename: str, section: int) -> str:
 
 
 def _free_name(folder: Path, stem: str) -> tuple[Path, Path]:
-    """The first md + PDF pair in `folder` with neither file taken yet: `stem.md` +
-    `stem.pdf`, then `stem (2)`, `stem (3)`... (D-73). One file alone takes the name for both,
-    so a note's md and PDF always share a stem (D-78)."""
-    target_md = folder / f"{stem}.md"
-    target_pdf = folder / f"{stem}.pdf"
+    """The first md + PDF pair under `folder` with neither file taken yet: `md/stem.md` +
+    `pdf/stem.pdf`, then `stem (2)`, `stem (3)`... (D-73, D-237). One file alone takes the name
+    for both, so a note's md and PDF always share a stem (D-78)."""
+    target_md = folder / "md" / f"{stem}.md"
+    target_pdf = folder / "pdf" / f"{stem}.pdf"
     n = 2
     while target_md.exists() or target_pdf.exists():
-        target_md = folder / f"{stem} ({n}).md"
-        target_pdf = folder / f"{stem} ({n}).pdf"
+        target_md = folder / "md" / f"{stem} ({n}).md"
+        target_pdf = folder / "pdf" / f"{stem} ({n}).pdf"
         n += 1
     return target_md, target_pdf
 

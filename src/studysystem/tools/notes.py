@@ -15,7 +15,7 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         name="study_export_notes",
         description=(
             "Write a course's notes into the vault wherever a file is missing: the markdown, "
-            "the PDF copy beside it, or both. A note's export normally runs inside "
+            "the PDF copy, or both. A note's export normally runs inside "
             "study_submit_generation; call this when that reply named a problem and it is "
             "fixed (vault folder declared, folder made writable, a file moved out of the way), "
             "or to give older notes their PDF. Safe to call twice - the second call writes "
