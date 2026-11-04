@@ -51,6 +51,14 @@ The server speaks MCP on stdio. In the host's MCP config:
 }
 ```
 
+### Study flows: the Cowork plugin
+
+The step-by-step flows are slash commands in a Cowork plugin under `plugin/`: `/study-plan`,
+`/study-day`, `/add-chapter` and `/explain-chapter`. Each one names the tools to call and their
+order, so the hours land on the plan's item. Build it with
+`uv run python scripts/build_plugin.py`, then install `dist/studysystem.plugin` in Cowork.
+Rebuild and reinstall after every change under `plugin/`.
+
 ## Where the data lives
 
 - The database is `studysystem.db` in the platform data folder (on Windows

@@ -1,0 +1,10 @@
+{
+  "name": "studysystem",
+  "version": "0.1.0",
+  "description": "Slash commands for the studysystem MCP server: make a plan, run a study day, add a chapter, explain a chapter.",
+  "author": {
+    "name": "Mohammad"
+  },
+  "repository": "https://github.com/mohammadmassaf/STUDYSYSTEM",
+  "keywords": ["study", "planning", "exams"]
+}
