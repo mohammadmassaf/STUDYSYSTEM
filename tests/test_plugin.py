@@ -49,6 +49,8 @@ def test_shared_steps_match_in_every_skill() -> None:
 def test_each_working_skill_logs_its_minutes(skill) -> None:
     # The match test above passes for a skill that drops a block; this one does not.
     assert "<!-- shared:log-step -->" in body(skill)
+    # D-249: a scope the skill names beats the shown-item rule, so a hidden chapter keeps its hours.
+    assert "If the step above names what to pass, pass that." in body(skill)
 
 
 def test_study_plan_makes_a_plan() -> None:
