@@ -17,8 +17,7 @@ file itself, so no folder needs to be connected for this.
 
 <!-- shared:plan-step -->
 Call `study_get_plan` and show the student every item it returns, lane by lane, the study lane
-as its `entries`. Keep the one this chapter serves: a first-material setup item for this course,
-this chapter's study entry, or a review topic the chapter teaches. Ask the student to confirm it.
+as its `entries`. Do not ask the student to pick an item: the minutes go on the chapter.
 <!-- /shared:plan-step -->
 
 2. Add the chapter with `study_add_material` (kind `chapter` unless it is clearly slides).
@@ -44,7 +43,7 @@ once it is linked to a taught chapter.
 
 5. Do not teach the chapter here. Tell the student to run `/explain-chapter` when they want it
    taught.
-6. Log the minutes:
+6. Log the minutes on this chapter's material_id:
 
 <!-- shared:log-step -->
 When the student says they are done, ask how many minutes they studied. Never estimate them.

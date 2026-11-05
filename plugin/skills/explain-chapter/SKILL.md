@@ -18,8 +18,7 @@ so such a note is read from its file.
 
 <!-- shared:plan-step -->
 Call `study_get_plan` and show the student every item it returns, lane by lane, the study lane
-as its `entries`. Keep the one this chapter serves: a first-material setup item for this course,
-this chapter's study entry, or a review topic the chapter teaches. Ask the student to confirm it.
+as its `entries`. Do not ask the student to pick an item: the minutes go on the chapter.
 <!-- /shared:plan-step -->
 
 2. Call `study_add_material` with the path (kind `chapter` unless it is clearly slides) to get
@@ -46,8 +45,9 @@ part, then call `study_submit_generation` until it reports no errors (at most 3 
      paragraphs, and no bullet summary of a slide.
    - Where the note marks an exam target, go deeper and show how the exam asks it.
    - End with one short question that checks the student understood, then stop and wait.
-6. Log the minutes. If no shown item fits, still pass this chapter's material_id: the minutes stay
-   on the chapter, and the gate does not count them:
+6. Log the minutes. If step 1 showed a first-material setup item for this course, pass its
+   setup_key. Otherwise pass this chapter's material_id, whether or not the plan shows the chapter.
+   The gate decides whether the minutes count:
 
 <!-- shared:log-step -->
 When the student says they are done, ask how many minutes they studied. Never estimate them.

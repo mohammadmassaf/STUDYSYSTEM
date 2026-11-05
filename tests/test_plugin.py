@@ -97,8 +97,14 @@ def test_study_day_shows_chapters_and_asks_explain_or_practice() -> None:
     assert "subject_type `material`" in text
 
 
-def test_explain_chapter_logs_on_its_chapter_when_no_entry_shows_it() -> None:
-    assert "this chapter's material_id" in body("explain-chapter")
+def test_explain_chapter_logs_on_its_chapter_and_asks_for_no_item() -> None:
+    # D-247: on Transport (1) the host asked which item to count, and no answer was right.
+    text = body("explain-chapter")
+
+    assert "Do not ask the student to pick an item" in text
+    assert "Ask the student to confirm" not in text
+    assert "this chapter's material_id" in text
+    assert "first-material setup item" in text
 
 
 def test_study_day_sends_a_first_material_item_to_add_chapter() -> None:
