@@ -68,7 +68,10 @@ def test_skill_gets_the_plan_before_the_session_and_logs_on_its_item(skill) -> N
 def test_add_chapter_notes_and_tags_and_teaches_nothing() -> None:
     text = body("add-chapter")
 
-    assert text.index("study_get_plan") < text.index("study_add_material")
+    # D-245: it works without the plan and asks the student to pick nothing.
+    assert "shared:plan-step" not in text
+    assert "Do not call `study_get_plan`" in text
+    assert "this chapter's material_id" in text
     # The note makes the chapter taught; only the tagging lets the plan lift its topics.
     assert text.index("kind `note`") < text.index("kind `tagging`")
     assert "study_start_session" not in text
@@ -125,6 +128,8 @@ def test_study_day_sends_a_first_material_item_to_add_chapter() -> None:
     # The command it names must exist, or the student looks for one that is gone.
     assert "/add-chapter" in body("study-day")
     assert (PLUGIN / "skills" / "add-chapter" / "SKILL.md").exists()
+    # D-245: /add-chapter no longer calls the plan, so study-day must not say it does.
+    assert "gets the plan again" not in body("study-day")
 
 
 def test_server_offers_no_mcp_prompts() -> None:

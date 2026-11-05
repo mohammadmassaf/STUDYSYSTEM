@@ -26,8 +26,8 @@ first.
      subject_type `topic` and subject_id the item's topic_id.
    - A setup item: start no session; say what it asks for and do it with the student.
    - A first-material item is the exception: stop here and tell the student to run
-     `/add-chapter` - it gets the plan again, adds the chapter, makes its note, links it to its
-     topics and logs the minutes on the chapter. `/explain-chapter` then teaches it.
+     `/add-chapter` - it adds the chapter, makes its note, links it to its topics and logs the
+     minutes on the chapter. `/explain-chapter` then teaches it.
 3. Do the work with the student.
 4. Log the minutes:
 

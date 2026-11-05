@@ -13,15 +13,11 @@ command; ask for whichever is missing. The path is the full Windows path (in Exp
 the file, Ctrl+Shift+C). The studysystem server runs on the student's computer and reads the
 file itself, so no folder needs to be connected for this.
 
-1. Get the plan:
+Do not call `study_get_plan` and do not ask the student to pick a plan item. Adding a chapter
+does not depend on the plan, so start the work as soon as you have the course and the path.
 
-<!-- shared:plan-step -->
-Call `study_get_plan` and show the student every item it returns, lane by lane, the study lane
-as its `entries`. Do not ask the student to pick an item: the minutes go on the chapter.
-<!-- /shared:plan-step -->
-
-2. Add the chapter with `study_add_material` (kind `chapter` unless it is clearly slides).
-3. Make the note:
+1. Add the chapter with `study_add_material` (kind `chapter` unless it is clearly slides).
+2. Make the note:
 
 <!-- shared:make-note-step -->
 Make its exam note: `study_start_generation` kind `note` with the material_id. Fetch every
@@ -29,8 +25,8 @@ part, then call `study_submit_generation` until it reports no errors (at most 3 
 <!-- /shared:make-note-step -->
 
    If the material already existed and its note is refused as done (`already_noted`), say so
-   - the chapter is ready to explain - and go on to step 4.
-4. Link it to its topics:
+   - the chapter is ready to explain - and go on to step 3.
+3. Link it to its topics:
 
 <!-- shared:tag-step -->
 Link the chapter to the topics it teaches: `study_start_generation` kind `tagging` with the
@@ -41,9 +37,9 @@ when it has none. A note makes a chapter count as taught, but the plan lifts a t
 once it is linked to a taught chapter.
 <!-- /shared:tag-step -->
 
-5. Do not teach the chapter here. Tell the student to run `/explain-chapter` when they want it
+4. Do not teach the chapter here. Tell the student to run `/explain-chapter` when they want it
    taught.
-6. Log the minutes on this chapter's material_id:
+5. Log the minutes. This command shows no plan items, so pass this chapter's material_id:
 
 <!-- shared:log-step -->
 When the student says they are done, ask how many minutes they studied. Never estimate them.
