@@ -340,7 +340,7 @@ def _taught_materials(user_id: str) -> CompoundSelect:
 
     I3304 on 2026-10-09 -> chapter 1 (its notes landed at 08:24, four minutes after the feed).
     """
-    noted = select(note.c.material_id).where(note.c.user_id == user_id)
+    noted = select(note.c.material_id).where(note.c.user_id == user_id, note.c.retired_at.is_(None))
     studied = select(study_session.c.subject_id).where(
         study_session.c.user_id == user_id, study_session.c.subject_type == "material"
     )

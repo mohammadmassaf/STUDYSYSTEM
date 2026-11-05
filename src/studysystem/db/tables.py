@@ -768,6 +768,7 @@ note = Table(
     Column("exported_path", Text, nullable=True),
     Column("pdf_path", Text, nullable=True),
     ts(),
+    ts("retired_at", nullable=True),  # set when a redo's note replaces this one (D-250)
     UniqueConstraint("task_id", "section_ordinal"),
 )
 
