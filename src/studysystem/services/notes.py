@@ -10,6 +10,10 @@ A file is never overwritten - a name already taken gets the first free `(2)`, `(
 version of a chapter never lands on the old note and its annotations. The md and the PDF take
 that name as a pair: one file alone, in either folder, takes it for both.
 
+A redo retires the old note (D-250). Its files are deleted before the new note's files are named,
+so the new note takes the plain name; the old text stays in the database. A delete that fails
+holds that chapter's new files back until the next export, and never loses the note.
+
 The export never raises. The note is already committed when it runs, so an error here would tell
 the host its note failed when it did not; every problem comes back as an entry with its fix.
 
@@ -50,7 +54,10 @@ def export_notes(engine: Engine, user_id: str, task_id: str) -> list[dict]:
     (D-72). Returns one entry per note it tried, in order: {"section", "material", "exported_path",
     "pdf_path", "renamed"}, plus "problem" and "fix" when a path is still None. A task whose
     notes have both files returns []."""
-    return _export_where(engine, user_id, note.c.task_id == task_id)
+    # A second copy of note, so the subquery reads its own rows: the notes this task replaces.
+    new = note.alias("new")
+    replaced = note.c.material_id.in_(select(new.c.material_id).where(new.c.task_id == task_id))
+    return _export_where(engine, user_id, note.c.task_id == task_id, replaced)
 
 
 def export_course_notes(
@@ -64,32 +71,105 @@ def export_course_notes(
     with read_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
         stored = conn.execute(select(course.c.code).where(course.c.id == course_id)).scalar_one()
-    return {"course": stored, "exports": _export_where(engine, user_id, course.c.id == course_id)}
+    in_course = course.c.id == course_id
+    return {"course": stored, "exports": _export_where(engine, user_id, in_course, in_course)}
 
 
-def _export_where(engine: Engine, user_id: str, scope: ColumnElement[bool]) -> list[dict]:
-    """Export the notes in `scope` (one task, or one course) that miss a file. Never raises:
-    even the first read failing comes back as an entry, the notes being saved already."""
+def _export_where(
+    engine: Engine, user_id: str, scope: ColumnElement[bool], replaced: ColumnElement[bool]
+) -> list[dict]:
+    """Delete the files of the retired notes in `replaced`, then export the notes in `scope` (one
+    task, or one course) that miss a file. Never raises: even the first read failing comes back
+    as an entry, the notes being saved already."""
+    blocked: dict[str, dict] = {}
     try:
+        blocked = _delete_retired(engine, user_id, replaced)
         rows = _unexported_notes(engine, user_id, scope)
     except SQLAlchemyError:
         return [
+            *blocked.values(),
             _unexported(
                 None,
                 None,
                 "the notes could not be read for export",
-                "nothing was written to the vault; " + RETRY,
-            )
+                "no new file was written to the vault; " + RETRY,
+            ),
         ]
-    if not rows:
-        return []
-    return _export(engine, rows)
+    # a chapter whose old file is still there keeps its new files back, so they take the plain name
+    rows = [r for r in rows if r.material_id not in blocked]
+    return [*blocked.values(), *(_export(engine, rows) if rows else [])]
+
+
+def _delete_retired(engine: Engine, user_id: str, scope: ColumnElement[bool]) -> dict[str, dict]:
+    """Delete the files of the retired notes in `scope`, and clear their paths (D-250). Returns
+    one problem entry per material whose delete failed, by its id. With no vault root or course
+    folder nothing is deleted: the export reports those itself."""
+    root = vault_dir()
+    if root is None:
+        return {}
+    with read_unit(engine) as conn:
+        rows = conn.execute(
+            select(
+                note.c.id,
+                note.c.material_id,
+                note.c.section_ordinal,
+                note.c.exported_path,
+                note.c.pdf_path,
+                material.c.filename,
+                course.c.vault_folder,
+            )
+            .join(material, material.c.id == note.c.material_id)
+            .join(course, course.c.id == material.c.course_id)
+            .where(
+                scope,
+                note.c.user_id == user_id,
+                note.c.retired_at.is_not(None),
+                course.c.vault_folder.is_not(None),
+                or_(note.c.exported_path.is_not(None), note.c.pdf_path.is_not(None)),
+            )
+        ).all()
+        # casefold: Windows treats two names that differ only by case as one file
+        live_paths = {
+            path.casefold()
+            for row in conn.execute(
+                select(note.c.exported_path, note.c.pdf_path).where(
+                    note.c.user_id == user_id, note.c.retired_at.is_(None)
+                )
+            )
+            for path in row
+            if path is not None
+        }
+
+    blocked: dict[str, dict] = {}
+    for r in rows:
+        # A wrong vault path must not read as "the old file is already gone", or its path is lost
+        # and the new note lands beside the real file as `(2)`. The export reports the folder.
+        if not (root / r.vault_folder).is_dir():
+            continue
+        for column, relative in (("exported_path", r.exported_path), ("pdf_path", r.pdf_path)):
+            if relative is None:
+                continue
+            name = Path(relative).name
+            try:
+                # A live note may hold this name by now: only the retired row's path clears.
+                if relative.casefold() not in live_paths:
+                    (root / relative).unlink(missing_ok=True)
+                _record(engine, r.id, **{column: None})
+                continue
+            except OSError as e:
+                problem = f"{name} could not be deleted: {e.strerror or e}"
+                fix = "close the file if another program has it open, " + RETRY
+            except SQLAlchemyError:
+                problem = f"the old note's path to {name} could not be saved as cleared"
+                fix = "check the database is not busy, " + RETRY
+            blocked[r.material_id] = _unexported(r.section_ordinal, r.filename, problem, fix)
+    return blocked
 
 
 def _unexported_notes(engine: Engine, user_id: str, scope: ColumnElement[bool]) -> list:
-    """The notes in `scope` missing their md or their PDF, oldest first, with what their files
-    need: where the md went (NULL = not written), the task and material that made them, the
-    course's vault folder and the profile's version."""
+    """The live notes in `scope` missing their md or their PDF, oldest first, with what their
+    files need: where the md went (NULL = not written), the task and material that made them,
+    the course's vault folder and the profile's version."""
     with read_unit(engine) as conn:
         return list(
             conn.execute(
@@ -99,6 +179,7 @@ def _unexported_notes(engine: Engine, user_id: str, scope: ColumnElement[bool]) 
                     note.c.section_ordinal,
                     note.c.body,
                     note.c.exported_path,
+                    note.c.material_id,
                     material.c.filename,
                     course.c.vault_folder,
                     exam_profile.c.version,
@@ -109,6 +190,7 @@ def _unexported_notes(engine: Engine, user_id: str, scope: ColumnElement[bool]) 
                 .where(
                     scope,
                     note.c.user_id == user_id,
+                    note.c.retired_at.is_(None),
                     or_(note.c.exported_path.is_(None), note.c.pdf_path.is_(None)),
                 )
                 .order_by(note.c.created_at, note.c.section_ordinal)
@@ -248,7 +330,7 @@ def _write_pdf(
     return None
 
 
-def _record(engine: Engine, note_id: str, **paths: str) -> None:
+def _record(engine: Engine, note_id: str, **paths: str | None) -> None:
     """Save where a note's file went - one write unit per save (D-79)."""
     with write_unit(engine) as conn:
         conn.execute(update(note).where(note.c.id == note_id).values(**paths))

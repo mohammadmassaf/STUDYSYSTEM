@@ -211,7 +211,11 @@ def _exam_weight(conn: Connection, user_id: str, material_id: str) -> dict:
 
     sections = conn.execute(
         select(note.c.body, note.c.exam_profile_id)
-        .where(note.c.user_id == user_id, note.c.material_id == material_id)
+        .where(
+            note.c.user_id == user_id,
+            note.c.material_id == material_id,
+            note.c.retired_at.is_(None),  # a redo's old note must not mix in (D-250)
+        )
         .order_by(note.c.created_at, note.c.section_ordinal)
     ).all()
     targets = [

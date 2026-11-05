@@ -724,12 +724,14 @@ def start_generation(
     material_id: str | None = None,
     part: object = 1,
     count: object = None,
+    redo: object = False,
 ) -> Task:
     """Hand the host part `part` of a generation task: the payload {"task_id", "part", "parts",
     "content", "schema", "rules"} and the page pictures that follow it - later parts carry only
     their pages and their slice of the long list (D-145). Each kind takes the parameter named
     for its subject (D-47): `past_exam_id` for a transcription or an observation, `material_id`
-    for a note, a tagging or a practice. `count` is a practice's: how many items to keep."""
+    for a note, a tagging or a practice. `count` is a practice's: how many items to keep. `redo`
+    is a note's: write a new note for a material that has one (D-250)."""
 
     kind = values.choice("kind", kind, KINDS)
     if kind not in BUILT:
@@ -740,7 +742,7 @@ def start_generation(
             field_errors=[{"field": "kind", "problem": "not available yet"}],
         )
     if kind == "note":
-        return _start_note(engine, user_id, material_id, part)
+        return _start_note(engine, user_id, material_id, part, values.flag("redo", redo))
     if kind == "tagging":
         return _start_tagging(engine, user_id, material_id, part)
     if kind == "practice":
@@ -1170,12 +1172,18 @@ def _transcription_task(conn: Connection, paper, task_id: str) -> Task:
     return Task(payload=payload, pictures=pictures)
 
 
-def _start_note(engine: Engine, user_id: str, material_id: str | None, part: object) -> Task:
+def _start_note(
+    engine: Engine, user_id: str, material_id: str | None, part: object, redo: bool
+) -> Task:
     """One material's note task, written alone - or the same open task again, even after it
     kept a note, so a lost payload can be fetched (D-46, D-71, D-73, D-74, D-155). With no open
-    task, a material with a `note` row is refused: a task can keep a note and still end
-    `partial` or `invalidated` (section 1 accepted, section 2 an error). A task that kept no
-    note lets the material start again (D-76)."""
+    task, a material with a live `note` row is refused unless `redo` asks for a new note (D-250):
+    a task can keep a note and still end `partial` or `invalidated` (section 1 accepted, section
+    2 an error). A task that kept no note lets the material start again (D-76).
+
+    Two refusals keep a redo honest (D-250). An open task that kept its note cannot take a new
+    one, so `redo` there would drop the new text with no error. An open redo is handed back only
+    to `redo`, so a plain start never replaces a note the student did not ask to redo."""
     if material_id is None:
         raise values.invalid(
             "material_id", "is missing", "send the material_id that study_add_material returned"
@@ -1194,11 +1202,21 @@ def _start_note(engine: Engine, user_id: str, material_id: str | None, part: obj
                 generation_task.c.status == "open",
             )
         ).one_or_none()
-        if open_task is None:
-            noted = conn.execute(
-                select(note.c.id).where(note.c.material_id == found.id).limit(1)
+        kept = None
+        if open_task is not None:
+            kept = conn.execute(
+                select(note.c.id).where(note.c.task_id == open_task.id).limit(1)
             ).first()
-            if noted is not None:
+        if kept is not None and redo:
+            raise StudyError(
+                code="note_task_open",
+                message=f"{found.filename} has an open note task that already kept its note",
+                fix="send that note again with study_submit_generation to close the task, then "
+                "start again with redo=true",
+                field_errors=[{"field": "redo", "problem": "an open task already kept a note"}],
+            )
+        if kept is None and not redo:
+            if _live_note(conn, found.id) is not None:
                 raise StudyError(
                     code="already_noted",
                     message=f"{found.filename} already has its note",
@@ -1242,6 +1260,15 @@ def _start_note(engine: Engine, user_id: str, material_id: str | None, part: obj
         )
     )
     return sent
+
+
+def _live_note(conn: Connection, material_id: str):
+    """One row of the material's note in use, or None: a retired note no longer counts (D-250)."""
+    return conn.execute(
+        select(note.c.id)
+        .where(note.c.material_id == material_id, note.c.retired_at.is_(None))
+        .limit(1)
+    ).first()
 
 
 def _find_material(conn: Connection, user_id: str, material_id: str):
@@ -1776,6 +1803,18 @@ def _submit_note(conn: Connection, user_id: str, task, payload: Any) -> tuple[di
                 created_at=now(),
             )
         )
+    if accepted:
+        # A redo: the old note stays live until its replacement lands, in this same unit (D-250).
+        conn.execute(
+            update(note)
+            .where(
+                note.c.user_id == user_id,
+                note.c.material_id == task.scope_id,
+                note.c.task_id != task.id,
+                note.c.retired_at.is_(None),
+            )
+            .values(retired_at=now())
+        )
 
     sections = {entry["section"] for entry in accepted}
     missing = sorted(NOTE_SECTIONS - on_task - sections)
@@ -2256,9 +2295,15 @@ def _open_task(conn: Connection, user_id: str, task_id: str):
         fix = "nothing to resend - its accepted items are in the pool"
         if task.status == "invalidated":  # its profile was derived again (D-11)
             # A kept note blocks a new start (`already_noted`), so only a task that kept
-            # nothing is sent back to start (D-188).
+            # nothing is sent back to start (D-188) - and a redo that kept nothing must ask for
+            # the redo again, or `already_noted` contradicts this fix (D-250).
             kept = conn.execute(select(note.c.id).where(note.c.task_id == task.id).limit(1)).first()
-            if kept is None:
+            if kept is None and _live_note(conn, task.scope_id) is not None:
+                fix = (
+                    "the old note stays in use; if the student still wants the redo, start it "
+                    "again with redo=true - the exam profile it was built on was derived again"
+                )
+            elif kept is None:
                 fix = (
                     "start it again with study_start_generation - the exam profile it was built "
                     "on was derived again, so its weights may have changed (D-11)"

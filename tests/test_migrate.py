@@ -31,7 +31,7 @@ from studysystem.db.tables import (
 )
 from tests._study import run_study
 
-HEAD = "0020"
+HEAD = "0021"
 
 
 def stamp() -> str | None:
@@ -1165,3 +1165,17 @@ def test_0020_keeps_his_hours_and_plan_items_through_both_rebuilds(empty_engine)
     with empty_engine.connect() as conn:
         assert conn.execute(text("SELECT minutes FROM hours_entry")).scalar_one() == 40
         assert conn.execute(text("SELECT setup_kind FROM plan_item")).scalar_one() == "past-papers"
+
+
+# --- 0021: a note can retire (D-250) -------------------------------------------------------------
+
+
+def test_0021_adds_retired_at_and_a_downgrade_drops_it(empty_engine):
+    migrate.upgrade(empty_engine)
+
+    column = {c["name"]: c for c in inspect(empty_engine).get_columns("note")}["retired_at"]
+    assert column["nullable"] is True
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0020")
+
+    assert "retired_at" not in {c["name"] for c in inspect(empty_engine).get_columns("note")}

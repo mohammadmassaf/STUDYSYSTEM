@@ -32,8 +32,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "exam paper into its questions - pass past_exam_id, the id study_add_past_exam "
             "returned. kind: 'note' turns one course material into an exam-ready study note - "
             "pass material_id, the id study_add_material returned; a material that already has "
-            "its note is refused once its note task is no longer open. kind: 'tagging' links "
-            "one course material to the course's "
+            "its note is refused, unless the task that wrote it is still open. Pass redo=true "
+            "only when the student asks to redo a note: the new note replaces the old one when "
+            "it is accepted, and the old note's files are deleted from the vault. kind: 'tagging' "
+            "links one course material to the course's "
             "topics it teaches - pass material_id; it can be run again on the same material, "
             "and a course with no active topic yet is refused. kind: 'observation' records "
             "what one past exam paper shows about the exam - its duration, marks, question "
@@ -55,10 +57,11 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         material_id: str | None = None,
         part: str | float = 1,  # loose: a bad value gets the structured error (D-36)
         count: str | float | None = None,  # loose as `part`; a practice's item count
+        redo: bool | str = False,  # loose as `part`; a note's: replace the note it has (D-250)
     ) -> CallToolResult:
         return run_task(
             lambda: generation.start_generation(
-                engine, current_user(engine), kind, past_exam_id, material_id, part, count
+                engine, current_user(engine), kind, past_exam_id, material_id, part, count, redo
             )
         )
 
