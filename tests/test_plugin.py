@@ -107,6 +107,20 @@ def test_explain_chapter_logs_on_its_chapter_and_asks_for_no_item() -> None:
     assert "first-material setup item" in text
 
 
+def test_explain_chapter_puts_depth_first_and_reads_the_pages() -> None:
+    # D-248: a section capped at 2-3 sentences taught less than raw Claude with the PDF.
+    text = body("explain-chapter")
+
+    assert "Depth comes first" in text
+    assert "2-3 sentences" not in text
+    assert "the next section until the student has answered it" in text
+    # A chapter noted in an earlier chat has no pages in this chat without this call.
+    assert "`study_get_summary_task`" in text
+    # That task's own steps ask for a summary and a save, so the skill must say to write none.
+    assert "Write no summary" in text
+    assert "If this call fails" in text
+
+
 def test_study_day_sends_a_first_material_item_to_add_chapter() -> None:
     # The command it names must exist, or the student looks for one that is gone.
     assert "/add-chapter" in body("study-day")
