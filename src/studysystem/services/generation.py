@@ -223,7 +223,7 @@ NOTE_SECTIONS = frozenset({1})
 
 # How to write the note - add-pdf's Pipeline A §3-5, ported (D-74): the host gets no vault, so
 # everything it needs to aim the note travels in `rules`. Dropped and changed rows: D-74. Flow in
-# the pages' order and the visuals rule: D-148.
+# the pages' order: D-148. The visuals rule, key terms and the pages' own examples: D-248.
 NOTE_STEPS = [
     "Write one exam-ready study note for this material, aimed by the exam evidence in rules - "
     "not by how much space the pages give each part.",
@@ -242,6 +242,8 @@ NOTE_STEPS = [
     "teaches and their combined share of the exam; which past-exam items it prepares for; what "
     "those questions reward; and what in the material no evidence supports, as a line "
     "'Not examined - don't invest: ...'.",
+    "Key terms, right after Exam positioning: a table | Term | Meaning | of the terms the "
+    "material relies on, each meaning in one plain sentence.",
     "Draft the To-Memorize table before any prose: | # | Statement / syntax / formula | Tier | "
     "Evidence |. E1 = asked in a past exam, cite the item (e.g. 'Final 2020-02-17 Q3'); E2 = "
     "instructor emphasis, cite the pages; E3 = your judgment, cite 'examinable, no signal yet'. "
@@ -249,22 +251,25 @@ NOTE_STEPS = [
     "Layer 1 - Summary: the whole material compressed for a night-before read, in the pages' "
     "order, 700-900 words at most. Compress; never repeat Layer 2 word for word.",
     "Layer 2 - Core notes, in the pages' order: definitions, syntax, functions and algorithms, "
-    "each with a worked example, as a strong student takes them in class. If you can run code, "
-    "run every worked example and show its real output.",
-    "Visuals: where a page's picture shows a diagram - a figure, a layout with its parts, steps "
-    "in order, a comparison table - redraw it in the note where its topic is taught, and cite "
-    "the page. Also draw one where words alone are hard to follow: steps in order, a layout "
-    "with its parts, a side-by-side comparison. Draw only with markdown tables and with "
-    "characters inside a code block - no images, HTML or Mermaid - so they print in the PDF as "
-    "written; keep each under 90 characters wide. Never put 🎯 inside a table or a diagram. No "
-    "visual for decoration.",
+    "each with a worked example, as a strong student takes them in class. Keep every worked "
+    "example the pages give, with its real values, and cite the page; add your own only where "
+    "the pages give none. If you can run code, run every worked example and show its real "
+    "output. Where the pages show a program's or a command's output, explain it in a table | "
+    "Output line | Meaning |.",
+    "Visuals: where a page's picture shows a figure - a diagram, a layout with its parts, steps "
+    "in order, a comparison - carry what it shows into the note where its topic is taught, and "
+    "cite the page. Add a visual too where words alone are hard to follow. Choose the form that "
+    "makes the idea easiest to understand; the student prefers tables, and finds diagrams drawn "
+    "with text characters hard to read. A note holds markdown only - no images, HTML or Mermaid "
+    "- so it prints in the PDF as written; keep each code block line under 90 characters wide. "
+    "Never put 🎯 inside a table or a diagram. No visual for decoration.",
     "Layer 3 - Depth & pitfalls: edge cases and tricky details, only where an exam could ask them.",
     "Markers: 🎯 likely exam target - justify each from rules, citing the item or the weight; "
     "💡 tip or shortcut; ⚠️ common mistake. There is no mistake history yet, so say once that the "
     "⚠️ items are generic.",
     "Order: a title; the legend line '🎯 likely exam target · 💡 tip · ⚠️ common mistake'; Exam "
-    "positioning; Layer 1; Layer 2; Layer 3; To-Memorize; Self-check - 3 to 5 recall prompts, "
-    "no answers. No frontmatter: the server adds it.",
+    "positioning; Key terms; Layer 1; Layer 2; Layer 3; To-Memorize; Self-check - 3 to 5 recall "
+    "prompts, no answers. No frontmatter: the server adds it.",
     "rules.active_directives are standing instructions the student confirmed: follow each one. "
     "Its scope says where it applies: topic - only the parts of the note on the topic named in "
     "applies_to; course or all - the whole note. Skip one that cannot apply to a note, such as "
