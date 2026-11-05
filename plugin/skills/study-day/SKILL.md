@@ -34,7 +34,8 @@ first.
 <!-- shared:log-step -->
 When the student says they are done, ask how many minutes they studied. Never estimate them.
 Log them with `study_log_hours`. Always pass the session_id if a session was started, even when
-no item fits. Also pass the item's material_id (a study chapter), topic_id (a review item, or a
-study topic with no chapter) or setup_key exactly as `study_get_plan` returned it; leave out all
-three only if no shown item fits, and say so. If the student spent no time, log nothing.
+no item fits. If the step above names what to pass, pass that. Otherwise pass the item's
+material_id (a study chapter), topic_id (a review item, or a study topic with no chapter) or
+setup_key exactly as `study_get_plan` returned it; leave out all three only if no shown item
+fits, and say so. If the student spent no time, log nothing.
 <!-- /shared:log-step -->
