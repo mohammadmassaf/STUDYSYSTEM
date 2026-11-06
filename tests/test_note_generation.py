@@ -103,6 +103,9 @@ def test_chapter_6_leaves_as_its_pages_with_the_schema_and_steps(service_engine,
         assert rule in steps
     assert "Keep every worked example the pages give" in steps
     assert "Draw only with" not in steps
+    # D-251: a "Run check" block read as one more text diagram.
+    assert "a note shows no block or line about your own checks" in steps
+    assert "If the pages teach code and you can run it, run the worked examples" in steps
 
 
 def test_one_task_row_records_it_on_profile_v1(service_engine, user_id, i3302, ch6):
