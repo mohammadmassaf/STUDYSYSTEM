@@ -1,8 +1,12 @@
 """The PDF render (D-80, D-81): the page pandoc builds for Chrome - stylesheet inside, callout
 boxes marked, stamp out of the body - and one real print where this machine has a Chrome."""
 
+import subprocess
+from pathlib import Path
+
 import pytest
 
+from studysystem.services import pdf_render
 from studysystem.services.pdf_render import find_chrome, note_page, render_pdf
 
 NOTE = """---
@@ -74,6 +78,26 @@ def test_raw_html_in_a_note_is_text_never_a_script(page):
 @pytest.mark.skipif(find_chrome() is None, reason="no Chrome, Chromium or Edge on this machine")
 def test_chrome_prints_a_pdf():
     assert render_pdf(NOTE, "PHP_Chapter6_Eng_DataBase_notes")[:5] == b"%PDF-"
+
+
+def test_a_code_line_ends_once_in_the_page_chrome_prints(monkeypatch):
+    """pandoc on Windows ends its lines with CRLF. A text-mode write doubled the CR, and Chrome
+    printed a blank line after every line of a code block."""
+    written = {}
+
+    def fake_chrome(args, **kwargs):
+        pdf = Path(next(a for a in args if a.startswith("--print-to-pdf=")).split("=", 1)[1])
+        written["page"] = pdf.with_name("note.html").read_bytes()
+        pdf.write_bytes(b"%PDF-")
+        return subprocess.CompletedProcess(args, 0, b"", b"")
+
+    monkeypatch.setattr(pdf_render, "find_chrome", lambda: Path("chrome"))
+    monkeypatch.setattr(pdf_render.subprocess, "run", fake_chrome)
+
+    render_pdf(NOTE, "x")
+
+    assert b"$x = mysqli_connect();" in written["page"]
+    assert b"\r\r\n" not in written["page"]
 
 
 def test_no_chrome_is_an_os_error(monkeypatch):

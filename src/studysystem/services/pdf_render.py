@@ -93,7 +93,9 @@ def render_pdf(stamped_markdown: str, title: str) -> bytes:
     with tempfile.TemporaryDirectory() as tmp:
         page = Path(tmp) / "note.html"
         pdf = Path(tmp) / "note.pdf"
-        page.write_text(note_page(stamped_markdown, title), encoding="utf-8")
+        # newline="": pandoc on Windows already ends lines with CRLF, and a second CR is a blank
+        # line after every line of a code block (D-251)
+        page.write_text(note_page(stamped_markdown, title), encoding="utf-8", newline="")
         try:
             done = subprocess.run(
                 [
