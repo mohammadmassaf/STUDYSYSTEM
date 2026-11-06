@@ -223,7 +223,8 @@ NOTE_SECTIONS = frozenset({1})
 
 # How to write the note - add-pdf's Pipeline A §3-5, ported (D-74): the host gets no vault, so
 # everything it needs to aim the note travels in `rules`. Dropped and changed rows: D-74. Flow in
-# the pages' order: D-148. The visuals rule, key terms and the pages' own examples: D-248.
+# the pages' order: D-148. The visuals rule, key terms and the pages' own examples: D-248. Running
+# examples only where the pages teach code: D-251.
 NOTE_STEPS = [
     "Write one exam-ready study note for this material, aimed by the exam evidence in rules - "
     "not by how much space the pages give each part.",
@@ -253,9 +254,10 @@ NOTE_STEPS = [
     "Layer 2 - Core notes, in the pages' order: definitions, syntax, functions and algorithms, "
     "each with a worked example, as a strong student takes them in class. Keep every worked "
     "example the pages give, with its real values, and cite the page; add your own only where "
-    "the pages give none. If you can run code, run every worked example and show its real "
-    "output. Where the pages show a program's or a command's output, explain it in a table | "
-    "Output line | Meaning |.",
+    "the pages give none. If the pages teach code and you can run it, run the worked examples "
+    "and show the real output. Check any other number privately: a note shows no block or line "
+    "about your own checks. Where the pages show a program's or a command's output, explain it "
+    "in a table | Output line | Meaning |.",
     "Visuals: where a page's picture shows a figure - a diagram, a layout with its parts, steps "
     "in order, a comparison - carry what it shows into the note where its topic is taught, and "
     "cite the page. Add a visual too where words alone are hard to follow. Choose the form that "
