@@ -224,7 +224,7 @@ NOTE_SECTIONS = frozenset({1})
 # How to write the note - add-pdf's Pipeline A §3-5, ported (D-74): the host gets no vault, so
 # everything it needs to aim the note travels in `rules`. Dropped and changed rows: D-74. Flow in
 # the pages' order: D-148. The visuals rule, key terms and the pages' own examples: D-248. A note
-# runs no code and shows no checks: D-251, D-252.
+# runs no code and shows no checks: D-251, D-252. An exam item is cited by its printed label: D-254.
 NOTE_STEPS = [
     "Write one exam-ready study note for this material, aimed by the exam evidence in rules - "
     "not by how much space the pages give each part.",
@@ -234,7 +234,10 @@ NOTE_STEPS = [
     "Read every page before writing: the last pages often show what the material builds toward.",
     "Write in the language of the pages, and keep their terminology exactly.",
     "Evidence: rules.topics gives each topic's share of past exams (the weights sum to 100); "
-    "rules.past_exam_items are the real questions behind those weights. If both are empty, the "
+    "rules.past_exam_items are the real questions behind those weights. Cite an item by its paper "
+    "and the label printed in its question, such as 'Exercise II b' or 'Q3' - its position is "
+    "only the order in rules, which the student cannot find on the paper; a question with no "
+    "printed label is cited by its paper alone. If both are empty, the "
     "course has no exam evidence yet: say once, at the top, that the note is provisional, and "
     "lean on the E2 signals.",
     "While reading, collect E2 signals - repeated across pages, bold, boxed, marked important, "
