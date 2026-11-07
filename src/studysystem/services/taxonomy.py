@@ -26,6 +26,7 @@ from studysystem.errors import StudyError
 from studysystem.services.ids import new_id, now
 from studysystem.services.study_loop import PRACTISABLE, store_state
 from studysystem.services.topics import (
+    LISTED,
     TAGGABLE,
     edge_if_missing,
     exam_assessments,
@@ -43,7 +44,7 @@ def move_items(
     """Move practice items from one topic to another, with everything that must follow them
     (D-192, D-195, D-197). The caller has already checked both topics and the ids.
 
-    item_ids: the items to move - a split sends one child's share of the parent's live items;
+    item_ids: the items to move - a split sends one child's share of the parent's listed items;
     None moves every item of `from_id`, in any state (a merge).
 
     After it returns:
@@ -252,9 +253,10 @@ def _children_shape_errors(children) -> list[dict]:
 def split_topic(engine: Engine, user_id: str, topic_id: str, children) -> dict:
     """Split one `active` / `unexamined` topic into 2+ new ones, as one write unit (D-13).
 
-    `children` is `[{name, item_ids}]`: each child's name and its share of the parent's live
-    items - every live item named exactly once (D-195, decline's rule), each child at least one,
-    no name a live topic's (D-201). A rejected item and an item-less attempt stay on the parent.
+    `children` is `[{name, item_ids}]`: each child's name and its share of the parent's listed
+    items - every live or parked item named exactly once (D-195, D-256, decline's rule), each
+    child at least one, no name a live topic's (D-201). A rejected item and an item-less attempt
+    stay on the parent.
 
     Writes: each child (the parent's status, `proposed_by = 'split'`, D-201) and its
     `topic_split` row; the items
@@ -278,18 +280,19 @@ def split_topic(engine: Engine, user_id: str, topic_id: str, children) -> dict:
     with write_unit(engine) as conn:
         parent = _fixable_topic(conn, user_id, topic_id, "topic_id")
 
-        # the map: every live item of the parent exactly once (D-195, a decline's check)
-        live = set(
+        # the map: every listed item of the parent exactly once, parked ones included (D-195,
+        # D-256, a decline's check)
+        held = set(
             conn.execute(
                 select(practice_item.c.id).where(
-                    practice_item.c.topic_id == topic_id, practice_item.c.state == "live"
+                    practice_item.c.topic_id == topic_id, practice_item.c.state.in_(LISTED)
                 )
             )
             .scalars()
             .all()
         )
         listed = [item_id for child in children for item_id in child["item_ids"]]
-        problems = map_problems(live, listed, "children")
+        problems = map_problems(held, listed, "children")
 
         # names: none may be a live topic's of this course - the parent's included; compared as
         # the partial unique index compares them (D-201)
@@ -318,7 +321,7 @@ def split_topic(engine: Engine, user_id: str, topic_id: str, children) -> dict:
         if problems:
             raise StudyError(
                 code="invalid_value",
-                message=f"children must name each of the {len(live)} live items of this topic "
+                message=f"children must name each of the {len(held)} listed items of this topic "
                 "exactly once, under new names",
                 fix="call study_get_topics with include_hidden true for every item id of this "
                 "topic, and fix each problem named",

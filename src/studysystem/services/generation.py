@@ -1993,7 +1993,8 @@ def _judge_practice(conn: Connection, user_id: str, course_id: str, items: list)
 
     An accepted entry is the item's own dict plus two fields: "place" (its place in this
     payload, from 1) and "state" ("live", or "needs-review" when its topic is not `active` -
-    D-22's gate). An error is `_item_error(place, code, field, message)`.
+    D-22's gate - or is a syllabus topic, which no past paper anchors - D-255). An error is
+    `_item_error(place, code, field, message)`.
     """
 
     accepted = []
@@ -2003,8 +2004,17 @@ def _judge_practice(conn: Connection, user_id: str, course_id: str, items: list)
         if unvalid:
             errors.extend(unvalid)
             continue
-        is_usable = topics.is_live_topic(conn, user_id, course_id, item["topic_id"])
-        if not is_usable:
+        # one read of the topic: no row = not a live topic of this course; its status and who
+        # proposed it decide the gate
+        found = conn.execute(
+            select(topic.c.status, topic.c.proposed_by).where(
+                topic.c.user_id == user_id,
+                topic.c.course_id == course_id,
+                topic.c.id == item["topic_id"],
+                topic.c.status.in_(topics.TAGGABLE),
+            )
+        ).one_or_none()
+        if found is None:
             errors.append(
                 _item_error(
                     place,
@@ -2015,9 +2025,8 @@ def _judge_practice(conn: Connection, user_id: str, course_id: str, items: list)
                 )
             )
             continue
-        is_live = topics.is_live_topic(conn, user_id, course_id, item["topic_id"], ("active",))
         state = "needs-review"
-        if is_live:
+        if found.status == "active" and found.proposed_by != "syllabus":
             state = "live"
         accepted.append({**item, "place": place, "state": state})
     return Judged(accepted, errors)

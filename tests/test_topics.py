@@ -345,6 +345,43 @@ def test_a_decline_spreads_items_over_existing_and_new_topics(service_engine, us
     assert edges(service_engine) == []  # every target is still proposed (D-60)
 
 
+def test_a_decline_moves_a_parked_item_with_the_live_ones(service_engine, user_id, paper2):
+    """D-256: a parked item is listed, so the retag names it, and it leaves the declined topic
+    still parked."""
+    with service_engine.connect() as conn:
+        task = conn.execute(select(practice_item.c.task_id)).scalars().first()
+    parked = new_id()
+    with write_unit(service_engine) as conn:
+        conn.execute(
+            insert(practice_item).values(
+                id=parked,
+                user_id=user_id,
+                topic_id=paper2,
+                task_id=task,
+                item_ordinal=99,
+                origin="generated",
+                question="A generated sessions question",
+                answer_provenance="none",
+                source_marker="model-knowledge",
+                novelty_score=0.5,
+                state="needs-review",
+                created_at=now(),
+            )
+        )
+    ids = item_ids(service_engine, SESSIONS)
+    assert parked in ids
+    retag = [{"item_id": i, "topic": {"proposed_name": "PHP sessions"}} for i in ids]
+
+    confirm_topic_proposal(service_engine, user_id, paper2, "decline", retag)
+
+    assert item_topic(service_engine, parked) == "PHP sessions"
+    with service_engine.connect() as conn:
+        state = conn.execute(
+            select(practice_item.c.state).where(practice_item.c.id == parked)
+        ).scalar_one()
+    assert state == "needs-review"
+
+
 def test_an_active_target_gets_its_edge(service_engine, user_id, web, paper2):
     files = topic_id(service_engine, FILES)
     confirm_topic_proposal(service_engine, user_id, files, "accept")
@@ -535,6 +572,36 @@ def test_an_item_with_no_paper_is_listed_without_a_date(service_engine, user_id,
     items = listing(service_engine, user_id)[REGEX]["items"]
 
     assert [(i["paper_date"], i["position"]) for i in items] == [("2020-02-17", 1), (None, None)]
+
+
+def test_a_parked_item_is_listed_with_its_review_mark(service_engine, user_id, web, tmp_path):
+    """D-253: the first attempt clears a parked item, so the host must see it - marked, so the
+    student reads it as a question still to be judged."""
+    transcribe(service_engine, user_id, tmp_path, "first", "2020-02-17", [REGEX])
+    regex = topic_id(service_engine, REGEX)
+    with service_engine.connect() as conn:
+        task = conn.execute(select(practice_item.c.task_id)).scalars().first()
+    with write_unit(service_engine) as conn:
+        conn.execute(
+            insert(practice_item).values(
+                id=new_id(),
+                user_id=user_id,
+                topic_id=regex,
+                task_id=task,
+                item_ordinal=99,
+                origin="generated",
+                question="A generated regex question",
+                answer_provenance="none",
+                source_marker="model-knowledge",
+                novelty_score=0.5,
+                state="needs-review",
+                created_at=now(),
+            )
+        )
+
+    items = listing(service_engine, user_id)[REGEX]["items"]
+
+    assert [(i["position"], i["needs_review"]) for i in items] == [(1, False), (None, True)]
 
 
 def test_an_unknown_course_is_not_found(service_engine, user_id, web):

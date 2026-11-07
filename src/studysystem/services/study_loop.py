@@ -761,8 +761,9 @@ def submit_attempts(
     tz: datetime.tzinfo | None = None,
 ) -> dict:
     """Record one graded problem - its parts, together - and move each topic's FSRS state. One
-    write unit: the attempts, every touched `topic_state`, the walkthrough's position, and a
-    `manual` session when none is open (Write units).
+    write unit: the attempts, every touched `topic_state`, the walkthrough's position, each
+    attempted `needs-review` item made `live` (D-253), and a `manual` session when none is open
+    (Write units).
 
     The session's mode decides each attempt's `source` and `assisted` (MODE_SOURCE). Each
     attempt names its item (its topic follows) or only a topic; a result is a score 0-1,
@@ -806,6 +807,18 @@ def submit_attempts(
                 )
             )
             ids.append(attempt_id)
+            if a["practice_item_id"] is not None:
+                # solving a parked item judges it fine, right or wrong (D-253); a live one is
+                # matched by nothing, so no read of its state comes first
+                conn.execute(
+                    update(practice_item)
+                    .where(
+                        practice_item.c.id == a["practice_item_id"],
+                        practice_item.c.user_id == user_id,
+                        practice_item.c.state == "needs-review",
+                    )
+                    .values(state="live")
+                )
             if topic_id not in touched:
                 touched.append(topic_id)
             walked = session.subject_type == "past-exam" and paper == session.subject_id

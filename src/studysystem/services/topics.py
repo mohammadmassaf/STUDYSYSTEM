@@ -23,6 +23,9 @@ from studysystem.services.units import read_unit, write_unit
 # Topics a transcribed item may be tagged to: live ones, `proposed` included (1.10 accepts a
 # proposal). `superseded` and `declined` topics are retired and never offered.
 TAGGABLE = ("proposed", "active", "unexamined")
+# Items study_get_topics lists, so the ones a split or decline must map: live ones, and parked
+# ones awaiting their first attempt (D-253, D-256). `rejected` and `superseded` stay put.
+LISTED = ("live", "needs-review")
 
 
 def is_live_topic(
@@ -192,12 +195,14 @@ def get_topics(
     include_hidden: bool = False,
 ) -> dict:
     """Every live topic of the course, each with its status, its offered items (id, paper date,
-    position, marks, the full question text, best score) and how many it hides (D-64, D-66).
+    position, marks, the full question text, best score, whether it needs review) and how many
+    it hides (D-64, D-66).
 
     An item is offered while unpractised (`best_score` None) or mostly wrong (best at or under
     PASS_SCORE); above it, it is hidden - not handed out again (D-99, D-126). `include_hidden`
-    lists every live item and `hidden` is 0 - what a split maps (D-203). A `rejected` item is not
-    listed at all, nor counted in `hidden`."""
+    lists every live and parked item and `hidden` is 0 - what a split maps (D-203, D-256). A
+    parked item is listed with `needs_review` true; its first attempt clears it (D-253). A
+    `rejected` item is not listed at all, nor counted in `hidden`."""
     best = best_scores(user_id)
     with read_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
@@ -219,6 +224,7 @@ def get_topics(
                     practice_item.c.position,
                     practice_item.c.marks,
                     practice_item.c.question,
+                    practice_item.c.state,
                     best.c.best,
                 )
                 .join_from(
@@ -229,7 +235,7 @@ def get_topics(
                 )
                 # Outer: an unpractised item has no `best` row and must still be listed.
                 .join(best, best.c.practice_item_id == practice_item.c.id, isouter=True)
-                .where(practice_item.c.topic_id == row.id, practice_item.c.state == "live")
+                .where(practice_item.c.topic_id == row.id, practice_item.c.state.in_(LISTED))
                 .order_by(
                     past_exam.c.session_date.nulls_last(),
                     practice_item.c.position.nulls_last(),
@@ -251,6 +257,7 @@ def get_topics(
                             "marks": item.marks,
                             "question": item.question,
                             "best_score": item.best,
+                            "needs_review": item.state == "needs-review",
                         }
                         for item in offered
                     ],
@@ -386,13 +393,13 @@ def map_problems(owned: set[str], listed: list[str], field: str) -> list[dict]:
 def _decline(conn: Connection, user_id: str, found, retag: list[dict]) -> dict:
     """The decline half of `confirm_topic_proposal` (D-61 - D-63): check the map, resolve each
     target, move the items, retire the topic, then give each `active` target its edges.
-    Only `live` items need a target - the ones study_get_topics lists; a `rejected` one stays
-    on the retired topic."""
+    Only LISTED items need a target - the ones study_get_topics lists, parked ones included
+    (D-256); a `rejected` one stays on the retired topic."""
     topic_id = found.id
     declined = set(
         conn.execute(
             select(practice_item.c.id).where(
-                practice_item.c.topic_id == topic_id, practice_item.c.state == "live"
+                practice_item.c.topic_id == topic_id, practice_item.c.state.in_(LISTED)
             )
         )
         .scalars()
@@ -402,7 +409,7 @@ def _decline(conn: Connection, user_id: str, found, retag: list[dict]) -> dict:
     if problems:
         raise StudyError(
             code="invalid_value",
-            message=f"retag must name each of the {len(declined)} live items of this topic "
+            message=f"retag must name each of the {len(declined)} listed items of this topic "
             "exactly once",
             fix="call study_get_topics for this topic's item ids and send one entry per item",
             field_errors=problems,
