@@ -106,6 +106,27 @@ def test_an_item_on_a_proposed_topic_is_parked_for_review(service_engine, user_i
     assert [r.state for r in generated(service_engine)] == ["live", "needs-review"]
 
 
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [("proposed_by", "syllabus"), ("status", "unexamined")],
+    ids=["syllabus-topic", "unexamined-topic"],
+)
+def test_an_item_on_a_topic_no_past_paper_examines_is_parked(
+    service_engine, user_id, ch6, column, value
+):
+    """D-255: a syllabus topic is `active`, yet no real question anchors what its items ask - I3351
+    has no papers - so they park like an `unexamined` topic's (D-22)."""
+    task = start(service_engine, user_id, ch6)
+    topics = topic_ids(task)
+    with write_unit(service_engine) as conn:
+        conn.execute(update(topic).where(topic.c.id == topics[1]).values({column: value}))
+
+    reply = submit(service_engine, user_id, task, [item(topics[0], 1), item(topics[1], 2)])
+
+    assert reply["accepted"] == [1, 2]
+    assert [r.state for r in generated(service_engine)] == ["live", "needs-review"]
+
+
 # --- the rest -----------------------------------------------------------------------------
 
 

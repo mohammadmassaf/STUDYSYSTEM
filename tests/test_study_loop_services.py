@@ -378,15 +378,45 @@ def test_an_item_retired_from_practice_is_refused(service_engine, user_id, web, 
     assert _state(service_engine, mysql) is None
 
 
-def test_an_item_awaiting_review_is_practised(service_engine, user_id, web):
-    # D-16(a): a needs-review item is cleared at the point of use, so it takes attempts.
+def _item_state(engine, item_id):
+    with engine.connect() as conn:
+        return conn.execute(
+            select(practice_item.c.state).where(practice_item.c.id == item_id)
+        ).scalar_one()
+
+
+@pytest.mark.parametrize("correct", [True, False], ids=["right", "wrong"])
+def test_an_item_awaiting_review_is_cleared_by_its_first_attempt(
+    service_engine, user_id, web, correct
+):
+    # D-253: solving a parked item judges it fine - the item is judged, not his answer.
     mysql = _topic(service_engine, user_id, web["course_id"], "MySQL")
     [item] = _items(service_engine, user_id, mysql, [5])
     _set_state(service_engine, item, "needs-review")
 
-    submit_attempts(service_engine, user_id, "I3302", [{"practice_item_id": item, "correct": True}])
+    submit_attempts(
+        service_engine, user_id, "I3302", [{"practice_item_id": item, "correct": correct}]
+    )
 
     assert _count(service_engine, attempt) == 1
+    assert _item_state(service_engine, item) == "live"
+
+
+def test_a_refused_problem_leaves_its_parked_item_parked(service_engine, user_id, web):
+    # D-253: the clearing is inside the attempts' write unit, so it rolls back with them.
+    mysql = _topic(service_engine, user_id, web["course_id"], "MySQL")
+    [item] = _items(service_engine, user_id, mysql, [5])
+    _set_state(service_engine, item, "needs-review")
+    parts = [
+        {"practice_item_id": item, "correct": True},
+        {"practice_item_id": new_id(), "correct": True},  # no such item
+    ]
+
+    with pytest.raises(StudyError):
+        submit_attempts(service_engine, user_id, "I3302", parts)
+
+    assert _count(service_engine, attempt) == 0
+    assert _item_state(service_engine, item) == "needs-review"
 
 
 def test_one_bad_part_saves_none_of_the_problem(service_engine, user_id, web):

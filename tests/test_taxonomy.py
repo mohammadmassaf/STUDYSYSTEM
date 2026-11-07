@@ -479,8 +479,28 @@ def test_a_parent_never_practised_gives_its_children_no_state(service_engine, us
         assert _row(service_engine, topic_state, topic_id=child["topic_id"]) is None
 
 
+def test_a_parked_item_is_mapped_and_follows_its_child(service_engine, user_id, i3302):
+    """D-256: the listing shows a parked item, so the host maps it, and it moves still parked -
+    left behind, it would sit on a retired topic nothing reaches."""
+    e, u, w = service_engine, user_id, i3302
+    [parked] = _generated(e, u, w["mysql"], 1)
+    with write_unit(e) as conn:
+        conn.execute(
+            update(practice_item).where(practice_item.c.id == parked).values(state="needs-review")
+        )
+    every, _ = _listed(e, u, include_hidden=True)
+    assert parked in every
+
+    children = _two_children(w)
+    children[1]["item_ids"] = w["page_items"] + [parked]
+    result = split_topic(e, u, w["mysql"], children)
+
+    moved = _row(e, practice_item, id=parked)
+    assert (moved.topic_id, moved.state) == (result["children"][1]["topic_id"], "needs-review")
+
+
 def test_a_rejected_item_stays_on_the_parent_with_its_attempts(service_engine, user_id, i3302):
-    """D-195: the map names live items only; the rest stays where it was."""
+    """D-195, D-256: the map names live and parked items only; the rest stays where it was."""
     e, u, w = service_engine, user_id, i3302
     [rejected] = _items(e, u, w["mysql"], _paper(e, u, _slot(e, w["final"]), "2019-09-06"), [10])
     _attempt(e, u, {"practice_item_id": rejected, "correct": False})
