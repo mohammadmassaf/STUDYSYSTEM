@@ -107,6 +107,9 @@ def test_chapter_6_leaves_as_its_pages_with_the_schema_and_steps(service_engine,
     assert "a note shows no block or line about your own checks or runs" in steps
     assert "Do not run code for the note" in steps
     assert "run the worked examples" not in steps
+    # D-254: "Q12" was the item's position in rules, a number the paper never prints
+    assert "the label printed in its question" in steps
+    assert "is cited by its paper alone" in steps
 
 
 def test_one_task_row_records_it_on_profile_v1(service_engine, user_id, i3302, ch6):
