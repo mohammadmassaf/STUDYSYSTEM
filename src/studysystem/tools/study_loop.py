@@ -79,9 +79,9 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         description=(
             "Log the minutes the student says they studied a course (1-720) - the only way "
             "time is recorded; ask, never estimate. Scope them to a chapter's material_id, a "
-            "topic_id, or a setup item's setup_key exactly as study_get_plan returned it (that "
-            "setup item then leaves the plan for 7 days), or none for course-level time - never "
-            "two. Pass the "
+            "topic_id, or a setup item's setup_key (that setup item then leaves the plan for 7 "
+            "days), or none for course-level time - never two. A setup_key comes only from "
+            "study_get_plan: pass it exactly as returned. Pass the "
             "session_id to close that session. To fix a mistyped entry, send voids with its "
             "hours_entry_id plus the correct minutes; send voids alone to cancel it."
         ),
