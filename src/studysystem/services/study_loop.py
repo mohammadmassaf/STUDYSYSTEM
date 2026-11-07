@@ -2,8 +2,8 @@
 assertions, and attempts move `topic_state`.
 
 `topic_state` is a replay: a topic's attempts in, its FSRS state out, rebuilt from every attempt
-each time. A voided attempt is undone by replaying without it (`study_reject_item`'s "topic_state
-recomputed"), so the state is never patched one attempt at a time.
+each time. A voided attempt is undone by replaying without it (a `wrong-answer-key` rejection,
+D-257), so the state is never patched one attempt at a time.
 """
 
 import datetime
