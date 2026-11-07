@@ -199,25 +199,6 @@ def test_generator_correction_about_difficulty_writes_no_observation(service_eng
     assert _count(service_engine, generation_directive) == 1
 
 
-def test_wrong_answer_key_is_refused_until_4_2(service_engine, user_id, q7):
-    """Case 4: voiding the attempts is 4.2's job, so 2.9 refuses the reason and writes nothing
-    (D-213) - Q7 stays live."""
-    item_id, _ = q7
-    with pytest.raises(StudyError) as refused:
-        submit_feedback(
-            service_engine,
-            user_id,
-            kind="item-defect",
-            practice_item_id=item_id,
-            reason="wrong-answer-key",
-        )
-
-    assert refused.value.code == "invalid_value"
-    assert refused.value.field_errors[0]["field"] == "reason"
-    assert _count(service_engine, item_rejection) == 0
-    assert _item_state(service_engine, item_id) == "live"
-
-
 def test_feedback_through_the_tools(call, q7):
     """Both tools are wired: a rejection drafts a directive, the confirm makes it active, and a
     refusal comes back structured."""

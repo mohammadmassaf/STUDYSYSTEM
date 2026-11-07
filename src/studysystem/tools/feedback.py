@@ -15,10 +15,13 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         name="study_submit_feedback",
         description=(
             "File the student's feedback on generation. kind 'item-defect': a bad item - "
-            "practice_item_id (from study_get_topics) and reason ('off-syllabus', 'wrong-topic', "
-            "'duplicate', 'unclear', 'wrong-difficulty'; a wrong answer key is not taken yet), "
+            "practice_item_id (from study_get_topics) and reason ('off-syllabus', "
+            "'wrong-answer-key', 'wrong-topic', 'duplicate', 'unclear', 'wrong-difficulty'), "
             "optional note in the student's words; the item leaves the live pool (a live or "
-            "needs-review item, or a rejected one not yet filed). kind "
+            "needs-review item, or a rejected one not yet filed). 'wrong-answer-key' means the "
+            "key the student was graded against was wrong: his attempts on the item stop "
+            "counting toward mastery (the reply says how many were voided). It is the one "
+            "reason an already filed item still takes, when its key turns out wrong later. kind "
             "'format-preference' (how the student likes items) or 'generator-correction' (what "
             "the model keeps getting wrong): no item, needs directive_text and code (the course; "
             "not needed with scope 'all'). directive_text is one sentence future generation "

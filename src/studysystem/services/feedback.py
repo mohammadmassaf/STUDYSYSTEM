@@ -6,14 +6,16 @@ retires the item; his own format preference or a correction to the model's outpu
 `generation_directive`. A claim about the instructor is an observation - that is
 `study_add_instructor_statement`, never this module, so "too easy" cannot reach the profile.
 
-`study_submit_feedback` is one write unit: the rejection, the item's state and the drafted
-directive (physical-schema.md, *Write units*). A directive is drafted `proposed` and enters a
-payload only after `study_confirm_directive` (D-24) - one row, no unit entry.
+`study_submit_feedback` is one write unit: the rejection, the item's state, the drafted
+directive and, for a wrong answer key, the voided attempts and the topic's replayed state
+(physical-schema.md, *Write units*). A directive is drafted `proposed` and enters a payload only
+after `study_confirm_directive` (D-24) - one row, no unit entry.
 """
 
-from sqlalchemy import Connection, Engine, and_, exists, insert, or_, select, update
+from sqlalchemy import Connection, Engine, insert, or_, select, update
 
 from studysystem.db.tables import (
+    attempt,
     course,
     generation_directive,
     item_rejection,
@@ -24,11 +26,13 @@ from studysystem.errors import StudyError
 from studysystem.services import values
 from studysystem.services.ids import new_id, now
 from studysystem.services.lookups import find_course
+from studysystem.services.study_loop import store_state
 from studysystem.services.units import write_unit
 
 KINDS = ("item-defect", "format-preference", "generator-correction")
-# `wrong-answer-key` waits for 4.2, which voids the attempts against the item (D-213).
-REASONS = ("off-syllabus", "wrong-topic", "duplicate", "unclear", "wrong-difficulty")
+WRONG_KEY = "wrong-answer-key"
+REASONS = ("off-syllabus", WRONG_KEY, "wrong-topic", "duplicate", "unclear", "wrong-difficulty")
+OPEN_TO_REJECTION = ("live", "needs-review", "rejected")
 SCOPES = ("topic", "course", "all")
 DIRECTIVE_KINDS = ("format-preference", "generator-correction")
 
@@ -75,12 +79,6 @@ def _check_inputs(
                 "an item defect needs the item",
                 "send the id of the item the feedback is about",
             )
-        if isinstance(reason, str) and reason.strip().lower() == "wrong-answer-key":
-            raise values.invalid(
-                "reason",
-                "a wrong answer key is not taken yet - its attempts must be voided first (4.2)",
-                f"use one of {', '.join(REASONS)}, or wait for study_reject_item",
-            )
         reason = values.choice("reason", reason, REASONS)
         # a note on a bad item is usually about the model's output; "I prefer short MCQ" is
         # about him, so the call may say so (D-213)
@@ -124,6 +122,51 @@ def _check_inputs(
     return kind, None, directive_text, scope, kind
 
 
+def _filed_rejection(conn: Connection, user_id: str, practice_item_id: str, reason: str):
+    """The item and its rejection row, if one exists, once the call may file against it. Refuses
+    `not_found` otherwise. Returns the row: topic_id, course_id, rejection_id, filed_reason,
+    filed_note - rejection_id None means a new row is written, else that row's reason changes.
+
+    Which items are open (D-213, D-257), Q3 as the example:
+    - live / needs-review, or rejected with no row (D-136's four): any reason, a new row
+    - rejected as `unclear`, now `wrong-answer-key`: the key was wrong too - that row changes
+    - rejected as `unclear`, now `off-syllabus`; or already `wrong-answer-key`: refused
+    - superseded, or another user's: refused
+    """
+    item = conn.execute(
+        select(
+            practice_item.c.topic_id,
+            practice_item.c.state,
+            topic.c.course_id,
+            item_rejection.c.id.label("rejection_id"),
+            item_rejection.c.reason.label("filed_reason"),
+            item_rejection.c.note.label("filed_note"),
+        )
+        .join(topic, topic.c.id == practice_item.c.topic_id)
+        .outerjoin(item_rejection, item_rejection.c.practice_item_id == practice_item.c.id)
+        .where(practice_item.c.id == practice_item_id, practice_item.c.user_id == user_id)
+    ).one_or_none()  # one row per item: a second rejection row fails loudly here
+    if item is None or item.state not in OPEN_TO_REJECTION:
+        raise _not_found(
+            "practice_item_id",
+            "no item of yours with this id is open to rejection - only a live, needs-review or "
+            "rejected item",
+            "check the item's id; a superseded item stays as it is",
+        )
+    if item.rejection_id is not None and (reason != WRONG_KEY or item.filed_reason == WRONG_KEY):
+        problem = (
+            "its answer key is already filed as wrong, and its attempts voided"
+            if item.filed_reason == WRONG_KEY
+            else f"it is already filed as {item.filed_reason}"
+        )
+        raise _not_found(
+            "practice_item_id",
+            problem,
+            "a filed item takes only one change: wrong-answer-key, when its key turns out wrong",
+        )
+    return item
+
+
 def submit_feedback(
     engine: Engine,
     user_id: str,
@@ -144,64 +187,75 @@ def submit_feedback(
     a `generator-correction` unless `directive_kind` says `format-preference`. `scope` defaults
     to `topic` (the item's course and topic). The item may be `live` or `needs-review`, or
     `rejected` with no rejection row yet - D-136's four, retired before this tool existed.
+    `wrong-answer-key` also voids every attempt against the item and replays its topic (D-257);
+    on an item already filed for another reason it changes that row's reason, the old one kept
+    in the note.
     `format-preference` / `generator-correction`: no item - only the `proposed` directive, from
     `directive_text`, for the course named by `code`. `scope` defaults to `course`; with `all`
     no course is stored, so `code` is not needed.
 
-    Refuses `invalid_value` for a bad kind, reason (`wrong-answer-key` until 4.2), scope or
-    directive kind (on an item-less call, one that differs from `kind`), an empty directive text,
-    or a missing input its kind needs (`code` only for scope `course`); `not_found` for an item
-    that is not this user's or already has its rejection.
+    Refuses `invalid_value` for a bad kind, reason, scope or directive kind (on an item-less
+    call, one that differs from `kind`), an empty directive text, or a missing input its kind
+    needs (`code` only for scope `course`); `not_found` for an item that is not this user's, is
+    superseded, or is already filed - unless the call is the first `wrong-answer-key` on it.
 
-    Returns {"rejection_id" or None, "directive": {"id", "kind", "text", "scope", "status"}
-    or None}.
+    Returns {"rejection_id" or None, "voided": attempts voided, "directive": {"id", "kind",
+    "text", "scope", "status"} or None}.
     """
     kind, reason, directive_text, scope, directive_kind = _check_inputs(
         kind, practice_item_id, reason, directive_text, scope, code, directive_kind
     )
     note = (note.strip() or None) if note is not None else None  # unknown stays NULL
     rej_id = None
+    voided = 0
     topic_id = None
     course_id = None
 
     with write_unit(engine) as conn:
         if kind == "item-defect":
-            not_yet_filed = ~exists().where(item_rejection.c.practice_item_id == practice_item.c.id)
-            item = conn.execute(
-                select(practice_item.c.topic_id, topic.c.course_id)
-                .join(topic, topic.c.id == practice_item.c.topic_id)
-                .where(
-                    practice_item.c.id == practice_item_id,
-                    practice_item.c.user_id == user_id,
-                    or_(
-                        practice_item.c.state.in_(("live", "needs-review")),
-                        and_(practice_item.c.state == "rejected", not_yet_filed),
-                    ),
+            assert practice_item_id is not None and reason is not None  # _check_inputs
+            item = _filed_rejection(conn, user_id, practice_item_id, reason)
+            if item.rejection_id is None:
+                rej_id = new_id()
+                conn.execute(
+                    insert(item_rejection).values(
+                        id=rej_id,
+                        user_id=user_id,
+                        practice_item_id=practice_item_id,
+                        reason=reason,
+                        note=note,
+                        created_at=now(),
+                    )
                 )
-            ).one_or_none()
-            if item is None:
-                raise _not_found(
-                    "practice_item_id",
-                    "no item of yours with this id is open to rejection - only a live or "
-                    "needs-review item, or a rejected one not yet filed",
-                    "check the item's id; a superseded or already filed item stays as it is",
+            else:
+                # the key was wrong too: one row per item, the first reason kept readable (D-257)
+                rej_id = item.rejection_id
+                was = f"was: {item.filed_reason}"
+                if item.filed_note is not None:
+                    was += f" ({item.filed_note})"
+                conn.execute(
+                    update(item_rejection)
+                    .where(item_rejection.c.id == rej_id)
+                    .values(reason=reason, note=was if note is None else f"{was}; {note}")
                 )
-            rej_id = new_id()
-            conn.execute(
-                insert(item_rejection).values(
-                    id=rej_id,
-                    user_id=user_id,
-                    practice_item_id=practice_item_id,
-                    reason=reason,
-                    note=note,
-                    created_at=now(),
-                )
-            )
             conn.execute(
                 update(practice_item)
                 .where(practice_item.c.id == practice_item_id)
                 .values(state="rejected")
             )
+            if reason == WRONG_KEY:
+                # the key that graded him was wrong: every grade on the item is false, so none
+                # counts; the rows stay for their time (D-16 e). Their topic is the item's.
+                voided = conn.execute(
+                    update(attempt)
+                    .where(
+                        attempt.c.user_id == user_id,
+                        attempt.c.practice_item_id == practice_item_id,
+                    )
+                    .values(correctness_voided=1)
+                ).rowcount
+                if voided:
+                    store_state(conn, user_id, item.topic_id, None)
             topic_id, course_id = item.topic_id, item.course_id
         elif scope == "course":
             assert code is not None  # _check_inputs refused a one-course directive with none
@@ -234,7 +288,7 @@ def submit_feedback(
                 )
             )
 
-    return {"rejection_id": rej_id, "directive": directive}
+    return {"rejection_id": rej_id, "voided": voided, "directive": directive}
 
 
 def confirm_directive(engine: Engine, user_id: str, directive_id: str) -> dict:
