@@ -2,6 +2,8 @@
 directive it may draft, and the confirmation that makes the directive durable - on both engines.
 Each test follows one of his I3302 Final items: Q7, a generated question he files against."""
 
+# ruff: noqa: F811 - the fixtures are imported, then named as test parameters
+
 import json
 
 import pytest
@@ -14,6 +16,7 @@ from studysystem.db.tables import (
     item_rejection,
     observation,
     practice_item,
+    replacement_queue,
     topic,
 )
 from studysystem.errors import StudyError
@@ -22,6 +25,7 @@ from studysystem.services.courses import add_course
 from studysystem.services.feedback import confirm_directive, submit_feedback
 from studysystem.services.ids import new_id, now
 from studysystem.services.units import write_unit
+from tests.test_note_generation import i3302  # noqa: F401 - a fixture, named as a parameter
 
 SEM = "Semester 1 2026-2027"
 
@@ -202,7 +206,7 @@ def test_generator_correction_about_difficulty_writes_no_observation(service_eng
 def test_feedback_through_the_tools(call, q7):
     """Both tools are wired: a rejection drafts a directive, the confirm makes it active, and a
     refusal comes back structured."""
-    item_id, _ = q7
+    item_id, topic_id = q7
     drafted = call(
         "study_submit_feedback",
         {
@@ -214,6 +218,7 @@ def test_feedback_through_the_tools(call, q7):
     )
     assert not drafted.is_error
     directive_id = json.loads(drafted.content[0].text)["directive"]["id"]
+    assert json.loads(drafted.content[0].text)["queued"]["topic_id"] == topic_id
 
     confirmed = call("study_confirm_directive", {"directive_id": directive_id})
     assert not confirmed.is_error
@@ -249,6 +254,7 @@ def test_a_failed_directive_rolls_back_the_rejection(service_engine, user_id, q7
 
     assert _count(service_engine, item_rejection) == 0
     assert _count(service_engine, generation_directive) == 0
+    assert _count(service_engine, replacement_queue) == 0  # the queued replacement too
     assert _item_state(service_engine, item_id) == "live"
 
 
@@ -372,3 +378,135 @@ def test_a_blank_note_is_stored_as_null(service_engine, user_id, q7):
 
     with service_engine.connect() as conn:
         assert conn.execute(select(item_rejection.c.note)).scalar_one() is None
+
+
+# --- the replacement a rejection queues (4.3, D-259 item 1) --------------------------------
+
+
+def _queue(engine):
+    with engine.connect() as conn:
+        return conn.execute(select(replacement_queue).order_by(replacement_queue.c.id)).all()
+
+
+def _set_topic(engine, topic_id, **changes):
+    with write_unit(engine) as conn:
+        conn.execute(update(topic).where(topic.c.id == topic_id).values(**changes))
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["unclear", "off-syllabus", "wrong-answer-key", "duplicate", "wrong-topic", "wrong-difficulty"],
+)
+def test_a_generated_item_on_an_examined_topic_queues_one_replacement(
+    service_engine, user_id, q7, reason
+):
+    """Cases 1, 2, 9: Q7's topic is active and came from the profile - examined - so every
+    reason queues, off-syllabus included (the content drifted, not the topic)."""
+    item_id, topic_id = q7
+    result = submit_feedback(
+        service_engine, user_id, kind="item-defect", practice_item_id=item_id, reason=reason
+    )
+
+    (row,) = _queue(service_engine)
+    assert (row.topic_id, row.rejection_id, row.closed_task_id) == (
+        topic_id,
+        result["rejection_id"],
+        None,
+    )
+    assert (row.status, row.filled_by_task_id, row.resolved_at) == ("pending", None, None)
+    assert result["queued"] == {"id": row.id, "topic_id": topic_id}
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"proposed_by": "syllabus"}, {"status": "proposed"}, {"status": "unexamined"}],
+    ids=["syllabus-topic", "proposed-topic", "unexamined-topic"],
+)
+def test_an_off_syllabus_item_on_a_topic_no_paper_examines_queues_nothing(
+    service_engine, user_id, q7, changes
+):
+    """Cases 3, 4: a new item on a topic no past paper anchors repeats the defect."""
+    item_id, topic_id = q7
+    _set_topic(service_engine, topic_id, **changes)
+
+    result = _reject(service_engine, user_id, item_id)  # off-syllabus
+
+    assert result["rejection_id"] is not None
+    assert _queue(service_engine) == []
+    assert result["queued"] is None
+
+
+def test_a_wrong_key_on_a_syllabus_topic_still_queues(service_engine, user_id, q7):
+    """Case 5: only off-syllabus is gated by the topic; a wrong key is the item's fault."""
+    item_id, topic_id = q7
+    _set_topic(service_engine, topic_id, proposed_by="syllabus")
+
+    result = submit_feedback(
+        service_engine,
+        user_id,
+        kind="item-defect",
+        practice_item_id=item_id,
+        reason="wrong-answer-key",
+    )
+
+    assert [r.topic_id for r in _queue(service_engine)] == [topic_id]
+    assert result["queued"]["topic_id"] == topic_id
+
+
+@pytest.mark.parametrize("reason", ["off-syllabus", "wrong-answer-key", "unclear"])
+def test_a_past_exam_question_queues_nothing(service_engine, user_id, i3302, reason):
+    """Case 6: a real exam question cannot be regenerated as a real one (D-53)."""
+    with service_engine.connect() as conn:
+        item_id = conn.execute(
+            select(practice_item.c.id)
+            .where(practice_item.c.origin == "past-exam")
+            .order_by(practice_item.c.id)
+            .limit(1)
+        ).scalar_one()
+
+    result = submit_feedback(
+        service_engine, user_id, kind="item-defect", practice_item_id=item_id, reason=reason
+    )
+
+    assert result["rejection_id"] is not None
+    assert _queue(service_engine) == []
+    assert result["queued"] is None
+
+
+def test_a_refiled_wrong_key_queues_no_second_row(service_engine, user_id, q7):
+    """Case 7: Q7 filed unclear queues its replacement; the key turning out wrong later is the
+    same hole, so the refile writes no second row."""
+    item_id, _ = q7
+    first = submit_feedback(
+        service_engine, user_id, kind="item-defect", practice_item_id=item_id, reason="unclear"
+    )
+    again = submit_feedback(
+        service_engine,
+        user_id,
+        kind="item-defect",
+        practice_item_id=item_id,
+        reason="wrong-answer-key",
+    )
+
+    (row,) = _queue(service_engine)
+    assert first["queued"]["id"] == row.id
+    assert again["queued"] is None
+
+
+def test_a_refile_never_queues_what_the_first_filing_did_not(service_engine, user_id, q7):
+    """Case 8: off-syllabus on a syllabus topic queued nothing; the refile as wrong-answer-key
+    does not queue it either - the first filing decided."""
+    item_id, topic_id = q7
+    _set_topic(service_engine, topic_id, proposed_by="syllabus")
+    _reject(service_engine, user_id, item_id)
+
+    again = submit_feedback(
+        service_engine,
+        user_id,
+        kind="item-defect",
+        practice_item_id=item_id,
+        reason="wrong-answer-key",
+    )
+
+    assert _queue(service_engine) == []
+    assert again["queued"] is None

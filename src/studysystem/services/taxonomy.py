@@ -23,6 +23,7 @@ from studysystem.db.tables import (
     topic_weight,
 )
 from studysystem.errors import StudyError
+from studysystem.services import replacements
 from studysystem.services.ids import new_id, now
 from studysystem.services.study_loop import PRACTISABLE, store_state
 from studysystem.services.topics import (
@@ -372,6 +373,7 @@ def split_topic(engine: Engine, user_id: str, topic_id: str, children) -> dict:
                 conn.execute(insert(topic_state).values(copy))
             made.append({"topic_id": child_id, "name": name, "item_ids": child["item_ids"]})
 
+        replacements.retire(conn, topic_id)  # no child owns a rejected item's hole (D-259)
         conn.execute(
             update(topic)
             .where(topic.c.id == topic_id)
@@ -430,6 +432,7 @@ def merge_topics(engine: Engine, user_id: str, source_id: str, target_id: str) -
             )
         ).scalar_one()
         move_items(conn, user_id, source_id, target_id, None)
+        replacements.retire(conn, source_id, to=target_id)  # the holes follow the items (D-259)
         _examined_if_asked(conn, target_id)
         conn.execute(
             update(topic)

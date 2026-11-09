@@ -8,7 +8,7 @@ only the topic gate parks an item. Written first - these fail until `kind="pract
 import pytest
 from sqlalchemy import insert, select, update
 
-from studysystem.db.tables import course, practice_item, topic
+from studysystem.db.tables import course, practice_item, replacement_queue, topic
 from studysystem.errors import StudyError
 from studysystem.services.courses import add_course
 from studysystem.services.generation import start_generation, submit_generation
@@ -253,3 +253,176 @@ def test_a_count_that_is_not_a_whole_number_from_1_is_refused(service_engine, us
         "invalid_value",
         "count",
     )
+
+
+# --- a partial close queues what it never landed (4.3, D-16 f, D-259 item 4) ---------------
+
+
+def no_key(topic_id, n) -> dict:
+    bad = item(topic_id, n)
+    del bad["answer_key"]
+    return bad
+
+
+def queue(engine):
+    with engine.connect() as conn:
+        return conn.execute(select(replacement_queue).order_by(replacement_queue.c.id)).all()
+
+
+def to_the_last_try(engine, user_id, task, landed=0):
+    """Spend submissions 1 and 2, each landing `landed` items in all and leaving one failure,
+    so the next submission is the third. Returns the replies."""
+    topics = topic_ids(task)
+    first = [item(topics[0], n) for n in range(1, landed + 1)] + [no_key(topics[1], 9)]
+    return [
+        submit(engine, user_id, task, first),
+        submit(engine, user_id, task, [no_key(topics[1], 9)]),
+    ]
+
+
+def test_a_partial_close_queues_one_row_per_failed_item(service_engine, user_id, ch6):
+    """Case 1: count 5, the third submission lands 3 and fails 2 - two holes, on the topics
+    the failed items named."""
+    task = start(service_engine, user_id, ch6, count=5)
+    topics = topic_ids(task)
+    to_the_last_try(service_engine, user_id, task)
+
+    reply = submit(
+        service_engine,
+        user_id,
+        task,
+        [
+            item(topics[0], 1),
+            no_key(topics[1], 2),
+            item(topics[2], 3),
+            no_key(topics[3], 4),
+            item(topics[4], 5),
+        ],
+    )
+
+    assert reply["status"] == "partial"
+    rows = queue(service_engine)
+    assert [r.topic_id for r in rows] == [topics[1], topics[3]]
+    for row in rows:
+        assert (row.closed_task_id, row.rejection_id, row.status) == (
+            task.payload["task_id"],
+            None,
+            "pending",
+        )
+
+
+def test_a_partial_close_queues_no_more_than_the_count_left(service_engine, user_id, ch6):
+    """Case 2: one item landed earlier, three now - 4 of 5 - so only place 2's row."""
+    task = start(service_engine, user_id, ch6, count=5)
+    topics = topic_ids(task)
+    to_the_last_try(service_engine, user_id, task, landed=1)
+
+    submit(
+        service_engine,
+        user_id,
+        task,
+        [
+            item(topics[0], 2),
+            no_key(topics[1], 3),
+            item(topics[2], 4),
+            no_key(topics[3], 5),
+            item(topics[4], 6),
+        ],
+    )
+
+    assert [r.topic_id for r in queue(service_engine)] == [topics[1]]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["unknown-topic", "topic-id-not-text", "not-an-object", "declined-topic", "another-course"],
+)
+def test_a_failed_item_naming_no_topic_of_the_course_queues_nothing(
+    service_engine, user_id, ch6, failure
+):
+    """Cases 3, 5: nothing names a topic to refill (D-53)."""
+    task = start(service_engine, user_id, ch6, count=5)
+    topics = topic_ids(task)
+    to_the_last_try(service_engine, user_id, task)
+    if failure == "unknown-topic":
+        bad = item(new_id(), 2)
+    elif failure == "topic-id-not-text":
+        bad = item(topics[1], 2) | {"topic_id": 42}
+    elif failure == "not-an-object":
+        bad = "a question with no fields"
+    elif failure == "declined-topic":
+        set_topic_status(service_engine, topics[1], "declined")
+        bad = item(topics[1], 2)
+    else:
+        add_course(service_engine, user_id, "I3304", "Computer Networks", SEM)
+        with write_unit(service_engine) as conn:
+            other = conn.execute(select(course.c.id).where(course.c.code == "I3304")).scalar_one()
+            foreign = new_id()
+            conn.execute(
+                insert(topic).values(
+                    id=foreign,
+                    user_id=user_id,
+                    course_id=other,
+                    name="TCP vs UDP",
+                    status="active",
+                    proposed_by="profile",
+                    status_changed_at=now(),
+                    created_at=now(),
+                )
+            )
+        bad = item(foreign, 2)
+
+    reply = submit(service_engine, user_id, task, [item(topics[0], 1), bad])
+
+    assert reply["status"] == "partial"
+    assert queue(service_engine) == []
+
+
+def test_an_item_failing_on_two_fields_queues_one_row(service_engine, user_id, ch6):
+    """Case 4: two errors, one item, one hole."""
+    task = start(service_engine, user_id, ch6, count=5)
+    topics = topic_ids(task)
+    to_the_last_try(service_engine, user_id, task)
+    twice = no_key(topics[1], 2) | {"answer_provenance": "verified-source"}
+
+    reply = submit(service_engine, user_id, task, [item(topics[0], 1), twice])
+
+    assert len([e for e in reply["item_errors"] if e["item_ordinal"] == 2]) == 2
+    assert [r.topic_id for r in queue(service_engine)] == [topics[1]]
+
+
+def test_a_task_with_no_count_queues_nothing(service_engine, user_id, ch6):
+    """Case 6: with no count the host promised no number of items, so nothing is missing."""
+    task = start(service_engine, user_id, ch6)
+    topics = topic_ids(task)
+    to_the_last_try(service_engine, user_id, task)
+
+    reply = submit(service_engine, user_id, task, [item(topics[0], 1), no_key(topics[1], 2)])
+
+    assert reply["status"] == "partial"
+    assert queue(service_engine) == []
+
+
+def test_a_closed_or_still_open_task_queues_nothing(service_engine, user_id, ch6):
+    """Case 7: only the third failed submission closes a task partial."""
+    task = start(service_engine, user_id, ch6, count=5)
+    topics = topic_ids(task)
+
+    first, second = to_the_last_try(service_engine, user_id, task)
+    assert (first["status"], second["status"]) == ("open", "open")
+    assert queue(service_engine) == []
+
+    clean = submit(service_engine, user_id, task, [item(topics[0], 1)])
+    assert clean["status"] == "closed"
+    assert queue(service_engine) == []
+
+
+def test_an_envelope_error_on_the_last_try_queues_nothing(service_engine, user_id, ch6):
+    """Case 8: an envelope error names no item, so no topic."""
+    task = start(service_engine, user_id, ch6, count=5)
+    to_the_last_try(service_engine, user_id, task)
+
+    reply = submit_generation(service_engine, user_id, task.payload["task_id"], {"items": "x"})
+
+    assert reply["status"] == "partial"
+    assert queue(service_engine) == []

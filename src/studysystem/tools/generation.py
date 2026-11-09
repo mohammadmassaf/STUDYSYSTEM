@@ -44,7 +44,11 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "practice questions from one course material - pass material_id, and optionally "
             "count, how many items to keep (extras are dropped); the rules list the course's "
             "topics with their ids, and every item needs a topic_id from them and an "
-            "answer_key (stored as unverified); a course with no active topic is refused. "
+            "answer_key (stored as unverified); a course with no active topic is refused. Pass "
+            "topic_id instead of material_id (and no count) to write the replacements queued on "
+            "that topic - the topic_id in study_submit_feedback's queued: the queue sets the "
+            "count, the content is the material the rejected items came from, and "
+            "rules.do_not_repeat lists the rejected items never to write again. "
             "kind: 'timetable' reads the student's weekly class timetable from an image you "
             "hold - pass no id; the rules list the course codes you may use and what to ask "
             "the student. Other kinds are not available yet. Calling again while a "
@@ -58,10 +62,19 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         part: str | float = 1,  # loose: a bad value gets the structured error (D-36)
         count: str | float | None = None,  # loose as `part`; a practice's item count
         redo: bool | str = False,  # loose as `part`; a note's: replace the note it has (D-250)
+        topic_id: str | None = None,  # a practice that fills the topic's replacements (D-259)
     ) -> CallToolResult:
         return run_task(
             lambda: generation.start_generation(
-                engine, current_user(engine), kind, past_exam_id, material_id, part, count, redo
+                engine,
+                current_user(engine),
+                kind,
+                past_exam_id,
+                material_id,
+                part,
+                count,
+                redo,
+                topic_id,
             )
         )
 
