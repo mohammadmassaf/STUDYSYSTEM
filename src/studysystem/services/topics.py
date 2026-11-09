@@ -14,7 +14,7 @@ from sqlalchemy import Connection, Engine, Subquery, case, func, insert, select,
 
 from studysystem.db.tables import assessment, attempt, coverage, past_exam, practice_item, topic
 from studysystem.errors import StudyError
-from studysystem.services import values
+from studysystem.services import replacements, values
 from studysystem.services.ids import new_id, now
 from studysystem.services.lookups import find_course
 from studysystem.services.study_loop import PASS_SCORE
@@ -442,6 +442,7 @@ def _decline(conn: Connection, user_id: str, found, retag: list[dict]) -> dict:
         conn.execute(
             update(practice_item).where(practice_item.c.id == item_id).values(topic_id=target)
         )
+    replacements.retire(conn, topic_id)  # a rejected item stays here, so its hole has no heir
     conn.execute(
         update(topic)
         .where(topic.c.id == topic_id)

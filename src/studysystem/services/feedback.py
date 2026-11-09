@@ -6,10 +6,10 @@ retires the item; his own format preference or a correction to the model's outpu
 `generation_directive`. A claim about the instructor is an observation - that is
 `study_add_instructor_statement`, never this module, so "too easy" cannot reach the profile.
 
-`study_submit_feedback` is one write unit: the rejection, the item's state, the drafted
-directive and, for a wrong answer key, the voided attempts and the topic's replayed state
-(physical-schema.md, *Write units*). A directive is drafted `proposed` and enters a payload only
-after `study_confirm_directive` (D-24) - one row, no unit entry.
+`study_submit_feedback` is one write unit: the rejection, the item's state, the replacement it
+queues (D-259), the drafted directive and, for a wrong answer key, the voided attempts and the
+topic's replayed state (physical-schema.md, *Write units*). A directive is drafted `proposed`
+and enters a payload only after `study_confirm_directive` (D-24) - one row, no unit entry.
 """
 
 from sqlalchemy import Connection, Engine, insert, or_, select, update
@@ -20,6 +20,7 @@ from studysystem.db.tables import (
     generation_directive,
     item_rejection,
     practice_item,
+    replacement_queue,
     topic,
 )
 from studysystem.errors import StudyError
@@ -124,8 +125,9 @@ def _check_inputs(
 
 def _filed_rejection(conn: Connection, user_id: str, practice_item_id: str, reason: str):
     """The item and its rejection row, if one exists, once the call may file against it. Refuses
-    `not_found` otherwise. Returns the row: topic_id, course_id, rejection_id, filed_reason,
-    filed_note - rejection_id None means a new row is written, else that row's reason changes.
+    `not_found` otherwise. Returns the row: topic_id, state, origin, course_id, topic_status,
+    proposed_by, rejection_id, filed_reason, filed_note - rejection_id None means a new row is
+    written, else that row's reason changes.
 
     Which items are open (D-213, D-257), Q3 as the example:
     - live / needs-review, or rejected with no row (D-136's four): any reason, a new row
@@ -137,7 +139,10 @@ def _filed_rejection(conn: Connection, user_id: str, practice_item_id: str, reas
         select(
             practice_item.c.topic_id,
             practice_item.c.state,
+            practice_item.c.origin,
             topic.c.course_id,
+            topic.c.status.label("topic_status"),
+            topic.c.proposed_by,
             item_rejection.c.id.label("rejection_id"),
             item_rejection.c.reason.label("filed_reason"),
             item_rejection.c.note.label("filed_note"),
@@ -165,6 +170,37 @@ def _filed_rejection(conn: Connection, user_id: str, practice_item_id: str, reas
             "a filed item takes only one change: wrong-answer-key, when its key turns out wrong",
         )
     return item
+
+
+def _queue_rejection(conn: Connection, user_id: str, item, reason: str, rej_id: str) -> dict | None:
+    """The replacement a rejection leaves behind (D-16 d, D-259 item 1): one `pending`
+    `replacement_queue` row on the item's topic, its `rejection_id` = `rej_id` - or none.
+    Returns {"id", "topic_id"} of the row written, or None.
+
+    `item` is `_filed_rejection`'s row: origin, topic_id, topic_status, proposed_by, and
+    rejection_id - not None when this call refiles an item already filed (D-257).
+
+    No row when: the call is a refile - the first filing decided, queued or not; the item is a
+    past-exam question - a real question is not regenerated (D-53); or the reason is
+    off-syllabus and the topic is not examined - `proposed`, `unexamined` or a syllabus topic,
+    where a new item repeats the defect (the same test as the gate's, D-22, D-255).
+    """
+    if item.rejection_id is not None or item.origin != "generated":
+        return None
+    examined = item.topic_status == "active" and item.proposed_by != "syllabus"
+    if reason == "off-syllabus" and not examined:
+        return None
+    row_id = new_id()
+    conn.execute(
+        insert(replacement_queue).values(
+            id=row_id,
+            user_id=user_id,
+            topic_id=item.topic_id,
+            rejection_id=rej_id,
+            created_at=now(),
+        )
+    )
+    return {"id": row_id, "topic_id": item.topic_id}
 
 
 def submit_feedback(
@@ -199,8 +235,11 @@ def submit_feedback(
     needs (`code` only for scope `course`); `not_found` for an item that is not this user's, is
     superseded, or is already filed - unless the call is the first `wrong-answer-key` on it.
 
-    Returns {"rejection_id" or None, "voided": attempts voided, "directive": {"id", "kind",
-    "text", "scope", "status"} or None}.
+    A rejected generated item may also queue its replacement (D-259): `queued` names the row,
+    and a practice task on its topic fills it.
+
+    Returns {"rejection_id" or None, "voided": attempts voided, "queued": {"id", "topic_id"} or
+    None, "directive": {"id", "kind", "text", "scope", "status"} or None}.
     """
     kind, reason, directive_text, scope, directive_kind = _check_inputs(
         kind, practice_item_id, reason, directive_text, scope, code, directive_kind
@@ -208,6 +247,7 @@ def submit_feedback(
     note = (note.strip() or None) if note is not None else None  # unknown stays NULL
     rej_id = None
     voided = 0
+    queued = None
     topic_id = None
     course_id = None
 
@@ -243,6 +283,7 @@ def submit_feedback(
                 .where(practice_item.c.id == practice_item_id)
                 .values(state="rejected")
             )
+            queued = _queue_rejection(conn, user_id, item, reason, rej_id)
             if reason == WRONG_KEY:
                 # the key that graded him was wrong: every grade on the item is false, so none
                 # counts; the rows stay for their time (D-16 e). Their topic is the item's.
@@ -288,7 +329,7 @@ def submit_feedback(
                 )
             )
 
-    return {"rejection_id": rej_id, "voided": voided, "directive": directive}
+    return {"rejection_id": rej_id, "voided": voided, "queued": queued, "directive": directive}
 
 
 def confirm_directive(engine: Engine, user_id: str, directive_id: str) -> dict:

@@ -42,17 +42,28 @@ from studysystem.db.tables import (
     evidence,
     exam_profile,
     generation_task,
+    item_rejection,
     material,
     note,
     observation,
     past_exam,
     practice_item,
+    replacement_queue,
     submission,
     topic,
     topic_weight,
 )
 from studysystem.errors import StudyError
-from studysystem.services import capacity, claims, feedback, intake, notes, topics, values
+from studysystem.services import (
+    capacity,
+    claims,
+    feedback,
+    intake,
+    notes,
+    replacements,
+    topics,
+    values,
+)
 from studysystem.services.ids import new_id, now
 from studysystem.services.parts import Part, split
 from studysystem.services.units import write_unit
@@ -550,6 +561,30 @@ PRACTICE_STEPS = [
     "Submit with study_submit_generation(task_id, payload), payload matching schema.",
 ]
 
+# A replacement task (4.3, D-259): the same answer as a practice task, on one topic, to fill the
+# holes rejected or missing items left. The do_not_repeat step is what stops a second copy of
+# the item the student just rejected.
+REPLACEMENT_STEPS = [
+    "Write replacement practice questions on the one topic in rules.topics: earlier items on it "
+    "were rejected or never written. Read every page first; when content is empty, write from "
+    "the topic's past_exam_questions and your own knowledge.",
+    "Write exactly rules.count items. Items past it are dropped.",
+    "rules.do_not_repeat lists items the student rejected on this topic, each with its reason "
+    "and his note. Never write one of them again, and avoid the fault its reason and note name - "
+    "e.g. off-syllabus: stay on ground the course's exams ask about.",
+    "Aim at what the course's exams ask: the topic's past_exam_questions show the style. Never "
+    "copy one - write a new question on the same ground.",
+    "Every item needs question, answer_key, topic_id and source. The answer_key is the answer you "
+    "would mark against; it is stored as unverified, so the student sees it is yours.",
+    "topic_id: the id of the topic in rules.topics, exactly as given. An item on any other topic "
+    "is refused.",
+    "source: from-material when the pages teach what the question asks, model-knowledge when it "
+    "needs more than the pages. Be honest - it is never checked, only counted.",
+    "rules.active_directives are standing instructions the student confirmed: follow each one. "
+    "Skip one that cannot apply to a question, such as a rule about notes.",
+    "Submit with study_submit_generation(task_id, payload), payload matching schema.",
+]
+
 
 @dataclass(frozen=True)
 class Picture:
@@ -730,13 +765,15 @@ def start_generation(
     part: object = 1,
     count: object = None,
     redo: object = False,
+    topic_id: str | None = None,
 ) -> Task:
     """Hand the host part `part` of a generation task: the payload {"task_id", "part", "parts",
     "content", "schema", "rules"} and the page pictures that follow it - later parts carry only
     their pages and their slice of the long list (D-145). Each kind takes the parameter named
     for its subject (D-47): `past_exam_id` for a transcription or an observation, `material_id`
     for a note, a tagging or a practice. `count` is a practice's: how many items to keep. `redo`
-    is a note's: write a new note for a material that has one (D-250)."""
+    is a note's: write a new note for a material that has one (D-250). `topic_id` in place of
+    `material_id` is a practice that fills the topic's queued replacements (D-259)."""
 
     kind = values.choice("kind", kind, KINDS)
     if kind not in BUILT:
@@ -750,6 +787,15 @@ def start_generation(
         return _start_note(engine, user_id, material_id, part, values.flag("redo", redo))
     if kind == "tagging":
         return _start_tagging(engine, user_id, material_id, part)
+    if kind == "practice" and topic_id is not None:
+        if material_id is not None or count is not None:
+            raise values.invalid(
+                "topic_id",
+                "a replacement task is on one topic, its count set by the queue",
+                "send topic_id alone to fill its replacements, or material_id (and count) for "
+                "new questions from a material",
+            )
+        return _start_replacement(engine, user_id, topic_id, part)
     if kind == "practice":
         return _start_practice(engine, user_id, material_id, count, part)
     if kind == "observation":
@@ -1535,6 +1581,124 @@ def _practice_task(conn: Connection, found, task_id: str, item_count: int | None
     return Task(payload=payload, pictures=pictures)
 
 
+def _start_replacement(engine: Engine, user_id: str, topic_id: str, part: object) -> Task:
+    """A practice task scoped to one topic, written alone, to fill the topic's `pending`
+    replacement rows (D-259) - or the same open task again, which keeps its count. It reads
+    from the oldest row's material, and `count` is the rows from that material; rows from
+    another material wait for their own task. Refuses `not_found` for a topic that is not a live
+    topic of the user's, and `nothing_queued` for one with no pending row."""
+    with write_unit(engine) as conn:
+        found = conn.execute(
+            select(topic.c.id, topic.c.name, topic.c.course_id).where(
+                topic.c.id == topic_id,
+                topic.c.user_id == user_id,
+                topic.c.status.in_(topics.TAGGABLE),
+            )
+        ).one_or_none()
+        if found is None:
+            raise StudyError(
+                code="not_found",
+                message=f"no live topic {topic_id}",
+                fix="use the topic_id from study_submit_feedback's queued, or study_get_topics",
+                field_errors=[{"field": "topic_id", "problem": "not a live topic of yours"}],
+            )
+        rows = replacements.pending_rows(conn, user_id, topic_id)
+        if not rows:
+            raise StudyError(
+                code="nothing_queued",
+                message=f"{found.name} has no replacement waiting",
+                fix="nothing to write - a replacement is queued when a generated item on the "
+                "topic is rejected",
+                field_errors=[{"field": "topic_id", "problem": "no pending replacement"}],
+            )
+        open_task = conn.execute(
+            select(generation_task).where(
+                generation_task.c.user_id == user_id,
+                generation_task.c.kind == "practice",
+                generation_task.c.scope_type == "topic",
+                generation_task.c.scope_id == topic_id,
+                generation_task.c.status == "open",
+            )
+        ).one_or_none()
+        material_id = replacements.source_material(conn, rows[0])
+        same = [r for r in rows if replacements.source_material(conn, r) == material_id]
+        item_count = open_task.item_count if open_task else len(same)
+
+        task_id = open_task.id if open_task else new_id()
+        task = _replacement_task(conn, user_id, found, task_id, material_id, rows, item_count)
+        row = dict(
+            id=task_id,
+            user_id=user_id,
+            kind="practice",
+            scope_type="topic",
+            scope_id=topic_id,
+            exam_profile_id=None,  # aimed by topic, as a material's practice is
+            item_count=item_count,
+        )
+        cut = layout(task, None, ("task_id",))
+        sent, size = _send(conn, open_task, cut, part, row)
+
+    log.info(
+        json.dumps(
+            {
+                "event": "start_generation",
+                "task_id": task_id,
+                "kind": "practice",
+                "topic_id": topic_id,
+                "material_id": material_id,
+                "resend": open_task is not None,
+                "pages": len(task.payload["content"]),
+                "pictures": len(task.pictures),
+                "count": item_count,
+                "pending": len(rows),
+                "part": sent.payload["part"],
+                "parts": sent.payload["parts"],
+                "bytes": size,
+            }
+        )
+    )
+    return sent
+
+
+def _replacement_task(
+    conn: Connection,
+    user_id: str,
+    found,
+    task_id: str,
+    material_id: str | None,
+    rows: list,
+    item_count: int,
+) -> Task:
+    """The task for one topic's replacements: the source material's pages (none when the chain
+    found no material), the schema, and the rules - the one topic with its past-exam questions,
+    the count, every rejected item still waiting on the topic as "do not repeat this", and the
+    directives he confirmed for the course (D-214, D-259)."""
+    content: list[dict] = []
+    pictures: list[Picture] = []
+    if material_id is not None:
+        file_ref = conn.execute(
+            select(material.c.file_ref).where(material.c.id == material_id)
+        ).scalar_one()
+        content, pictures = _pages(file_ref)
+    rejected = conn.execute(
+        select(practice_item.c.question, item_rejection.c.reason, item_rejection.c.note)
+        .join(item_rejection, item_rejection.c.practice_item_id == practice_item.c.id)
+        .where(item_rejection.c.id.in_([r.rejection_id for r in rows if r.rejection_id]))
+        .order_by(item_rejection.c.id)
+    )
+    rules = {
+        "steps": REPLACEMENT_STEPS,
+        "topics": _topics_with_questions(conn, found.course_id, only=found.id),
+        "count": item_count,
+        "do_not_repeat": [
+            {"question": r.question, "reason": r.reason, "note": r.note} for r in rejected
+        ],
+        "active_directives": feedback.active_directives(conn, user_id, found.course_id),
+    }
+    payload = {"task_id": task_id, "content": content, "schema": PRACTICE_SCHEMA, "rules": rules}
+    return Task(payload=payload, pictures=pictures)
+
+
 def _tagging_task(conn: Connection, found, task_id: str) -> Task:
     """The task for one material: its pages, the schema, and the rules - how to decide, and each
     `active` topic of its course with every live past-exam question tagged to it, which is what
@@ -1550,13 +1714,14 @@ def _tagging_task(conn: Connection, found, task_id: str) -> Task:
     return Task(payload=payload, pictures=pictures)
 
 
-def _topics_with_questions(conn: Connection, course_id: str) -> list[dict]:
-    """The course's `active` topics, each with every live past-exam question tagged to it - what
-    defines the topic (D-104; a rejected question is not evidence, D-136). Shared by a tagging
-    and a practice task."""
+def _topics_with_questions(conn: Connection, course_id: str, only: str | None = None) -> list[dict]:
+    """The course's `active` topics - or, with `only`, that one topic whatever its status - each
+    with every live past-exam question tagged to it - what defines the topic (D-104; a rejected
+    question is not evidence, D-136). Shared by a tagging and a practice task."""
+    chosen = topic.c.status == "active" if only is None else topic.c.id == only
     rows = conn.execute(
         select(topic.c.id, topic.c.name)
-        .where(topic.c.course_id == course_id, topic.c.status == "active")
+        .where(topic.c.course_id == course_id, chosen)
         .order_by(topic.c.id)
     )
     # One entry per topic, filled with its questions below; a topic with none keeps [].
@@ -1936,10 +2101,14 @@ def _submit_practice(conn: Connection, user_id: str, task, payload: Any) -> tupl
     envelope is checked once, then each item alone (`_judge_practice`); the first valid items up to
     `item_count` in all - earlier submissions count - are kept and the rest dropped. Each kept
     item is a `generated` practice_item: its key `unverified`, its novelty score stored and never
-    a gate. Returns the reply - places in this payload in place of positions, `missing` always
-    empty - and its log line's fields."""
+    a gate. A topic task takes items on its topic only, and each kept item fills one of the
+    topic's queued replacements; a material's task that closes `partial` queues the items it
+    never landed (D-259). Returns the reply - places in this payload in place of positions,
+    `missing` always empty - and its log line's fields."""
+    on_topic = task.scope_type == "topic"
+    owner = topic if on_topic else material
     course_id = conn.execute(
-        select(material.c.course_id).where(material.c.id == task.scope_id)
+        select(owner.c.course_id).where(owner.c.id == task.scope_id)
     ).scalar_one()
 
     env_error = _envelope_error(payload, _PRACTICE_ENVELOPE_CHECK)
@@ -1947,6 +2116,8 @@ def _submit_practice(conn: Connection, user_id: str, task, payload: Any) -> tupl
         judged = Judged(errors=[env_error])
     else:
         judged = _judge_practice(conn, user_id, course_id, payload["items"])
+        if on_topic:
+            judged = _only_on(judged, task.scope_id)
     if task.item_count is None:
         kept = judged.accepted
     else:  # the count is the task's total: earlier submissions' items use it up (D-211)
@@ -1957,11 +2128,18 @@ def _submit_practice(conn: Connection, user_id: str, task, payload: Any) -> tupl
         ).scalar_one()
         kept = judged.accepted[: max(task.item_count - landed, 0)]
 
+    filled = 0
     for item in kept:
         _write_generated(conn, user_id, task, item)
+        if on_topic and replacements.fill(conn, user_id, task.id, task.scope_id) is not None:
+            filled += 1
 
     ordinal = _next_ordinal(conn, task.id)
     status = _settle_task(conn, task.id, ordinal, complete=not judged.errors)
+    queued = 0
+    if status == "partial" and not on_topic:  # a topic task's own rows are still pending
+        items = payload["items"] if env_error is None else None
+        queued = _queue_partial(conn, user_id, task, course_id, items, judged.errors)
 
     reply = {
         "task_id": task.id,
@@ -1983,9 +2161,89 @@ def _submit_practice(conn: Connection, user_id: str, task, payload: Any) -> tupl
         "rejected": rejected,
         "dropped": len(judged.accepted) - len(kept),
         "parked": sum(1 for item in kept if item["state"] == "needs-review"),
+        "filled": filled,
+        "queued": queued,
         "bytes": received,
     }
     return reply, event
+
+
+def _only_on(judged: Judged, topic_id: str) -> Judged:
+    """A topic task's judged items with every accepted one on another topic moved to the errors:
+    the task exists to fill that one topic's holes (D-259)."""
+    accepted = []
+    errors = list(judged.errors)
+    for item in judged.accepted:
+        if item["topic_id"] == topic_id:
+            accepted.append(item)
+            continue
+        errors.append(
+            _item_error(
+                item["place"],
+                "wrong_topic",
+                "topic_id",
+                f"this task writes items on topic {topic_id} only - use its id from rules.topics",
+            )
+        )
+    errors.sort(key=lambda e: e["item_ordinal"] or 0)
+    return Judged(accepted, errors)
+
+
+def _queue_partial(
+    conn: Connection, user_id: str, task, course_id: str, items: list | None, errors: list[dict]
+) -> int:
+    """The items a material's practice task closed `partial` without (D-16 f, D-259 item 4): one
+    `pending` `replacement_queue` row per item that failed on this - the third - submission and
+    names a topic of the course, its `closed_task_id` = the task. Called after this submission's
+    items are written. Returns the number of rows written.
+
+    `items` is this payload's item list (None after an envelope error); `errors` its item errors,
+    each naming its item by `item_ordinal` - its place in `items`, from 1.
+
+    At most `item_count` minus the items landed, the failed items taken in payload order. None
+    when the task has no `item_count` - it promised no number of items - and none for an item
+    that names no live topic of the course: unknown, another course's, declined, or no topic id
+    at all (D-53). A topic_id is compared to the column only when it is text - Postgres refuses
+    TEXT = 42.
+    """
+    if task.item_count is None or items is None:
+        return 0
+    landed = conn.execute(
+        select(func.count()).select_from(practice_item).where(practice_item.c.task_id == task.id)
+    ).scalar_one()
+    room = task.item_count - landed
+    # each failed place once, in payload order - an item with two bad fields has two errors
+    failed = dict.fromkeys(e["item_ordinal"] for e in errors if e["item_ordinal"] is not None)
+
+    queued = 0
+    for place in failed:
+        if queued >= room:
+            break
+        item = items[place - 1]
+        topic_id = item.get("topic_id") if isinstance(item, dict) else None
+        if not isinstance(topic_id, str):
+            continue
+        found = conn.execute(
+            select(topic.c.id).where(
+                topic.c.id == topic_id,
+                topic.c.user_id == user_id,
+                topic.c.course_id == course_id,
+                topic.c.status.in_(topics.TAGGABLE),
+            )
+        ).one_or_none()
+        if found is None:
+            continue
+        conn.execute(
+            insert(replacement_queue).values(
+                id=new_id(),
+                user_id=user_id,
+                topic_id=topic_id,
+                closed_task_id=task.id,
+                created_at=now(),
+            )
+        )
+        queued += 1
+    return queued
 
 
 def _judge_practice(conn: Connection, user_id: str, course_id: str, items: list) -> Judged:
