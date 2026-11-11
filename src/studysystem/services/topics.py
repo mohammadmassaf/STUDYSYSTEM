@@ -84,13 +84,17 @@ def topic_for(conn: Connection, user_id: str, course_id: str, ref: dict) -> str:
 def edge_if_missing(conn: Connection, user_id: str, topic_id: str, assessment_id: str) -> None:
     """Insert one `inferred`, unconfirmed coverage edge `topic_id -> assessment_id`, unless that
     pair already has one (D-60). Look first: a refused duplicate would abort the whole unit on
-    Postgres, and `BEGIN IMMEDIATE` keeps any other writer out between the look and the insert."""
+    Postgres, and `BEGIN IMMEDIATE` keeps any other writer out between the look and the insert.
+    A retired edge (a rescope left it with no live question) is the pair's one row: a question
+    landing again brings that same row back, live (D-261)."""
     found = conn.execute(
-        select(coverage.c.id).where(
+        select(coverage.c.id, coverage.c.retired_at).where(
             coverage.c.topic_id == topic_id, coverage.c.assessment_id == assessment_id
         )
-    ).scalar_one_or_none()
+    ).one_or_none()
     if found is not None:
+        if found.retired_at is not None:
+            conn.execute(update(coverage).where(coverage.c.id == found.id).values(retired_at=None))
         return
     conn.execute(
         insert(coverage).values(

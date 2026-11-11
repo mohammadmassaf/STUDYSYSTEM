@@ -816,8 +816,8 @@ def _start_transcription(
                 code="already_transcribed",
                 message="this scan is transcribed and waits for the student to confirm it",
                 fix="compare its read_back with the paper: if it is right, "
-                "study_confirm_transcription; if it is wrong, leave it unconfirmed - it does not "
-                "count, and redoing it arrives with study_rescope_generation (D-210)",
+                "study_confirm_transcription; if it is wrong, study_rescope_generation with its "
+                "task_id retires it and opens the redo (D-210, D-264)",
                 field_errors=[{"field": "past_exam_id", "problem": "transcribed, not confirmed"}],
             )
         if paper.transcript_task_id is not None:

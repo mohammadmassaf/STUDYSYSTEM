@@ -74,6 +74,26 @@ def fill(conn: Connection, user_id: str, task_id: str, topic_id: str) -> str | N
     return rows[0].id
 
 
+def drop_from_task(conn: Connection, task_id: str) -> int:
+    """A rescope retired task `task_id` (D-265): every `pending` row whose hole came from it - its
+    partial close, or a rejection of one of its items - goes `dropped`, since its replacement
+    would be written from the retired task's material. Filled rows stay. Returns how many."""
+    its_items = select(practice_item.c.id).where(practice_item.c.task_id == task_id)
+    its_rejections = select(item_rejection.c.id).where(
+        item_rejection.c.practice_item_id.in_(its_items)
+    )
+    dropped = conn.execute(
+        update(replacement_queue)
+        .where(
+            replacement_queue.c.status == "pending",
+            (replacement_queue.c.closed_task_id == task_id)
+            | replacement_queue.c.rejection_id.in_(its_rejections),
+        )
+        .values(status="dropped", resolved_at=now())
+    )
+    return dropped.rowcount
+
+
 def retire(conn: Connection, topic_id: str, to: str | None = None) -> None:
     """A topic leaves the live set: its `pending` rows move to `to` (a merge's target, which
     takes every item, D-195) or, with no `to`, go `dropped` (a split or a decline - the rejected

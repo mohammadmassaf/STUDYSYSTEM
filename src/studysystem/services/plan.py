@@ -421,6 +421,7 @@ def _study_rows(
         columns.select_from(topic)
         .join(course, course.c.id == topic.c.course_id)
         .join(coverage, coverage.c.topic_id == topic.c.id)
+        .where(coverage.c.retired_at.is_(None))  # a retired exam edge is not examined (D-261)
     )
 
     # Path 1: the edge points at the exam itself.
