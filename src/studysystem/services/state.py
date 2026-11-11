@@ -33,6 +33,7 @@ from studysystem.db.tables import (
 from studysystem.services.ids import now
 from studysystem.services.plan import chapter_name, entries_of
 from studysystem.services.topics import TAGGABLE as LIVE_TOPICS  # the live statuses
+from studysystem.services.unconfirmed import unconfirmed_by_course
 from studysystem.services.units import read_unit
 
 TIERS = ["declared", "inferred", "unknown"]
@@ -460,6 +461,13 @@ def _plan(conn: Connection, user_id: str, today: datetime.date) -> dict:
 # --- courses ------------------------------------------------------------------
 
 TOPIC_SCHEMA = _record({"topic_id": ID, "name": TEXT, "status": {"enum": list(LIVE_TOPICS)}})
+# D-267: both lists empty = no flag. Lists, not null, so no bare null leaves the server.
+UNCONFIRMED_SCHEMA = _record(
+    {
+        "chapters": _list(_record({"material_id": ID, "chapter": TEXT})),
+        "topics": _list(_record({"topic_id": ID, "name": TEXT})),
+    }
+)
 COURSE_SCHEMA = _record(
     {
         "course_id": ID,
@@ -470,6 +478,7 @@ COURSE_SCHEMA = _record(
         "conceded": BOOL,
         "minutes_logged": COUNT,  # not voided; hours are explicit, so 0 is a real 0
         "topics": _list(TOPIC_SCHEMA),
+        "unconfirmed": UNCONFIRMED_SCHEMA,
     },
     {"instructor": TEXT, "credits": NUMBER, "target_grade": NUMBER},
 )
@@ -477,8 +486,8 @@ COURSES_SCHEMA = _list(COURSE_SCHEMA)
 
 
 def _courses(conn: Connection, user_id: str, today: datetime.date) -> list[dict]:
-    """Every course with its declared inputs and their tiers, the minutes logged on it, and its
-    live topics."""
+    """Every course with its declared inputs and their tiers, the minutes logged on it, its live
+    topics, and its `unconfirmed` flag (D-267)."""
     minutes = {
         row.course_id: row.minutes
         for row in conn.execute(
@@ -496,6 +505,8 @@ def _courses(conn: Connection, user_id: str, today: datetime.date) -> list[dict]
         topics.setdefault(row.course_id, []).append(
             {"topic_id": row.id, "name": row.name, "status": row.status}
         )
+    flags = unconfirmed_by_course(conn, user_id)
+    no_flag = {"chapters": [], "topics": []}
     rows = conn.execute(
         select(course)
         .where(course.c.user_id == user_id, course.c.dropped_at.is_(None))  # D-217
@@ -516,6 +527,7 @@ def _courses(conn: Connection, user_id: str, today: datetime.date) -> list[dict]
             "conceded": bool(row.conceded),
             "minutes_logged": int(minutes.get(row.id, 0)),
             "topics": topics.get(row.id, []),
+            "unconfirmed": flags.get(row.id, no_flag),
         }
         for row in rows
     ]
