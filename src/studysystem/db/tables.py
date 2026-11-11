@@ -380,6 +380,9 @@ coverage = Table(
     enum_col("tier", ["declared", "inferred"]),
     ts("confirmed_at", nullable=True),
     ts("created_at"),
+    # set when a rescope leaves an inferred exam edge with no live question behind it; cleared
+    # when one lands again - the same row comes back (D-261)
+    ts("retired_at", nullable=True),
 )
 
 
@@ -444,7 +447,8 @@ partial_unique(
     "ux_practice_item_position",
     practice_item.c.past_exam_id,
     practice_item.c.position,
-    where="past_exam_id IS NOT NULL",
+    # a rescoped scan's superseded items free their positions for the redo (D-264)
+    where="past_exam_id IS NOT NULL AND state <> 'superseded'",
 )
 Index("ix_practice_item_topic_state", practice_item.c.topic_id, practice_item.c.state)
 Index("ix_practice_item_origin_topic", practice_item.c.origin, practice_item.c.topic_id)

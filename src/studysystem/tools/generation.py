@@ -8,7 +8,7 @@ from mcp.types import CallToolResult
 from pydantic import WithJsonSchema
 from sqlalchemy import Engine
 
-from studysystem.services import generation
+from studysystem.services import generation, rescope
 from studysystem.services.users import current_user
 from studysystem.tools.results import run, run_task
 
@@ -119,11 +119,38 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "Confirm a scanned paper's transcription after comparing the submit reply's "
             "read_back with the paper itself: each question beside its page, and the header "
             "read from page 1 beside the registered row. A scan counts toward the exam "
-            "profile only once confirmed (D-210). Do not confirm a wrong one: it stays "
-            "uncounted, and redoing it arrives with study_rescope_generation."
+            "profile only once confirmed (D-210). Do not confirm a wrong one: redo it with "
+            "study_rescope_generation(task_id)."
         ),
     )
     def study_confirm_transcription(past_exam_id: str) -> CallToolResult:
         return run(
             lambda: generation.confirm_transcription(engine, current_user(engine), past_exam_id)
+        )
+
+    @mcp.tool(
+        name="study_rescope_generation",
+        description=(
+            "Retire a generated set that rests on a wrong premise and open a new task in its "
+            "place - nothing is deleted: the old task and its items are kept as superseded, and "
+            "attempts already made on them keep counting. Use it for a scanned paper whose "
+            "read_back is wrong (a question dropped or misread): pass the transcription's "
+            "task_id; the paper then counts nowhere until the redo is submitted and confirmed. "
+            "Use it for a practice set made from the wrong material: pass its task_id and "
+            "material_id for the right one, and count to change how many items it asks for - "
+            "what is not sent is copied from the old task. Then fetch the new task with "
+            "study_start_generation as the reply's next says. A note is redone with "
+            "study_start_generation(redo=true) instead; a single bad item is rejected with "
+            "study_submit_feedback."
+        ),
+    )
+    def study_rescope_generation(
+        task_id: str,
+        material_id: str | None = None,
+        count: str | float | None = None,  # loose as study_start_generation's (D-36)
+    ) -> CallToolResult:
+        return run(
+            lambda: rescope.rescope_generation(
+                engine, current_user(engine), task_id, material_id, count
+            )
         )

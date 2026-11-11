@@ -380,6 +380,18 @@ def test_an_exam_with_no_profile_keeps_its_row(service_engine, user_id):
     assert row.profile_size == 0  # a count over no profile is 0, not NULL
 
 
+def test_a_retired_exam_edge_gives_no_row(service_engine, user_id):
+    # A rescope left UML fundamentals with no live question from the exam (D-261).
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id, code="I3301")
+        _, final = _exam(conn, user_id, course_id)
+        uml = _topic(conn, user_id, course_id, "UML fundamentals")
+        _edge(conn, user_id, uml, final)
+        conn.execute(update(coverage).where(coverage.c.topic_id == uml).values(retired_at=now()))
+
+    assert _rows(service_engine, user_id) == []
+
+
 def test_a_topic_missing_from_the_latest_profile_keeps_its_row(service_engine, user_id):
     # On the Final by an edge, but not in v1 (a paper landed after the derive): D-89 gives it
     # 100 / profile_size, counted over the profile, not over these rows.

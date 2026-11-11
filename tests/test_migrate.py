@@ -31,7 +31,7 @@ from studysystem.db.tables import (
 )
 from tests._study import run_study
 
-HEAD = "0021"
+HEAD = "0022"
 
 
 def stamp() -> str | None:
