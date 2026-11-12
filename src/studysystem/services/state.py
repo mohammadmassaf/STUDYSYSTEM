@@ -23,6 +23,7 @@ from studysystem.db.tables import (
     capacity_suggestion,
     class_meeting,
     course,
+    coverage_reading,
     exam_profile,
     hours_entry,
     material,
@@ -468,6 +469,16 @@ UNCONFIRMED_SCHEMA = _record(
         "topics": _list(_record({"topic_id": ID, "name": TEXT})),
     }
 )
+# D-269: the latest stored reading (D-268), shown with its date. None (tier unknown) until the
+# first plan run that finds a topic on an upcoming exam - never 0.
+COVERAGE_SCHEMA = _record(
+    {
+        "value": {"type": "number", "minimum": 0, "maximum": 1},
+        "denominator_tier": {"enum": ["weighted", "inferred", "unweighted"]},
+        "tier_note": TEXT,
+        "computed_at": STAMP,
+    }
+)
 COURSE_SCHEMA = _record(
     {
         "course_id": ID,
@@ -480,14 +491,14 @@ COURSE_SCHEMA = _record(
         "topics": _list(TOPIC_SCHEMA),
         "unconfirmed": UNCONFIRMED_SCHEMA,
     },
-    {"instructor": TEXT, "credits": NUMBER, "target_grade": NUMBER},
+    {"instructor": TEXT, "credits": NUMBER, "target_grade": NUMBER, "coverage": COVERAGE_SCHEMA},
 )
 COURSES_SCHEMA = _list(COURSE_SCHEMA)
 
 
 def _courses(conn: Connection, user_id: str, today: datetime.date) -> list[dict]:
     """Every course with its declared inputs and their tiers, the minutes logged on it, its live
-    topics, and its `unconfirmed` flag (D-267)."""
+    topics, its `unconfirmed` flag (D-267) and its latest coverage reading (D-269)."""
     minutes = {
         row.course_id: row.minutes
         for row in conn.execute(
@@ -506,6 +517,20 @@ def _courses(conn: Connection, user_id: str, today: datetime.date) -> list[dict]
             {"topic_id": row.id, "name": row.name, "status": row.status}
         )
     flags = unconfirmed_by_course(conn, user_id)
+    # In id order, so the last row seen per course is its newest (ids sort in insert order).
+    readings = {
+        row.course_id: {
+            "value": row.value,
+            "denominator_tier": row.denominator_tier,
+            "tier_note": row.tier_note,
+            "computed_at": row.computed_at,
+        }
+        for row in conn.execute(
+            select(coverage_reading)
+            .where(coverage_reading.c.user_id == user_id)
+            .order_by(coverage_reading.c.id)
+        )
+    }
     no_flag = {"chapters": [], "topics": []}
     rows = conn.execute(
         select(course)
@@ -528,6 +553,7 @@ def _courses(conn: Connection, user_id: str, today: datetime.date) -> list[dict]
             "minutes_logged": int(minutes.get(row.id, 0)),
             "topics": topics.get(row.id, []),
             "unconfirmed": flags.get(row.id, no_flag),
+            **_pair("coverage", readings.get(row.id), "inferred"),  # computed by the server
         }
         for row in rows
     ]

@@ -947,13 +947,14 @@ def get_plan(
         # Study lane. Every row before the taught filter too: an exam's equal split counts all
         # the topics that reach it (D-222), and the log counts the untaught (D-123).
         before_filter = _study_rows(conn, user_id, today, taught_only=False)
+        stated = _stated_shares(conn, user_id, before_filter)
         topics = _topic_exams(
             _study_rows(conn, user_id, today),
             today,
             average_credits,
             latest_exam_date,
             reach_rows=before_filter,
-            stated=_stated_shares(conn, user_id, before_filter),
+            stated=stated,
         )
         first_material = _first_material(conn, user_id)
         study = []
@@ -1088,6 +1089,25 @@ def get_plan(
         ]
         if rows:
             conn.execute(insert(plan_item), rows)
+
+        # Coverage-at-exam, one reading per course beside the plan in force (D-268). Over every
+        # topic, taught or not: coverage counts what is still ahead too.
+        # Imported here: coverage -> unconfirmed -> plan would be a circular import at the top.
+        from studysystem.services.coverage import write_readings
+
+        write_readings(
+            conn,
+            user_id,
+            _topic_exams(
+                before_filter,
+                today,
+                average_credits,
+                latest_exam_date,
+                reach_rows=before_filter,
+                stated=stated,
+            ),
+            skip=unplanned,
+        )
 
     # Report: after the commit, so only a saved plan is logged.
     filtered = setup["filtered"] + no_exam_left + untaught
