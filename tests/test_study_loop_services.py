@@ -602,7 +602,7 @@ def test_voiding_alone_writes_no_new_entry(service_engine, user_id, web):
 
     result = log_hours(service_engine, user_id, "I3302", voids=twice)
 
-    assert result == {"hours_entry_id": None, "minutes": None, "voided": twice}
+    assert result == {"hours_entry_id": None, "minutes": None, "voided": twice, "in_plan": None}
     assert _count(service_engine, hours_entry) == 1
 
 

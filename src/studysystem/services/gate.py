@@ -6,10 +6,25 @@ Read only: one query in a read unit, no write lock. The tool `study_get_gate` an
 dashboard panel call this same function.
 """
 
-from sqlalchemy import Engine, and_, or_, select
+from sqlalchemy import Engine, ScalarSelect, and_, or_, select
 
 from studysystem.db.tables import hours_entry, plan, plan_item
 from studysystem.services.units import read_unit
+
+
+def plan_in_force(user_id: str) -> ScalarSelect:
+    """The id of the plan in force for the outer `hours_entry` row: this user's newest plan made
+    at or before its `occurred_at`, NULL when none was made yet (D-116). Two plans in one second
+    fall back to the id - a ULID, so the later-made plan sorts last. The gate and adherence (4.7)
+    both read it."""
+    return (
+        select(plan.c.id)
+        .where(plan.c.user_id == user_id, plan.c.created_at <= hours_entry.c.occurred_at)
+        .order_by(plan.c.created_at.desc(), plan.c.id.desc())
+        .limit(1)
+        .correlate(hours_entry)
+        .scalar_subquery()
+    )
 
 
 def dogfood_gate(engine: Engine, user_id: str) -> dict:
@@ -29,18 +44,8 @@ def dogfood_gate(engine: Engine, user_id: str) -> dict:
     the study lane lists its hour twice, and an hour on a chapter lists once per shown topic under
     it (D-117), so minutes are never summed over these rows.
     """
-    # The plan in force for the outer hour: this user's newest plan made at or before it. Two
-    # plans in one second fall back to the id - a ULID, so the later-made plan sorts last.
-    in_force = (
-        select(plan.c.id)
-        .where(plan.c.user_id == user_id, plan.c.created_at <= hours_entry.c.occurred_at)
-        .order_by(plan.c.created_at.desc(), plan.c.id.desc())
-        .limit(1)
-        .correlate(hours_entry)
-        .scalar_subquery()
-    )
     proves = and_(
-        plan_item.c.plan_id == in_force,
+        plan_item.c.plan_id == plan_in_force(user_id),
         or_(
             plan_item.c.topic_id == hours_entry.c.topic_id,
             plan_item.c.setup_key == hours_entry.c.setup_key,

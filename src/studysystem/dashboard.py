@@ -59,9 +59,10 @@ HOURS_FIELDS = (
     "session_id",
     "voids",
     "semester_name",
+    "deviation_reason",
 )
 START_FIELDS = ("code", "mode", "subject_type", "subject_id", "semester_name")
-STOP_FIELDS = ("code", "session_id", "minutes", "setup_key", "semester_name")
+STOP_FIELDS = ("code", "session_id", "minutes", "setup_key", "semester_name", "deviation_reason")
 ACCEPT_FIELDS = ("suggestion_id", "from_date")
 
 

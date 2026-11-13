@@ -31,6 +31,7 @@ from studysystem.db.tables import (
     plan_item,
     topic,
 )
+from studysystem.services.adherence import DEVIATION_KEYS, weekly_adherence
 from studysystem.services.ids import now
 from studysystem.services.plan import chapter_name, entries_of
 from studysystem.services.topics import TAGGABLE as LIVE_TOPICS  # the live statuses
@@ -559,12 +560,36 @@ def _courses(conn: Connection, user_id: str, today: datetime.date) -> list[dict]
     ]
 
 
+# --- metrics ------------------------------------------------------------------
+
+ADHERENCE_SCHEMA = _record(
+    {
+        "week_start": DATE,
+        "minutes": COUNT,
+        "in_plan": COUNT,
+        "missing_input": COUNT,
+        "deviations": _record({key: COUNT for key in DEVIATION_KEYS}),
+    },
+    {"adherence": {"type": "number", "minimum": 0, "maximum": 1}},
+)
+METRICS_SCHEMA = _record({"adherence": ADHERENCE_SCHEMA})
+
+
+def _metrics(conn: Connection, user_id: str, today: datetime.date) -> dict:
+    """The weekly numbers (D-12). So far, adherence for the week holding `today`, Monday first,
+    on this machine's clock (4.7, D-273); coverage stays on each course (D-269). A week with no
+    countable minutes sends adherence null and `unknown`, never 0."""
+    week = weekly_adherence(conn, user_id, today - datetime.timedelta(days=today.weekday()))
+    value = week.pop("adherence")
+    return {"adherence": {**week, **_pair("adherence", value, "inferred")}}  # computed
+
+
 # --- the blob -----------------------------------------------------------------
 
 Builder = Callable[[Connection, str, datetime.date], object]
 
 # One builder and one schema per top-level section (D-22), in the order the blob sends them.
-# metrics, shortfall and quality join when their tasks build them (D-163).
+# shortfall and quality join when their tasks build them (D-163); metrics holds adherence (4.7).
 SECTIONS: dict[str, tuple[Builder, dict]] = {
     "semester": (_semester, SEMESTER_SCHEMA),
     "capacity": (_capacity, CAPACITY_SCHEMA),
@@ -572,6 +597,7 @@ SECTIONS: dict[str, tuple[Builder, dict]] = {
     "assessment_slots": (_assessment_slots, ASSESSMENT_SLOTS_SCHEMA),
     "plan": (_plan, PLAN_SCHEMA),
     "courses": (_courses, COURSES_SCHEMA),
+    "metrics": (_metrics, METRICS_SCHEMA),
 }
 CHECKS = {name: Draft202012Validator(schema) for name, (_, schema) in SECTIONS.items()}
 

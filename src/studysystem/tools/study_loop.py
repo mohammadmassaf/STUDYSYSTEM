@@ -83,7 +83,11 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "days), or none for course-level time - never two. A setup_key comes only from "
             "study_get_plan: pass it exactly as returned. Pass the "
             "session_id to close that session. To fix a mistyped entry, send voids with its "
-            "hours_entry_id plus the correct minutes; send voids alone to cancel it."
+            "hours_entry_id plus the correct minutes; send voids alone to cancel it. When the "
+            "student studied something other than what the plan showed, pass deviation_reason "
+            "if they give one: external-deadline (a quiz or deadline the plan did not know), "
+            "disagreed, too-tired, topic-wrong, backlog (went by the chapters left to study), "
+            "or unexplained. It is optional - never press for it."
         ),
     )
     def study_log_hours(
@@ -95,6 +99,7 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         voids: str | None = None,
         semester_name: str | None = None,
         material_id: str | None = None,
+        deviation_reason: str | None = None,
     ) -> CallToolResult:
         return run(
             lambda: study_loop.log_hours(
@@ -108,5 +113,6 @@ def register(mcp: MCPServer, engine: Engine) -> None:
                 voids,
                 semester_name,
                 material_id,
+                deviation_reason,
             )
         )
