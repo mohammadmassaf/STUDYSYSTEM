@@ -495,7 +495,7 @@ hours_entry = Table(
     enum_col("source", ["tool", "timer", "sweep"]),
     enum_col(
         "deviation_reason",
-        ["external-deadline", "disagreed", "too-tired", "topic-wrong", "unexplained"],
+        ["external-deadline", "disagreed", "too-tired", "topic-wrong", "backlog", "unexplained"],
         nullable=True,
     ),
     ts("voided_at", nullable=True),

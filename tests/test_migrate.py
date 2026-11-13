@@ -31,7 +31,7 @@ from studysystem.db.tables import (
 )
 from tests._study import run_study
 
-HEAD = "0022"
+HEAD = "0023"
 
 
 def stamp() -> str | None:
@@ -1179,3 +1179,42 @@ def test_0021_adds_retired_at_and_a_downgrade_drops_it(empty_engine):
     command.downgrade(migrate.alembic_config(empty_engine), "0020")
 
     assert "retired_at" not in {c["name"] for c in inspect(empty_engine).get_columns("note")}
+
+
+# --- 0023: a sixth deviation reason, `backlog` (D-274) ------------------------------------------
+
+
+def _hour(entry_id: str, reason: str | None) -> dict:
+    return {
+        "id": entry_id,
+        "user_id": UID,
+        "course_id": COURSE,
+        "minutes": 40,
+        "occurred_at": AT,
+        "source": "tool",
+        "deviation_reason": reason,
+        "created_at": AT,
+    }
+
+
+def test_0023_keeps_his_hours_takes_backlog_and_refuses_its_downgrade_while_one_exists(
+    empty_engine,
+):
+    """An hour logged before 0023 survives the rebuild that widens the reasons, the widened CHECK
+    takes `backlog` and still refuses a value outside the six, and the downgrade is refused while
+    a `backlog` hour exists."""
+    _i3302_at_0006(empty_engine)
+    command.upgrade(migrate.alembic_config(empty_engine), "0022")
+    with empty_engine.begin() as conn:
+        conn.execute(insert(hours_entry).values(**_hour("a" * 26, "too-tired")))
+
+    migrate.upgrade(empty_engine)
+
+    with empty_engine.begin() as conn:
+        conn.execute(insert(hours_entry).values(**_hour("b" * 26, "backlog")))
+        reasons = conn.execute(select(hours_entry.c.deviation_reason).order_by(hours_entry.c.id))
+        assert reasons.scalars().all() == ["too-tired", "backlog"]
+    with pytest.raises(IntegrityError, match="deviation_reason"), empty_engine.begin() as conn:
+        conn.execute(insert(hours_entry).values(**_hour("c" * 26, "bored")))
+    with pytest.raises(IntegrityError):
+        command.downgrade(migrate.alembic_config(empty_engine), "0022")

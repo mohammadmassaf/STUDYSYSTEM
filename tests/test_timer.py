@@ -318,3 +318,32 @@ def test_a_setup_key_on_a_chapter_session_is_refused(service_engine, user_id, ne
 
     assert err.value.field_errors[0]["field"] == "setup_key"
     assert _entries(service_engine) == []
+
+
+# --- a reason at the stop (D-276) --------------------------------------------------------------
+
+
+def test_a_stop_keeps_its_reason_and_stays_timer(service_engine, user_id, session, stop_at):
+    # A void and re-log would turn this hour into `tool`, so the reason comes at the stop.
+    stop_at(minutes=30)
+
+    _stop(service_engine, user_id, session, 30, deviation_reason="external-deadline")
+
+    [entry] = _entries(service_engine)
+    assert (entry.source, entry.deviation_reason) == ("timer", "external-deadline")
+
+
+def test_a_stop_with_a_reason_outside_the_six_writes_nothing(
+    service_engine, user_id, session, stop_at
+):
+    stop_at(minutes=30)
+
+    with pytest.raises(StudyError) as err:
+        _stop(service_engine, user_id, session, 30, deviation_reason="bored")
+
+    assert (err.value.code, err.value.field_errors[0]["field"]) == (
+        "invalid_value",
+        "deviation_reason",
+    )
+    assert _entries(service_engine) == []
+    assert _ended(service_engine, session["session_id"]) is None

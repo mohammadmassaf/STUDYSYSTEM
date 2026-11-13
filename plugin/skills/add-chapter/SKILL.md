@@ -48,4 +48,12 @@ no item fits. If the step above names what to pass, pass that. Otherwise pass th
 material_id (a study chapter), topic_id (a review item, or a study topic with no chapter) or
 setup_key exactly as `study_get_plan` returned it; leave out all three only if no shown item
 fits, and say so. If the student spent no time, log nothing.
+
+If the reply says `in_plan: false`, ask once, in one line, why they studied this instead of what
+the plan showed, and offer these answers: a quiz or deadline the plan did not know about
+(`external-deadline`), disagreed with the plan (`disagreed`), too tired (`too-tired`), the topic
+was wrong (`topic-wrong`), went by the chapters left to study (`backlog`), or no reason. The
+answer is optional: never press for it. If they give a reason, call `study_log_hours` again with
+the same minutes, session_id and scope, `voids` set to the hours_entry_id just returned, and the
+reason as `deviation_reason`. If they give none, log nothing more.
 <!-- /shared:log-step -->

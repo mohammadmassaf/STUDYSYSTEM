@@ -33,6 +33,7 @@ from studysystem.db.tables import (
 )
 from studysystem.errors import StudyError
 from studysystem.services import values
+from studysystem.services.adherence import DEVIATION_REASONS, in_plan
 from studysystem.services.ids import new_id, now
 from studysystem.services.lookups import find_course
 from studysystem.services.units import write_unit
@@ -321,6 +322,7 @@ def log_hours(
     voids: str | None = None,
     semester_name: str | None = None,
     material_id: str | None = None,
+    deviation_reason: str | None = None,
 ) -> dict:
     """Assert the minutes studied on a course - minutes enter here or at the timer's stop (D-17,
     D-198). One write unit: the new `hours_entry`, the entry it `voids`, and the session it closes.
@@ -330,21 +332,29 @@ def log_hours(
     the gate's answer (D-243). A setup key must be one a plan has raised for this course: a
     mistyped key would snooze nothing (D-22). A session it names must be this course's; a
     still-open one is ended now. A mistyped entry is never edited: send `voids` with its id - and
-    the corrected minutes, or none to only void it. The work started at the session's start, or
-    `minutes` ago.
+    the corrected minutes, or none to only void it. The work started at the session's start, else
+    at the voided entry's start when it replaces one (D-277), else `minutes` ago - entries logged
+    together share that start (D-275). `deviation_reason` says why
+    an off-plan hour was off the plan, one of DEVIATION_REASONS (D-276); a late reason is a void
+    plus the entry again with it.
 
-    Returns {"hours_entry_id" (None when only voiding), "minutes", "voided"}.
+    Returns {"hours_entry_id" (None when only voiding), "minutes", "voided", "in_plan"}: whether
+    the new entry matches an item the plan in force showed (adherence's test, D-276), so the host
+    knows to ask why when it is false; None when only voiding.
     """
     if minutes is None and voids is None:
         raise values.invalid("minutes", "is missing", "send the minutes studied, 1-720")
     scopes = (("material_id", material_id), ("topic_id", topic_id), ("setup_key", setup_key))
     scoped = [f for f, v in scopes if v is not None]
-    if minutes is None and (scoped or session_id is not None):
+    if minutes is None and (scoped or session_id is not None or deviation_reason is not None):
         raise values.invalid(
-            (scoped or ["session_id"])[0],
-            "voiding alone writes no entry, so it takes no chapter, topic, setup key or session",
+            (scoped or ["session_id" if session_id is not None else "deviation_reason"])[0],
+            "voiding alone writes no entry, so it takes no chapter, topic, setup key, session"
+            " or reason",
             "send the corrected minutes with them, or send voids alone",
         )
+    if deviation_reason is not None:
+        deviation_reason = values.choice("deviation_reason", deviation_reason, DEVIATION_REASONS)
     if minutes is not None:
         minutes = _minutes(minutes)
     if len(scoped) > 1:
@@ -359,7 +369,7 @@ def log_hours(
         course_id = find_course(conn, user_id, code, semester_name)
         voided = _void(conn, user_id, course_id, voids, stamp) if voids is not None else None
         if minutes is None:
-            return {"hours_entry_id": None, "minutes": None, "voided": voided}
+            return {"hours_entry_id": None, "minutes": None, "voided": voided, "in_plan": None}
 
         if topic_id is not None and _subject_course(conn, user_id, "topic", topic_id) != course_id:
             raise _not_found(
@@ -389,6 +399,11 @@ def log_hours(
                     .where(study_session.c.id == session_id)
                     .values(ended_at=stamp)
                 )
+        if started is None and voided is not None:
+            # A correction or a late reason: the work began when the voided entry said (D-277).
+            started = conn.execute(
+                select(hours_entry.c.occurred_at).where(hours_entry.c.id == voided)
+            ).scalar_one()
         if started is None:
             began = datetime.datetime.fromisoformat(stamp) - datetime.timedelta(minutes=minutes)
             started = began.strftime(TIMESTAMP)
@@ -406,11 +421,20 @@ def log_hours(
                 minutes=minutes,
                 occurred_at=started,
                 source="tool",
+                deviation_reason=deviation_reason,
                 created_at=stamp,
             )
         )
+        matched = conn.execute(
+            select(in_plan(user_id)).select_from(hours_entry).where(hours_entry.c.id == entry_id)
+        ).scalar_one()
 
-    return {"hours_entry_id": entry_id, "minutes": minutes, "voided": voided}
+    return {
+        "hours_entry_id": entry_id,
+        "minutes": minutes,
+        "voided": voided,
+        "in_plan": bool(matched),
+    }
 
 
 def _void(conn: Connection, user_id: str, course_id: str, entry_id: str, stamp: str) -> str:
@@ -440,6 +464,7 @@ def stop_timer(
     minutes: object,
     setup_key: str | None = None,
     semester_name: str | None = None,
+    deviation_reason: str | None = None,
 ) -> dict:
     """Stop the dashboard timer: the page's own count of minutes, checked against the server's
     clock (D-198). One write unit: the session's `ended_at`, and an `hours_entry` with
@@ -451,7 +476,8 @@ def stop_timer(
     chapter is the session's subject when that is a topic or a material (D-238). A setup item's
     key comes in `setup_key` (the session has no column for it): one a plan raised for this
     course, never beside a topic or material subject. The entry's `occurred_at` is the session's
-    start.
+    start. `deviation_reason` is as in `log_hours`: here, because a void and re-log would turn a
+    `timer` hour into `tool` (D-276).
 
     I3304, practice on IP addressing, started 19:00 (expires 23:00):
         stop 19:52,    52  -> 52 min `timer` on IP addressing
@@ -468,12 +494,15 @@ def stop_timer(
         session_expired (session_id)  stopped at or after `expires_at`; the fix names
                                       study_log_hours, which records the real minutes as `tool`
         invalid_value (minutes)       more minutes than have passed
+        invalid_value (deviation_reason) not one of DEVIATION_REASONS
         invalid_value (setup_key)     a setup key on a topic or chapter session
         not_found (setup_key)         a key no plan raised for this course
 
     Returns {"hours_entry_id" (None under 1 minute), "minutes", "session_id", "ended_at"}.
     """
     minutes = _minutes(minutes, least=0)
+    if deviation_reason is not None:
+        deviation_reason = values.choice("deviation_reason", deviation_reason, DEVIATION_REASONS)
     stamp = now()
     with write_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
@@ -532,6 +561,7 @@ def stop_timer(
                     minutes=minutes,
                     occurred_at=session.started_at,
                     source="timer",
+                    deviation_reason=deviation_reason,
                     created_at=stamp,
                 )
             )
