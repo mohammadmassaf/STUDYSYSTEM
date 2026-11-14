@@ -348,7 +348,11 @@ def _taught_materials(user_id: str) -> CompoundSelect:
 
 
 def _study_rows(
-    conn: Connection, user_id: str, today: datetime.date, taught_only: bool = True
+    conn: Connection,
+    user_id: str,
+    today: datetime.date,
+    taught_only: bool = True,
+    exam_edges: bool = True,
 ) -> list:
     """The hand-written SQL behind the study lane (D-08, D-88): every `active` topic of the user
     with each upcoming exam it reaches - the assessment's weight, date and status, the course's
@@ -366,6 +370,9 @@ def _study_rows(
     chapter (`_taught_materials`), or its exam is in prep - `prep_from` is today or earlier. In
     prep an untaught topic comes back on that exam only; an exam still in term mode adds nothing.
     `taught_only=False` drops this filter - only for the log's `untaught` count.
+
+    `exam_edges=False` leaves path 1 out: the rows come by chapter only, so a profiled exam is
+    reached by no topic. Only for guess sensitivity's side ranking (D-280).
 
     I3304 on 2026-10-09, chapter 1 noted and tagged, no exam in prep -> 4 rows: frame hex
     decoding on both profiled exams, IP addressing and protocol layers on the Final (their only
@@ -488,7 +495,12 @@ def _study_rows(
             )
         )
 
-    both = union(upcoming(by_exam), upcoming(by_chapter))
+    if exam_edges:
+        both = union(upcoming(by_exam), upcoming(by_chapter))
+    else:
+        # Chapter path only (D-280). DISTINCT does UNION's job: a topic tagged to 4 chapters
+        # gives 4 identical rows per exam, one per edge.
+        both = upcoming(by_chapter).distinct()
     # ORDER BY sorts the whole union, by the columns' labels.
     query = both.order_by(both.selected_columns.topic_id, both.selected_columns.assessment_id)
     return list(conn.execute(query).all())
@@ -869,6 +881,142 @@ def _due_reviews(
     )
 
 
+def _study_topics(
+    conn: Connection,
+    user_id: str,
+    today: datetime.date,
+    average_credits: float | None,
+    latest_exam_date: datetime.date | None,
+    exam_edges: bool = True,
+) -> tuple[dict, list, dict]:
+    """The study lane's gather: the taught topics with their exams (`_topic_exams`), plus the two
+    things built on the way that `get_plan` reuses - every row before the taught filter, and
+    the stated shares. Returns (topics, before_filter, stated).
+
+    Rows before the taught filter are read too: an exam's equal split counts all the topics that
+    reach it (D-222), and the log counts the untaught (D-123). `exam_edges` goes to both reads,
+    so a side ranking without exam edges (D-280) splits a no-profile exam only among the topics
+    that still reach it.
+    """
+    before_filter = _study_rows(conn, user_id, today, taught_only=False, exam_edges=exam_edges)
+    stated = _stated_shares(conn, user_id, before_filter)
+    topics = _topic_exams(
+        _study_rows(conn, user_id, today, exam_edges=exam_edges),
+        today,
+        average_credits,
+        latest_exam_date,
+        reach_rows=before_filter,
+        stated=stated,
+    )
+    return topics, before_filter, stated
+
+
+def _rank_study(
+    topics: dict,
+    first_material: dict,
+    unplanned: set,
+    today: datetime.date,
+    tz: datetime.tzinfo | None,
+) -> list[dict]:
+    """The study lane, scored and sorted, best first: one item per entry of `topics` (from
+    `_topic_exams`), courses in `unplanned` left out. Pure. Ties by D-91, then the id, so the
+    order is total. Ranks and `shown` are the caller's.
+
+    The plan and guess sensitivity's side ranking (D-280) both call it, so the two rank alike: a
+    difference between them comes from the rows they were given, never from two copies of the
+    sort drifting apart.
+    """
+    study = []
+    for entry in topics.values():
+        if entry["course_id"] in unplanned:
+            continue
+        if entry["stability"] is None:
+            weakness = COLD_WEAKNESS  # never practised (D-82)
+        else:
+            recall = retrievability(entry["stability"], entry["last_reviewed_at"], today, tz)
+            weakness = 1 - recall
+        pairs = [(exam["marks"], exam["days"]) for exam in entry["exams"]]
+        first = first_material.get(entry["topic_id"])  # None: no chapter
+        study.append(
+            {
+                "topic_id": entry["topic_id"],
+                "topic_name": entry["topic_name"],
+                "course_id": entry["course_id"],
+                "code": entry["code"],
+                "credits": entry["credits"],
+                "nearest_days": min(exam["days"] for exam in entry["exams"]),
+                "first_material": first.added_at if first else None,
+                "material_id": first.id if first else None,
+                "chapter": chapter_name(first.filename) if first else None,
+                "score": study_score(pairs, weakness, ESTIMATED_MINUTES),
+                "estimated_minutes": ESTIMATED_MINUTES,
+                "exam_profile_id": entry["exam_profile_id"],
+                "reason": study_reason(entry, weakness, ESTIMATED_MINUTES),
+            }
+        )
+    return sorted(
+        study,
+        key=lambda i: (
+            -i["score"],
+            -i["credits"],
+            # the chapter entered first; a topic with no chapter after all (D-102)
+            i["first_material"] is None,
+            i["first_material"] or "",
+            i["nearest_days"],
+            i["code"],
+            i["topic_id"],
+        ),
+    )
+
+
+def _guess_changed(
+    conn: Connection,
+    user_id: str,
+    today: datetime.date,
+    shown_ids: list[str],
+    *,
+    shown_n: int,
+    average_credits: float | None,
+    latest_exam_date: datetime.date | None,
+    first_material: dict,
+    unplanned: set,
+    tz: datetime.tzinfo | None,
+) -> int | None:
+    """Guess sensitivity (D-12, D-280): how many of `shown_ids` - the plan's shown study topics -
+    are missing from the top `shown_n` of a side ranking with every exam edge left out. Chapter
+    edges stay, so a topic still reaches an exam with no profile (D-90) and taught reads as before
+    (D-120). None when `shown_ids` is empty: nothing was compared (D-281). Writes nothing.
+
+    The other inputs are the ones the real ranking used in `get_plan`, so both rankings see one
+    moment and a difference comes from the edges alone. The comparison is by set (top-N overlap,
+    D-12): a topic that only moves inside the top N is not counted.
+
+    The real ranking (edges on) already ran in `get_plan`; its result arrives as `shown_ids`.
+    This function runs only the side one (edges off). The order of the subtraction matters:
+    shown minus side counts the shown topics that left. Side minus shown would read 0 when the
+    side lane is empty - the case where the guesses decided everything.
+
+    Examples:
+    - Live plan 2026-11-13 19:26, shown: TCP congestion, Functional & non-functional
+      requirements, Use case diagram, Software testing, fork. The first four reach only profiled
+      Finals, and only by exam edges: in the side ranking they reach no exam and leave the lane.
+      fork is tagged to Pipes and Signals, and I3303's Partial has no profile, so it still
+      reaches the Partial -> 4.
+    - A course with chapter edges only, on an exam with no profile: both rankings are the same
+      -> 0.
+    - shown_n 5, a lane of 3, all 3 still in the side top 5 in another order -> 0.
+    - No shown study topic -> None.
+    """
+    if not shown_ids:
+        return None
+    topics, _, _ = _study_topics(
+        conn, user_id, today, average_credits, latest_exam_date, exam_edges=False
+    )
+    side = _rank_study(topics, first_material, unplanned, today, tz)
+    side_top = {item["topic_id"] for item in side[:shown_n]}
+    return len(set(shown_ids) - side_top)
+
+
 def get_plan(
     engine: Engine,
     user_id: str,
@@ -944,45 +1092,12 @@ def get_plan(
         ).scalar()
         latest_exam_date = datetime.date.fromisoformat(latest) if latest else None
 
-        # Study lane. Every row before the taught filter too: an exam's equal split counts all
-        # the topics that reach it (D-222), and the log counts the untaught (D-123).
-        before_filter = _study_rows(conn, user_id, today, taught_only=False)
-        stated = _stated_shares(conn, user_id, before_filter)
-        topics = _topic_exams(
-            _study_rows(conn, user_id, today),
-            today,
-            average_credits,
-            latest_exam_date,
-            reach_rows=before_filter,
-            stated=stated,
+        # Study lane.
+        topics, before_filter, stated = _study_topics(
+            conn, user_id, today, average_credits, latest_exam_date
         )
         first_material = _first_material(conn, user_id)
-        study = []
-        for entry in topics.values():
-            if entry["stability"] is None:
-                weakness = COLD_WEAKNESS  # never practised (D-82)
-            else:
-                recall = retrievability(entry["stability"], entry["last_reviewed_at"], today, tz)
-                weakness = 1 - recall
-            pairs = [(exam["marks"], exam["days"]) for exam in entry["exams"]]
-            first = first_material.get(entry["topic_id"])  # None: no chapter
-            study.append(
-                {
-                    "topic_id": entry["topic_id"],
-                    "topic_name": entry["topic_name"],
-                    "course_id": entry["course_id"],
-                    "code": entry["code"],
-                    "credits": entry["credits"],
-                    "nearest_days": min(exam["days"] for exam in entry["exams"]),
-                    "first_material": first.added_at if first else None,
-                    "material_id": first.id if first else None,
-                    "chapter": chapter_name(first.filename) if first else None,
-                    "score": study_score(pairs, weakness, ESTIMATED_MINUTES),
-                    "estimated_minutes": ESTIMATED_MINUTES,
-                    "exam_profile_id": entry["exam_profile_id"],
-                    "reason": study_reason(entry, weakness, ESTIMATED_MINUTES),
-                }
-            )
+        study = _rank_study(topics, first_material, unplanned, today, tz)
         active = conn.execute(
             select(func.count(topic.c.id)).where(
                 topic.c.user_id == user_id, topic.c.status == "active"
@@ -992,7 +1107,7 @@ def get_plan(
         # no upcoming exam (D-94), or not taught yet with its exams in term (D-118). The rows
         # without the taught filter hold every topic that has an upcoming exam.
         reachable = len({row.topic_id for row in before_filter})
-        untaught = reachable - len(study)
+        untaught = reachable - len(topics)  # every taught topic, planned course or not
         no_exam_left = active - reachable
 
         # Setup lane.
@@ -1018,24 +1133,12 @@ def get_plan(
             for row in _due_reviews(conn, user_id, today, tz)
             if row.course_id not in unplanned
         ]
-        study = [i for i in study if i["course_id"] not in unplanned]
 
-        # Rank: each lane on its own; ties by D-91, then the id, so every rank is unique.
+        # Rank: each lane on its own; ties by D-91, then the id, so every rank is unique. The
+        # study lane came sorted from `_rank_study`.
         lanes = {
             "review": review_lane,
-            "study": sorted(
-                study,
-                key=lambda i: (
-                    -i["score"],
-                    -i["credits"],
-                    # the chapter entered first; a topic with no chapter after all (D-102)
-                    i["first_material"] is None,
-                    i["first_material"] or "",
-                    i["nearest_days"],
-                    i["code"],
-                    i["topic_id"],
-                ),
-            ),
+            "study": study,
             "setup": sorted(
                 setup_lane,
                 key=lambda i: (
@@ -1053,6 +1156,21 @@ def get_plan(
                 item["rank"] = rank
                 item["shown"] = rank <= shown_n
 
+        # Guess sensitivity (D-280, D-281): the study lane ranked again, every exam edge left
+        # out, from the same moment. Only its count is kept.
+        guess_changed = _guess_changed(
+            conn,
+            user_id,
+            today,
+            [item["topic_id"] for item in lanes["study"] if item["shown"]],
+            shown_n=shown_n,
+            average_credits=average_credits,
+            latest_exam_date=latest_exam_date,
+            first_material=first_material,
+            unplanned=unplanned,
+            tz=tz,
+        )
+
         # Write: the plan, then every item of every lane - the full ranking (D-12, D-22).
         plan_id = new_id()
         conn.execute(
@@ -1062,6 +1180,7 @@ def get_plan(
                 scope="all-courses",
                 shown_n=shown_n,
                 strategy_snapshot=json.dumps(snapshot),
+                guess_changed=guess_changed,
                 created_at=now(),
             )
         )

@@ -332,3 +332,37 @@ def test_a_course_dropped_after_the_plan_leaves_the_stored_plan(service_engine, 
             select(func.count()).select_from(plan_item).where(plan_item.c.course_id == dropped)
         ).scalar_one()
     assert kept > 0  # history
+
+
+# --- guess sensitivity (4.8; D-281, D-282) ------------------------------------------------------
+
+
+def test_metrics_send_the_latest_plans_guess_count_with_its_shown_count(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        _i3302_taught(conn, user_id)
+    result = get_plan(service_engine, user_id, TODAY, shown_n=2)
+    with write_unit(service_engine) as conn:
+        conn.execute(update(plan).where(plan.c.id == result["plan_id"]).values(guess_changed=1))
+
+    sent = blob(service_engine, user_id)["metrics"]["guess_sensitivity"]
+
+    assert sent == {"shown": 2, "changed": 1, "changed_tier": "inferred"}
+
+
+def test_a_plan_with_no_guess_count_sends_unknown_not_zero(service_engine, user_id):
+    # Case 6: a plan stored before 0024, or one that showed no study topic.
+    with write_unit(service_engine) as conn:
+        _i3302_taught(conn, user_id)
+    result = get_plan(service_engine, user_id, TODAY, shown_n=2)
+    with write_unit(service_engine) as conn:
+        conn.execute(update(plan).where(plan.c.id == result["plan_id"]).values(guess_changed=None))
+
+    sent = blob(service_engine, user_id)["metrics"]["guess_sensitivity"]
+
+    assert sent == {"shown": 2, "changed": None, "changed_tier": "unknown"}
+
+
+def test_no_plan_yet_sends_no_guess_count(service_engine, user_id):
+    sent = blob(service_engine, user_id)["metrics"]["guess_sensitivity"]
+
+    assert sent == {"shown": 0, "changed": None, "changed_tier": "unknown"}
