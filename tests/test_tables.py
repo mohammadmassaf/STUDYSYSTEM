@@ -409,6 +409,7 @@ RULE_CASES: list[tuple[str, str, dict]] = [
     ("ck_topic_state_reps_min", "topic_state", dict(reps=-1)),
     ("ck_topic_state_lapses_min", "topic_state", dict(lapses=-1)),
     ("ck_plan_shown_n_min", "plan", dict(shown_n=0)),
+    ("ck_plan_guess_changed_min", "plan", dict(guess_changed=-1)),
     ("ck_plan_course_scope_has_course", "plan", dict(scope="all-courses")),
     ("ck_plan_item_rank_min", "plan_item", dict(rank=0)),
     ("ck_plan_item_topic_unless_setup", "plan_item", dict(topic_id=None)),

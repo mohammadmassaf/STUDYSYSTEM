@@ -992,6 +992,14 @@ plan = Table(
     iff("course_scope_has_course", "scope_course_id IS NOT NULL", "scope = 'course'"),
     Column("shown_n", Integer, CheckConstraint("shown_n >= 1", name="shown_n_min"), nullable=False),
     Column("strategy_snapshot", Text, nullable=False),
+    # Shown study topics missing from a side ranking with every exam edge left out (D-280,
+    # D-281). NULL: an older plan, or a plan that showed no study topic. Migration 0024.
+    Column(
+        "guess_changed",
+        Integer,
+        CheckConstraint("guess_changed >= 0", name="guess_changed_min"),
+        nullable=True,
+    ),
     ts(),
 )
 

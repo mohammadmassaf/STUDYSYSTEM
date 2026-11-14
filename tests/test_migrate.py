@@ -31,7 +31,7 @@ from studysystem.db.tables import (
 )
 from tests._study import run_study
 
-HEAD = "0023"
+HEAD = "0024"
 
 
 def stamp() -> str | None:
@@ -1218,3 +1218,17 @@ def test_0023_keeps_his_hours_takes_backlog_and_refuses_its_downgrade_while_one_
         conn.execute(insert(hours_entry).values(**_hour("c" * 26, "bored")))
     with pytest.raises(IntegrityError):
         command.downgrade(migrate.alembic_config(empty_engine), "0022")
+
+
+# --- 0024: a plan's guess sensitivity (D-281) -----------------------------------------------------
+
+
+def test_0024_adds_a_nullable_guess_changed_and_a_downgrade_drops_it(empty_engine):
+    migrate.upgrade(empty_engine)
+
+    column = {c["name"]: c for c in inspect(empty_engine).get_columns("plan")}["guess_changed"]
+    assert column["nullable"] is True
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0023")
+
+    assert "guess_changed" not in {c["name"] for c in inspect(empty_engine).get_columns("plan")}

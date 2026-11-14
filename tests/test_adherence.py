@@ -387,6 +387,7 @@ def test_state_sends_this_weeks_adherence_as_a_tiered_pair(
     _hours(service_engine, user_id, nets, "2026-11-03T12:00:00Z", 10, reason="backlog")
 
     metrics = get_state(service_engine, user_id, datetime.date(2026, 11, 4), "test")["metrics"]
+    del metrics["guess_sensitivity"]  # 4.8, tested in test_state.py
 
     assert metrics == {
         "adherence": {

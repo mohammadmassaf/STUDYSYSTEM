@@ -572,16 +572,43 @@ ADHERENCE_SCHEMA = _record(
     },
     {"adherence": {"type": "number", "minimum": 0, "maximum": 1}},
 )
-METRICS_SCHEMA = _record({"adherence": ADHERENCE_SCHEMA})
+GUESS_SCHEMA = _record({"shown": COUNT}, {"changed": COUNT})
+METRICS_SCHEMA = _record({"adherence": ADHERENCE_SCHEMA, "guess_sensitivity": GUESS_SCHEMA})
+
+
+def _guess_sensitivity(conn: Connection, user_id: str) -> dict:
+    """The latest all-courses plan's stored count (D-281): how many of its `shown` study topics
+    leave the top N with every exam edge dropped (D-280). Read, never computed (D-163). No plan,
+    a plan before migration 0024, or one that showed no study topic: changed is unknown."""
+    latest = conn.execute(
+        select(plan.c.id, plan.c.guess_changed)
+        .where(plan.c.user_id == user_id, plan.c.scope == "all-courses")
+        .order_by(plan.c.id.desc())
+        .limit(1)
+    ).first()
+    if latest is None:
+        return {"shown": 0, **_pair("changed", None, "inferred")}
+    shown = conn.execute(
+        select(func.count())
+        .select_from(plan_item)
+        .where(
+            plan_item.c.plan_id == latest.id, plan_item.c.lane == "study", plan_item.c.shown == 1
+        )
+    ).scalar_one()
+    return {"shown": shown, **_pair("changed", latest.guess_changed, "inferred")}  # computed
 
 
 def _metrics(conn: Connection, user_id: str, today: datetime.date) -> dict:
-    """The weekly numbers (D-12). So far, adherence for the week holding `today`, Monday first,
-    on this machine's clock (4.7, D-273); coverage stays on each course (D-269). A week with no
-    countable minutes sends adherence null and `unknown`, never 0."""
+    """The weekly numbers (D-12): adherence for the week holding `today`, Monday first, on this
+    machine's clock (4.7, D-273), and the latest plan's guess sensitivity (4.8, D-282); coverage
+    stays on each course (D-269). A week with no countable minutes sends adherence null and
+    `unknown`, never 0."""
     week = weekly_adherence(conn, user_id, today - datetime.timedelta(days=today.weekday()))
     value = week.pop("adherence")
-    return {"adherence": {**week, **_pair("adherence", value, "inferred")}}  # computed
+    return {
+        "adherence": {**week, **_pair("adherence", value, "inferred")},  # computed
+        "guess_sensitivity": _guess_sensitivity(conn, user_id),
+    }
 
 
 # --- the blob -----------------------------------------------------------------

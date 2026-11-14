@@ -37,6 +37,7 @@ from studysystem.services.plan import (
     _due_reviews,
     _setup_items,
     _study_rows,
+    _study_topics,
     _topic_exams,
     entries_of,
     get_plan,
@@ -2001,3 +2002,159 @@ def test_a_dropped_course_gets_no_item_in_any_lane(service_engine, user_id):
 
     codes = {item["code"] for lane in result["lanes"].values() for item in lane["items"]}
     assert codes == {"I3302"}
+
+
+# --- guess sensitivity (4.8; D-279 - D-282) ---------------------------------------------------
+
+
+def _i3303_fork_and_signals(conn, uid):
+    """I3303 in small, as on 2026-11-13: fork on the profiled Final by an exam edge and tagged to
+    Pipes (noted); signals on the Final by an exam edge only, shown because the Final is in prep.
+    The Partial has no profile and no edge of its own. Returns the topic ids by name."""
+    course_id = _course(conn, uid, "I3303")
+    slot_id, final = _exam(conn, uid, course_id)
+    _exam(conn, uid, course_id, name="Partial exam", weight=30.0, date="2026-11-16")
+    ids = {name: _topic(conn, uid, course_id, name) for name in ("fork", "signals")}
+    for topic_id in ids.values():
+        _edge(conn, uid, topic_id, final)
+    _profile(conn, uid, slot_id, 1, {ids["fork"]: 60.0, ids["signals"]: 40.0})
+    pipes = _chapter(conn, uid, course_id, filename="Pipes - Part 1.pdf")
+    _noted(conn, uid, pipes)
+    _tagged(conn, uid, ids["fork"], pipes)
+    return ids
+
+
+def _guess(engine, plan_id):
+    with engine.connect() as conn:
+        return conn.execute(select(plan.c.guess_changed).where(plan.c.id == plan_id)).scalar_one()
+
+
+def test_without_exam_edges_rows_come_by_chapter_only(service_engine, user_id):
+    # Your first piece. fork keeps the unprofiled Partial through Pipes; signals has no chapter,
+    # so it reaches nothing. With the flag left on, nothing changes.
+    with write_unit(service_engine) as conn:
+        _i3303_fork_and_signals(conn, user_id)
+
+    with service_engine.connect() as conn:
+        side = _study_rows(conn, user_id, TODAY, exam_edges=False)
+        real = _study_rows(conn, user_id, TODAY)
+
+    assert [(r.topic_name, r.exam_name) for r in side] == [("fork", "Partial exam")]
+    assert sorted((r.topic_name, r.exam_name) for r in real) == [
+        ("fork", "Final exam"),
+        ("fork", "Partial exam"),
+        ("signals", "Final exam"),
+    ]
+
+
+def test_every_shown_topic_on_a_profiled_exam_only_changes(service_engine, user_id):
+    # Case 1 and case 4: I3304's three topics reach only the profiled Final, and only by exam
+    # edges. The side ranking is empty, so all 3 shown change - out of 3, not 5.
+    with write_unit(service_engine) as conn:
+        _i3304_transport(conn, user_id)
+
+    result = get_plan(service_engine, user_id, TODAY)
+
+    assert len(result["lanes"]["study"]["items"]) == 3
+    assert _guess(service_engine, result["plan_id"]) == 3
+
+
+def test_a_topic_on_a_no_profile_exam_by_chapter_stays(service_engine, user_id):
+    # Case 2, the fork case: fork stays in the side top 5 through the Partial, signals leaves.
+    with write_unit(service_engine) as conn:
+        _i3303_fork_and_signals(conn, user_id)
+
+    result = get_plan(service_engine, user_id, TODAY)
+
+    assert _guess(service_engine, result["plan_id"]) == 1
+
+
+def test_chapter_edges_only_change_nothing(service_engine, user_id):
+    # Case 3: a course with no exam edge at all ranks the same both ways.
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id, "I3351")
+        _exam(conn, user_id, course_id, prep_from=None)
+        chapter = _chapter(conn, user_id, course_id)
+        _noted(conn, user_id, chapter)
+        for name in ("LO1", "LO2"):
+            _tagged(conn, user_id, _topic(conn, user_id, course_id, name), chapter)
+
+    result = get_plan(service_engine, user_id, TODAY)
+
+    assert len(result["lanes"]["study"]["items"]) == 2
+    assert _guess(service_engine, result["plan_id"]) == 0
+
+
+def test_a_move_inside_the_top_n_is_not_a_change(service_engine, user_id):
+    # D-12's top-N overlap is a set. x leads on its Final edge; without it x and y tie on the
+    # unprofiled Partial and y, the older id, goes first. Both stay shown -> 0.
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        slot_id, final = _exam(conn, user_id, course_id)
+        _exam(conn, user_id, course_id, name="Partial exam", weight=30.0, date="2026-11-16")
+        y = _topic(conn, user_id, course_id, "y")
+        x = _topic(conn, user_id, course_id, "x")
+        _edge(conn, user_id, x, final)
+        _profile(conn, user_id, slot_id, 1, {x: 100.0})
+        chapter = _chapter(conn, user_id, course_id)
+        _noted(conn, user_id, chapter)
+        _tagged(conn, user_id, x, chapter)
+        _tagged(conn, user_id, y, chapter)
+
+    result = get_plan(service_engine, user_id, TODAY)
+
+    assert y < x  # the side ranking's tie goes to y
+    assert [i["topic_id"] for i in result["lanes"]["study"]["items"]] == [x, y]
+    assert _guess(service_engine, result["plan_id"]) == 0
+
+
+def test_an_empty_study_lane_stores_null(service_engine, user_id):
+    # Case 7 (D-281): nothing shown, nothing compared - NULL, not "0 of 0".
+    with write_unit(service_engine) as conn:
+        _course(conn, user_id, "I3350")
+
+    result = get_plan(service_engine, user_id, TODAY)
+
+    assert result["lanes"]["study"]["items"] == []
+    assert _guess(service_engine, result["plan_id"]) is None
+
+
+def test_the_side_ranking_writes_no_plan_and_no_item(service_engine, user_id):
+    # Case 5: one plan row, and only the real ranking's items.
+    with write_unit(service_engine) as conn:
+        _i3303_fork_and_signals(conn, user_id)
+
+    result = get_plan(service_engine, user_id, TODAY)
+
+    with service_engine.connect() as conn:
+        assert conn.execute(select(func.count()).select_from(plan)).scalar_one() == 1
+    lanes = result["lanes"].values()
+    stored = len(_plan_rows(service_engine, result["plan_id"]))
+    assert stored == sum(len(lane["items"]) + lane["hidden"] for lane in lanes)
+
+
+def test_the_side_gather_drops_exam_edges_from_both_reads(service_engine, user_id):
+    # QA-001. The Partial has no profile. MySQL reaches it by an exam edge only (shown because
+    # the Partial is in prep); forms reaches it by a noted chapter. Without exam edges, MySQL
+    # leaves the ranked rows (the taught read) and the equal split (the read before the taught
+    # filter), so forms takes the whole Partial. Flag on one read only: MySQL stays ranked, or
+    # forms gets 50.
+    with write_unit(service_engine) as conn:
+        course_id = _course(conn, user_id)
+        _, partial = _exam(conn, user_id, course_id, name="Partial exam", weight=30.0)
+        mysql = _topic(conn, user_id, course_id, "MySQL")
+        forms = _topic(conn, user_id, course_id, "forms")
+        _edge(conn, user_id, mysql, partial)
+        chapter = _chapter(conn, user_id, course_id)
+        _noted(conn, user_id, chapter)
+        _tagged(conn, user_id, forms, chapter)
+
+    with service_engine.connect() as conn:
+        real, _, _ = _study_topics(conn, user_id, TODAY, 4.0, None)
+        side, _, _ = _study_topics(conn, user_id, TODAY, 4.0, None, exam_edges=False)
+
+    assert sorted(e["topic_name"] for e in real.values()) == ["MySQL", "forms"]
+    [entry] = side.values()
+    assert entry["topic_name"] == "forms"
+    [exam] = entry["exams"]
+    assert (exam["share"], exam["share_source"]) == (100.0, "equal split")
