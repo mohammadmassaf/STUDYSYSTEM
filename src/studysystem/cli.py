@@ -123,3 +123,8 @@ def dashboard(port: int) -> None:
     from studysystem.dashboard import main  # imported here for the reason serve gives
 
     main(port)
+
+
+# `python -m studysystem.cli dashboard`: how study_dashboard starts it (D-289).
+if __name__ == "__main__":
+    study()

@@ -9,6 +9,7 @@ from sqlalchemy import Engine
 from studysystem.startup import open_database
 from studysystem.tools import (
     course_setup,
+    dashboard,
     feedback,
     gate,
     generation,
@@ -41,6 +42,7 @@ def create_server(engine: Engine) -> MCPServer:
     study_loop.register(mcp, engine)
     gate.register(mcp, engine)
     summaries.register(mcp, engine)
+    dashboard.register(mcp)
     return mcp
 
 
