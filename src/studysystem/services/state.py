@@ -11,7 +11,7 @@ checked before it leaves.
 
 import datetime
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 
 from jsonschema import Draft202012Validator
 from sqlalchemy import Connection, Engine, func, or_, select
@@ -27,13 +27,14 @@ from studysystem.db.tables import (
     exam_profile,
     hours_entry,
     material,
+    past_exam,
     plan,
     plan_item,
     topic,
 )
 from studysystem.services.adherence import DEVIATION_KEYS, weekly_adherence
 from studysystem.services.ids import now
-from studysystem.services.plan import chapter_name, entries_of
+from studysystem.services.plan import _local_day, chapter_name, entries_of
 from studysystem.services.shortfall import shortfall
 from studysystem.services.topics import TAGGABLE as LIVE_TOPICS  # the live statuses
 from studysystem.services.unconfirmed import unconfirmed_by_course
@@ -481,6 +482,17 @@ COVERAGE_SCHEMA = _record(
         "computed_at": STAMP,
     }
 )
+# D-285: the papers he holds for the course, oldest first. Whether he completed one is a tick the
+# page keeps; the server stores no such mark.
+PAPER_SCHEMA = _record(
+    {
+        "past_exam_id": ID,
+        "assessment_name": TEXT,
+        "session_type": {"enum": ["first", "second"]},
+        "session_date": DATE,
+        "session_date_approx": BOOL,  # the paper prints only its month: the date is its 1st
+    }
+)
 COURSE_SCHEMA = _record(
     {
         "course_id": ID,
@@ -492,6 +504,7 @@ COURSE_SCHEMA = _record(
         "minutes_logged": COUNT,  # not voided; hours are explicit, so 0 is a real 0
         "topics": _list(TOPIC_SCHEMA),
         "unconfirmed": UNCONFIRMED_SCHEMA,
+        "past_papers": _list(PAPER_SCHEMA),
     },
     {"instructor": TEXT, "credits": NUMBER, "target_grade": NUMBER, "coverage": COVERAGE_SCHEMA},
 )
@@ -500,7 +513,8 @@ COURSES_SCHEMA = _list(COURSE_SCHEMA)
 
 def _courses(conn: Connection, user_id: str, today: datetime.date) -> list[dict]:
     """Every course with its declared inputs and their tiers, the minutes logged on it, its live
-    topics, its `unconfirmed` flag (D-267) and its latest coverage reading (D-269)."""
+    topics, its `unconfirmed` flag (D-267), its latest coverage reading (D-269) and its past
+    papers (D-285)."""
     minutes = {
         row.course_id: row.minutes
         for row in conn.execute(
@@ -533,6 +547,22 @@ def _courses(conn: Connection, user_id: str, today: datetime.date) -> list[dict]
             .order_by(coverage_reading.c.id)
         )
     }
+    papers: dict[str, list[dict]] = {}
+    for row in conn.execute(
+        select(past_exam, assessment_slot.c.course_id, assessment_slot.c.name)
+        .join_from(past_exam, assessment_slot, assessment_slot.c.id == past_exam.c.slot_id)
+        .where(past_exam.c.owner_id == user_id)
+        .order_by(past_exam.c.session_date, past_exam.c.id)
+    ):
+        papers.setdefault(row.course_id, []).append(
+            {
+                "past_exam_id": row.id,
+                "assessment_name": row.name,
+                "session_type": row.session_type,
+                "session_date": row.session_date,
+                "session_date_approx": bool(row.session_date_approx),
+            }
+        )
     no_flag = {"chapters": [], "topics": []}
     rows = conn.execute(
         select(course)
@@ -555,6 +585,7 @@ def _courses(conn: Connection, user_id: str, today: datetime.date) -> list[dict]
             "minutes_logged": int(minutes.get(row.id, 0)),
             "topics": topics.get(row.id, []),
             "unconfirmed": flags.get(row.id, no_flag),
+            "past_papers": papers.get(row.id, []),
             **_pair("coverage", readings.get(row.id), "inferred"),  # computed by the server
         }
         for row in rows
@@ -675,6 +706,72 @@ def _shortfall(conn: Connection, user_id: str, today: datetime.date) -> dict:
     }
 
 
+# --- study time ---------------------------------------------------------------
+
+# D-283: what the Today cards read. Hours are explicit, so every 0 here is a real 0. The weekly
+# target is `capacity.declared_hours_per_week`; this section holds no target of its own.
+STUDY_TIME_SCHEMA = _record(
+    {
+        "today_minutes": COUNT,
+        "week_start": DATE,
+        "week_days": {"type": "array", "items": COUNT, "minItems": 7, "maxItems": 7},  # Mon-Sun
+        "streak_days": COUNT,
+        "streak_at_risk": BOOL,
+    }
+)
+
+
+def streak(days: Collection[datetime.date], today: datetime.date) -> tuple[int, bool]:
+    """The run of studied days in a row, and whether it is at risk (pure; D-286). The run ends
+    today, or yesterday when today holds no minutes yet - then it is kept and at risk: it ends
+    unless he studies today. A full day with no minutes ends it.
+
+    Studied Mon 9 - Thu 12 November:
+        Friday 13, nothing yet  -> (4, True)
+        Friday 13, after an hour -> (5, False)
+        Saturday 14, Friday empty -> (0, False)
+    """
+    one = datetime.timedelta(days=1)
+    last = today if today in days else today - one
+    count = 0
+    while last - count * one in days:
+        count += 1
+    return count, count > 0 and today not in days
+
+
+def day_minutes(
+    conn: Connection, user_id: str, tz: datetime.tzinfo | None = None
+) -> dict[datetime.date, int]:
+    """`user_id`'s live (not voided) minutes per day, by the day each hour started on the
+    student's clock (`tz`, None = this machine's). A day with no hour has no key.
+
+    An hour at 2026-11-08T22:30:00Z is Monday 9 November in Beirut (UTC+2), not Sunday."""
+    totals: dict[datetime.date, int] = {}
+    for row in conn.execute(
+        select(hours_entry.c.occurred_at, hours_entry.c.minutes).where(
+            hours_entry.c.user_id == user_id, hours_entry.c.voided_at.is_(None)
+        )
+    ):
+        day = _local_day(row.occurred_at, tz)
+        totals[day] = totals.get(day, 0) + row.minutes
+    return totals
+
+
+def _study_time(conn: Connection, user_id: str, today: datetime.date) -> dict:
+    """Today's minutes, the minutes of each day of the week holding `today` (Monday first), and
+    the streak (D-286) - on this machine's clock, like the metrics week (D-273)."""
+    by_day = day_minutes(conn, user_id)
+    monday = today - datetime.timedelta(days=today.weekday())
+    count, at_risk = streak(by_day.keys(), today)
+    return {
+        "today_minutes": by_day.get(today, 0),
+        "week_start": monday.isoformat(),
+        "week_days": [by_day.get(monday + datetime.timedelta(days=n), 0) for n in range(7)],
+        "streak_days": count,
+        "streak_at_risk": at_risk,
+    }
+
+
 # --- the blob -----------------------------------------------------------------
 
 Builder = Callable[[Connection, str, datetime.date], object]
@@ -690,6 +787,7 @@ SECTIONS: dict[str, tuple[Builder, dict]] = {
     "courses": (_courses, COURSES_SCHEMA),
     "metrics": (_metrics, METRICS_SCHEMA),
     "shortfall": (_shortfall, SHORTFALL_SCHEMA),
+    "study_time": (_study_time, STUDY_TIME_SCHEMA),
 }
 CHECKS = {name: Draft202012Validator(schema) for name, (_, schema) in SECTIONS.items()}
 

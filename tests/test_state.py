@@ -2,6 +2,7 @@
 schema, every uncertain value with its tier - on his I3302 and a cold I3350."""
 
 import datetime
+import hashlib
 import importlib.metadata
 
 import pytest
@@ -10,13 +11,21 @@ from sqlalchemy import func, insert, select, update
 from starlette.testclient import TestClient
 
 from studysystem.dashboard import create_app
-from studysystem.db.tables import class_meeting, material, plan, plan_item
+from studysystem.db.tables import (
+    assessment_slot,
+    class_meeting,
+    material,
+    past_exam,
+    plan,
+    plan_item,
+)
 from studysystem.services import state
 from studysystem.services.capacity import set_capacity
 from studysystem.services.courses import add_course, drop_course, set_course_input
 from studysystem.services.ids import new_id, now
 from studysystem.services.plan import get_plan
-from studysystem.services.units import write_unit
+from studysystem.services.units import read_unit, write_unit
+from tests.test_adherence import _hours
 from tests.test_plan import SEM, TODAY, _course, _i3302_and_a_cold_course, _i3302_taught
 
 OWN = "http://127.0.0.1:8765"
@@ -366,3 +375,162 @@ def test_no_plan_yet_sends_no_guess_count(service_engine, user_id):
     sent = blob(service_engine, user_id)["metrics"]["guess_sensitivity"]
 
     assert sent == {"shown": 0, "changed": None, "changed_tier": "unknown"}
+
+
+# --- study time: today, the week by day, the streak (D-283, D-286) ------------
+
+MON = datetime.date(2026, 11, 9)
+DAY = datetime.timedelta(days=1)
+
+
+def _noon(day: datetime.date) -> str:
+    """Midday UTC: the same day on every clock from UTC-11 to UTC+11, so the test runs anywhere."""
+    return f"{day.isoformat()}T12:00:00Z"
+
+
+def test_study_time_with_no_hours_is_a_real_zero(service_engine, user_id):
+    assert blob(service_engine, user_id, MON)["study_time"] == {
+        "today_minutes": 0,
+        "week_start": "2026-11-09",
+        "week_days": [0, 0, 0, 0, 0, 0, 0],
+        "streak_days": 0,
+        "streak_at_risk": False,
+    }
+
+
+def test_study_time_sums_today_and_each_day_of_the_week(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        web = _course(conn, user_id)
+    wednesday = MON + 2 * DAY
+    _hours(service_engine, user_id, web, _noon(MON - DAY), 30)  # Sunday: the week before
+    _hours(service_engine, user_id, web, _noon(MON), 70)
+    _hours(service_engine, user_id, web, _noon(wednesday), 40)
+    _hours(service_engine, user_id, web, _noon(wednesday), 20)
+    _hours(service_engine, user_id, web, _noon(wednesday), 90, voided=True)
+
+    sent = blob(service_engine, user_id, wednesday)["study_time"]
+
+    assert sent["today_minutes"] == 60
+    assert sent["week_start"] == "2026-11-09"
+    assert sent["week_days"] == [70, 0, 60, 0, 0, 0, 0]
+    assert (sent["streak_days"], sent["streak_at_risk"]) == (1, False)  # Tuesday was empty
+
+
+@pytest.mark.parametrize(
+    ("studied", "today", "expected"),
+    [
+        ([], 13, (0, False)),
+        ([9, 10, 11, 12], 13, (4, True)),  # Mon-Thu, Friday with nothing yet: kept, at risk
+        ([9, 10, 11, 12, 13], 13, (5, False)),
+        ([9, 10, 11, 12], 14, (0, False)),  # Friday ended empty: the streak ended
+        ([9, 11, 12], 12, (2, False)),  # the gap on the 10th stops the count
+        ([13], 13, (1, False)),
+    ],
+)
+def test_the_streak_ends_when_a_day_ends_empty(studied, today, expected):
+    days = {datetime.date(2026, 11, day) for day in studied}
+
+    assert state.streak(days, datetime.date(2026, 11, today)) == expected
+
+
+def test_an_hour_belongs_to_the_day_on_the_students_clock(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        web = _course(conn, user_id)
+    _hours(service_engine, user_id, web, "2026-11-08T22:30:00Z", 45)  # Monday 00:30 in Beirut
+
+    with read_unit(service_engine) as conn:
+        beirut = datetime.timezone(datetime.timedelta(hours=2))
+        days = state.day_minutes(conn, user_id, beirut)
+
+    assert days == {MON: 45}
+
+
+def test_another_students_hours_never_count(service_engine, user_id, other_user_id):
+    with write_unit(service_engine) as conn:
+        theirs = _course(conn, other_user_id)
+    _hours(service_engine, other_user_id, theirs, _noon(MON), 50)
+
+    sent = blob(service_engine, user_id, MON)["study_time"]
+
+    assert (sent["today_minutes"], sent["streak_days"]) == (0, 0)
+
+
+# --- past papers on the course card (D-285) -----------------------------------
+
+
+def _paper(conn, uid, course_id, slot_name, session_date, approx=False) -> str:
+    slot_id = conn.execute(
+        select(assessment_slot.c.id).where(
+            assessment_slot.c.course_id == course_id, assessment_slot.c.name == slot_name
+        )
+    ).scalar()
+    if slot_id is None:
+        slot_id = new_id()
+        conn.execute(
+            insert(assessment_slot).values(
+                id=slot_id,
+                owner_id=uid,
+                course_id=course_id,
+                name=slot_name,
+                kind="exam",
+                created_at=now(),
+            )
+        )
+    paper_id = new_id()
+    conn.execute(
+        insert(past_exam).values(
+            id=paper_id,
+            owner_id=uid,
+            slot_id=slot_id,
+            session_type="first",
+            session_date=session_date,
+            session_date_approx=int(approx),
+            session_delayed=0,
+            instructor=None,
+            instructor_tier="unknown",
+            has_text_layer=1,
+            file_ref=f"papers/{paper_id}.pdf",
+            content_sha256=hashlib.sha256(paper_id.encode()).hexdigest(),
+            created_at=now(),
+        )
+    )
+    return paper_id
+
+
+def test_a_course_sends_its_past_papers_oldest_first(service_engine, user_id, other_user_id):
+    with write_unit(service_engine) as conn:
+        web = _course(conn, user_id)
+        _course(conn, user_id, code="I3303")
+        theirs = _course(conn, other_user_id)
+        late = _paper(conn, user_id, web, "Final exam", "2019-01-24")
+        early = _paper(conn, user_id, web, "Partial exam", "2018-11-01", approx=True)
+        _paper(conn, other_user_id, theirs, "Final exam", "2020-02-17")
+
+    by_code = {sent["code"]: sent for sent in blob(service_engine, user_id)["courses"]}
+
+    assert by_code["I3302"]["past_papers"] == [
+        {
+            "past_exam_id": early,
+            "assessment_name": "Partial exam",
+            "session_type": "first",
+            "session_date": "2018-11-01",
+            "session_date_approx": True,
+        },
+        {
+            "past_exam_id": late,
+            "assessment_name": "Final exam",
+            "session_type": "first",
+            "session_date": "2019-01-24",
+            "session_date_approx": False,
+        },
+    ]
+    assert by_code["I3303"]["past_papers"] == []
+
+
+def test_a_dropped_course_sends_no_papers(service_engine, user_id):
+    with write_unit(service_engine) as conn:
+        mobile = _course(conn, user_id, code="I3350")
+        _paper(conn, user_id, mobile, "Final exam", "2021-01-20")
+    drop_course(service_engine, user_id, "I3350")
+
+    assert blob(service_engine, user_id)["courses"] == []  # D-217: its papers stay as history
