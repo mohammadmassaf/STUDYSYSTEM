@@ -137,6 +137,11 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
 .list{padding:0;overflow:hidden}
 .list-head{display:flex;justify-content:space-between;align-items:baseline;padding:18px 24px 10px}
 .list-head b{font-size:1.0625rem}
+.head-end{display:flex;align-items:center;gap:10px}
+.fold-btn{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:50%;background:var(--fill);color:var(--text-2);cursor:pointer;padding:0;transition:transform .1s ease-out}
+.fold-btn:active{transform:scale(.92)}
+.fold-btn svg{transform:rotate(90deg);transition:transform .3s var(--spring)}
+.fold-btn.up svg{transform:rotate(-90deg)}
 .row{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:13px 24px;position:relative}
 .row+.row::before{content:"";position:absolute;top:0;left:24px;right:0;height:1px;background:var(--hair)}
 .row time{font-variant-numeric:tabular-nums;font-weight:600;font-size:.9375rem;min-width:3.2em}
@@ -238,7 +243,7 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.01ms!important;transition-duration:.15s!important}
   .page{animation:none}
-  .btn:active,.check:active,.icon-btn:active,.menu-btn:active,.chip:active{transform:none}
+  .btn:active,.check:active,.icon-btn:active,.menu-btn:active,.chip:active,.fold-btn:active{transform:none}
 }
 @media (prefers-reduced-transparency:reduce){.bar{background:var(--bg);-webkit-backdrop-filter:none;backdrop-filter:none}.pop{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none}}
 @media (prefers-contrast:more){.card{border:1px solid var(--text-3)}.bar{background:var(--bg)}}
@@ -440,9 +445,12 @@ function todayTasks(){
 }
 const isDone=it=>it.custom?!!it.custom.done:status(it)==='done';
 const taskMeta=it=>[LANE_NAME[it.lane],it.course?.code,it.chapter,it.custom?(it.mins?it.mins+' min':null):(it.mins==null?'time unknown':it.mins+' min')].filter(Boolean).map(esc).join(' · ');
+// D-291: collapsed, the card shows one task - the first open one, or the first when all are done
 function tasks(){
-  const xs=todayTasks(),open=xs.filter(x=>!isDone(x)).length;
-  return `<div class="card list"><div class="list-head"><b>Tasks</b><span class="muted">${open} open</span></div>${xs.length?xs.map(it=>`<div class="row ${isDone(it)?'done':''}"><button class="check" type="button" data-act="done" data-id="${esc(it.uid)}" aria-pressed="${isDone(it)}" aria-label="Mark done: ${esc(it.what)}">${WHITE_TICK}</button><div><div class="t">${esc(it.what)}</div><div class="m">${taskMeta(it)}</div></div>${isDone(it)?'':`<button class="quiet" type="button" data-act="skip" data-id="${esc(it.uid)}">Skip</button>`}</div>`).join(''):'<p class="empty">No open tasks. The plan shows nothing to study right now.</p>'}
+  const all=todayTasks(),open=all.filter(x=>!isDone(x)).length,folded=!!store.tasksFolded&&all.length>1;
+  const xs=folded?[all.find(x=>!isDone(x))||all[0]]:all;
+  const toggle=all.length>1?`<button class="fold-btn ${folded?'':'up'}" type="button" data-act="fold-tasks" aria-expanded="${!folded}" aria-controls="taskrows" aria-label="${folded?`Show all ${all.length} tasks`:'Collapse to the first task'}" title="${folded?`Show all ${all.length}`:'Collapse'}">${CHEV}</button>`:'';
+  return `<div class="card list" id="taskrows"><div class="list-head"><b>Tasks</b><span class="head-end"><span class="muted">${open} open</span>${toggle}</span></div>${xs.length?xs.map(it=>`<div class="row ${isDone(it)?'done':''}"><button class="check" type="button" data-act="done" data-id="${esc(it.uid)}" aria-pressed="${isDone(it)}" aria-label="Mark done: ${esc(it.what)}">${WHITE_TICK}</button><div><div class="t">${esc(it.what)}</div><div class="m">${taskMeta(it)}</div></div>${isDone(it)?'':`<button class="quiet" type="button" data-act="skip" data-id="${esc(it.uid)}">Skip</button>`}</div>`).join(''):'<p class="empty">No open tasks. The plan shows nothing to study right now.</p>'}
     <form class="add" id="add"><input name="title" required maxlength="120" placeholder="Add a personal task" aria-label="Personal task"><button class="quiet" type="submit">Add</button></form></div>`;
 }
 
@@ -550,6 +558,7 @@ document.addEventListener('click',e=>{
   if(act==='theme'){const dark=document.documentElement.dataset.theme?document.documentElement.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches,t=dark?'light':'dark';document.documentElement.dataset.theme=t;try{localStorage.setItem('semcon.theme',t)}catch(x){}return}
   if(act==='goal'){goalEdit={...GOAL_CLOSED,open:true};draw();$('#goal input')?.select();return}
   if(act==='goal-cancel'){goalEdit={...GOAL_CLOSED};draw();return}
+  if(act==='fold-tasks'){store.tasksFolded=!store.tasksFolded;saveStore();draw();$('[data-act="fold-tasks"]')?.focus();return}
   if(act==='menu')return menu(id,openMenu()!==id);
   if(act==='pick'){const which=b.dataset.menu;store[which]=id;saveStore();note=null;draw();$('#'+which+'Btn')?.focus();return}
   if(act==='start')return start();
