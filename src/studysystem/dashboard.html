@@ -158,7 +158,10 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px}
 
 /* Courses */
-.courses{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:20px;align-items:start}
+/* D-291: each card takes its row's height; the foot sits at the bottom, so the folds line up */
+.courses{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:20px}
+.course{display:flex;flex-direction:column}
+.course .foot{margin-top:auto;padding-top:16px}
 .course h3{font-size:1.25rem;font-weight:600;letter-spacing:-.01em;line-height:1.25;margin:2px 0 4px}
 .course .meta{font-size:.875rem;color:var(--text-2)}
 .course .meta small{display:block;font-size:.8125rem;color:var(--text-3)}
@@ -465,7 +468,7 @@ function papers(c){const xs=c.past_papers||[];if(!xs.length)return '<p class="no
     xs.map(p=>{const on=!!store.papers[p.past_exam_id],name=paperName(p);return `<label class="paper ${on?'done':''}"><button class="check" type="button" data-act="paper" data-id="${esc(p.past_exam_id)}" aria-pressed="${on}" aria-label="Completed: ${esc(name)}">${WHITE_TICK}</button><span>${esc(name)}</span></label>`}).join(''))}
 function courseCards(){
   if(!courses.length)return '<p class="empty">No courses yet.</p>';
-  return `<div class="courses">${courses.map(c=>{
+  return `<div class="courses">${pickList().map(c=>{ // D-291: DHR300 and English last, as in the picker (D-287)
     const exams=(raw.assessment_slots||[]).filter(a=>a.course_id===c.course_id).sort((a,b)=>(a.date||'9').localeCompare(b.date||'9')),next=exams.find(a=>a.date&&a.date>=TODAY),left=next?daysTo(next.date):null;
     const xs=plan.filter(x=>x.course===c),meta=[c.credits!=null?c.credits+' credits':null,c.instructor||null,c.target_grade!=null?'target '+c.target_grade:null].filter(Boolean).join(' · ');
     const strat=c.conceded?'Conceded':(c.strategy&&c.strategy!=='default'?c.strategy:null);
