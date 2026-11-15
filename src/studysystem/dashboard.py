@@ -64,6 +64,9 @@ HOURS_FIELDS = (
 START_FIELDS = ("code", "mode", "subject_type", "subject_id", "semester_name")
 STOP_FIELDS = ("code", "session_id", "minutes", "setup_key", "semester_name", "deviation_reason")
 ACCEPT_FIELDS = ("suggestion_id", "from_date")
+CAPACITY_FIELDS = ("hours_per_week", "from_date")  # study_set_capacity's (D-290)
+# Fields the service reads as a number; every other field must be text.
+NUMBER_FIELDS = ("minutes", "hours_per_week")
 
 
 def _error(err: StudyError) -> JSONResponse:
@@ -129,7 +132,11 @@ def _args(body: dict, route: str, fields: tuple[str, ...], needed: tuple[str, ..
             fix = "send the course code, e.g. I3302" if field == "code" else f"send {field}"
             raise values.invalid(field, "is missing", fix)
     for field in fields:
-        if field != "minutes" and body.get(field) is not None and not isinstance(body[field], str):
+        if (
+            field not in NUMBER_FIELDS
+            and body.get(field) is not None
+            and not isinstance(body[field], str)
+        ):
             raise values.invalid(field, f"{body[field]!r} is not text", f"send {field} as a string")
     return body
 
@@ -188,6 +195,7 @@ def create_app(engine: Engine) -> Starlette:
                 STOP_FIELDS,
                 ("code", "session_id", "minutes"),
             ),
+            write("/capacity", capacity.set_capacity, CAPACITY_FIELDS, CAPACITY_FIELDS),
             write(
                 "/capacity/accept",
                 capacity.accept_capacity_suggestion,

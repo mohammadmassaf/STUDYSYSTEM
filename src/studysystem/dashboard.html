@@ -125,6 +125,10 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
 .bars b{display:block;width:100%;max-width:28px;min-height:4px;border-radius:6px;background:var(--fill-2)}
 .bars .today b{background:var(--accent)}
 .bars .today{color:var(--text);font-weight:600}
+.quiet.edit{padding:4px 0;margin-top:2px}
+.goal{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:8px}
+.goal input{width:5.5em;border:0;background:var(--fill);border-radius:10px;padding:6px 10px;font-variant-numeric:tabular-nums}
+.goal .err{flex-basis:100%;color:var(--red-text);font-size:.875rem}
 .tiles{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 .tile{padding:20px 24px}
 
@@ -387,12 +391,26 @@ function menu(name,open){for(const n of ['course','mode']){const p=$('#'+n+'Pop'
 const openMenu=()=>['course','mode'].find(n=>$('#'+n+'Pop')?.classList.contains('open'))||null;
 
 // ---- Today: the week, today's minutes, the streak (D-286)
+// D-290: "Edit target" writes a new capacity row from the Monday of this week, through POST /capacity.
+const GOAL_CLOSED={open:false,draft:null,busy:false,err:null};
+let goalEdit={...GOAL_CLOSED};
+const monday=()=>{const d=new Date();d.setDate(d.getDate()-(d.getDay()+6)%7);return isoDay(d)};
+async function saveGoal(hours){
+  goalEdit.busy=true;goalEdit.err=null;draw();
+  try{await post('/capacity',{hours_per_week:hours,from_date:monday()});goalEdit={...GOAL_CLOSED};await load()}
+  catch(e){goalEdit.busy=false;goalEdit.err=e?.code==='server_down'?'Not saved: the dashboard server is not running.':'Not saved: '+said(e);draw()}
+}
+function goalForm(hours){
+  if(!goalEdit.open)return `<button class="quiet edit" type="button" data-act="goal">${hours==null?'Set target':'Edit target'}</button>`;
+  const v=goalEdit.draft??(hours==null?'':String(hours)),off=goalEdit.busy?'disabled':'';
+  return `<form class="goal" id="goal"><input name="hours" type="number" inputmode="decimal" min="0.5" max="112" step="any" required value="${esc(v)}" aria-label="Weekly target in hours" ${off}><span class="muted">h/week</span><button class="quiet" type="submit" ${off}>Save</button><button class="quiet" type="button" data-act="goal-cancel" ${off}>Cancel</button>${goalEdit.err?`<p class="err">${esc(goalEdit.err)}</p>`:''}</form>`;
+}
 function weekCard(){
   const t=raw.study_time,total=t.week_days.reduce((a,b)=>a+b,0),hours=raw.capacity?.declared_hours_per_week,target=hours==null?null:Math.round(hours*60);
   const share=target?Math.min(1,total/target):0,top=Math.max(...t.week_days,target?target/7:60),wd=(new Date().getDay()+6)%7;
   return `<div class="card week">
     <svg class="ring ${target==null?'none':''} ${target&&total>=target?'met':''}" viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="52"/><circle class="fill" id="ringfill" cx="60" cy="60" r="52" stroke-dasharray="${RING}" stroke-dashoffset="${first?RING:RING*(1-share)}" data-to="${RING*(1-share)}"/></svg>
-    <div><div class="label">This week</div><div class="big num">${hm(total)}</div><div class="muted">${target==null?'No weekly target set':`of ${hm(target)} target · ${Math.round(total/target*100)}%`}</div></div>
+    <div><div class="label">This week</div><div class="big num">${hm(total)}</div><div class="muted">${target==null?'No weekly target set':`of ${hm(target)} target · ${Math.round(total/target*100)}%`}</div>${goalForm(hours)}</div>
     <div class="bars">${t.week_days.map((m,i)=>`<div class="${i===wd?'today':''}" title="${hm(m)}"><b style="height:${Math.round(m/top*100)}%"></b>${'MTWTFSS'[i]}</div>`).join('')}</div>
   </div>`;
 }
@@ -527,6 +545,8 @@ function draw(){
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const {act,id}=b.dataset;
   if(act==='theme'){const dark=document.documentElement.dataset.theme?document.documentElement.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches,t=dark?'light':'dark';document.documentElement.dataset.theme=t;try{localStorage.setItem('semcon.theme',t)}catch(x){}return}
+  if(act==='goal'){goalEdit={...GOAL_CLOSED,open:true};draw();$('#goal input')?.select();return}
+  if(act==='goal-cancel'){goalEdit={...GOAL_CLOSED};draw();return}
   if(act==='menu')return menu(id,openMenu()!==id);
   if(act==='pick'){const which=b.dataset.menu;store[which]=id;saveStore();note=null;draw();$('#'+which+'Btn')?.focus();return}
   if(act==='start')return start();
@@ -548,7 +568,9 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='Escape'){menu(null,false);$('#'+name+'Btn')?.focus()}
 });
 document.addEventListener('toggle',e=>{const id=e.target.dataset?.fold;if(id)e.target.open?openFolds.add(id):openFolds.delete(id)},true);
-document.addEventListener('submit',e=>{if(e.target.id!=='add')return;e.preventDefault();const title=String(new FormData(e.target).get('title')||'').trim();if(!title)return;store.custom.unshift({id:Math.random().toString(36).slice(2),title,course:null,mins:null,done:false});saveStore();draw();$('#add input')?.focus()});
+document.addEventListener('input',e=>{if(e.target.closest('#goal'))goalEdit.draft=e.target.value}); // a redraw keeps what he typed
+document.addEventListener('submit',e=>{if(e.target.id==='goal'){e.preventDefault();if(!goalEdit.busy)saveGoal(Number(new FormData(e.target).get('hours')));return}
+  if(e.target.id!=='add')return;e.preventDefault();const title=String(new FormData(e.target).get('title')||'').trim();if(!title)return;store.custom.unshift({id:Math.random().toString(36).slice(2),title,course:null,mins:null,done:false});saveStore();draw();$('#add input')?.focus()});
 addEventListener('hashchange',()=>{draw();scrollTo({top:0})});
 addEventListener('resize',nav);
 

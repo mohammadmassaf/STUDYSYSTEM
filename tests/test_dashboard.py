@@ -13,7 +13,7 @@ from starlette.testclient import TestClient
 from studysystem.dashboard import create_app
 from studysystem.db.engine import db_path
 from studysystem.db.migrate import head_revision
-from studysystem.db.tables import hours_entry, study_session
+from studysystem.db.tables import capacity, hours_entry, study_session
 from studysystem.services import study_loop
 from studysystem.services.courses import add_course
 from studysystem.services.units import write_unit
@@ -134,7 +134,7 @@ def test_a_body_that_is_not_one_json_object_is_refused(client, service_engine, w
     assert entries(service_engine) == 0
 
 
-@pytest.mark.parametrize("path", ["/hours", "/sessions", "/sessions/stop"])
+@pytest.mark.parametrize("path", ["/hours", "/sessions", "/sessions/stop", "/capacity"])
 def test_a_write_that_is_not_json_is_refused(client, service_engine, web, path):
     """What a page on another site can send without asking first: a form, or text/plain."""
     response = client.post(
@@ -279,6 +279,58 @@ def test_a_session_route_checks_its_fields(client, service_engine, web, path, bo
     assert response.json()["field_errors"][0]["field"] == field
     with service_engine.connect() as conn:
         assert conn.execute(select(func.count()).select_from(study_session)).scalar_one() == 0
+
+
+# --- weekly hours from the page (D-290): the tool's service, behind POST /capacity ------------
+
+
+def capacity_rows(engine) -> list[tuple[float, str]]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(capacity.c.hours_per_week, capacity.c.from_date).order_by(capacity.c.id)
+        )
+        return [tuple(r) for r in rows]
+
+
+def test_post_capacity_adds_a_row_and_the_old_one_stays(client, service_engine, user_id):
+    """His 10 h from 27 Sep, then 14 h from the Monday of this week, set on the page."""
+    client.post("/capacity", json={"hours_per_week": 10, "from_date": "2026-09-27"})
+
+    response = client.post("/capacity", json={"hours_per_week": 14, "from_date": "2026-11-09"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["hours_per_week"], body["from_date"]) == (14, "2026-11-09")
+    assert capacity_rows(service_engine) == [(10, "2026-09-27"), (14, "2026-11-09")]
+
+
+def test_post_capacity_errors_as_the_tool_does(client, call, service_engine, user_id):
+    args = {"hours_per_week": 0, "from_date": "2026-11-09"}
+
+    response = client.post("/capacity", json=args)
+    tool = call("study_set_capacity", args)
+
+    assert response.status_code == 400
+    assert response.json() == tool.structured_content
+    assert response.json()["field_errors"][0]["field"] == "hours_per_week"
+    assert capacity_rows(service_engine) == []
+
+
+@pytest.mark.parametrize(
+    ("body", "field"),
+    [
+        ({"hours_per_week": 14}, "from_date"),
+        ({"hours_per_week": 14, "from_date": 20261109}, "from_date"),
+        ({"hours_per_week": True, "from_date": "2026-11-09"}, "hours_per_week"),
+        ({"hours_per_week": 14, "from_date": "2026-11-09", "user_id": "x"}, "user_id"),
+    ],
+)
+def test_post_capacity_checks_its_fields(client, service_engine, user_id, body, field):
+    response = client.post("/capacity", json=body)
+
+    assert response.status_code == 400
+    assert response.json()["field_errors"][0]["field"] == field
+    assert capacity_rows(service_engine) == []
 
 
 # --- `study dashboard`, started the way he starts it ------------------------------------------
