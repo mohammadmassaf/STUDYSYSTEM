@@ -160,6 +160,12 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
 .quiet{border:0;background:none;color:var(--accent);font-size:.9375rem;cursor:pointer;padding:6px 4px}
 .add{display:flex;gap:10px;padding:12px 24px 18px;border-top:1px solid var(--hair)}
 .add input{flex:1;border:0;background:var(--fill);border-radius:12px;padding:10px 14px;min-width:0}
+.add .menu{flex:none;display:flex;position:static}
+/* the Tasks card lets the course menu spill out; the menu opens upward, above the form, lined up
+   with the form's right side so a phone shows all of it */
+#taskrows{overflow:visible}
+.add{position:relative}
+.add .pop{top:auto;right:24px;bottom:calc(100% + 8px);transform-origin:bottom right}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px}
 
 /* Courses */
@@ -237,6 +243,7 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
   .pickers{justify-content:flex-start;width:100%}
   h2{margin-top:44px}
   .row,.list-head,.add{padding-left:16px;padding-right:16px}
+  .add .pop{right:16px}
   .row+.row::before{left:16px}
   .courses{grid-template-columns:1fr}
 }
@@ -273,6 +280,7 @@ const hm=m=>m<60?m+'m':Math.floor(m/60)+'h'+(m%60?' '+m%60+'m':'');
 const TICK='<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.2 5 8.6l4.5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const WHITE_TICK=TICK.replace('currentColor','#fff');
 const CHEV='<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ARROWS='<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const RING=326.73; // the ring's circumference: 2 x pi x 52
 
 // ---- what the browser keeps: today's ticks, personal tasks, paper ticks, the picked course
@@ -378,7 +386,6 @@ function watch(){
   const c=session?courses.find(x=>x.code===session.code)||{code:session.code,name:''}:picked();
   if(!c)return `<div class="card watch"><div class="watch-top"><span class="label">Stopwatch</span></div><div class="digits num">00:00:00</div><div class="status">Add a course to use the stopwatch.</div></div>`;
   const m=session?[session.mode,modeName(session.mode||DEFAULT_MODE)]:pickedMode(),off=session||busy?'disabled':'';
-  const ARROWS='<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const asking=session&&!note?.err&&elapsed()>=ASK_AT;
   const line=session&&note?.err?esc(note.text):asking?'Still studying? At 3h55m this session stops and logs itself.':session&&note?`<i class="dot"></i>${esc(note.text)} Started ${esc(new Date(session.t0).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hour12:false}))}.`:session?`<i class="dot"></i>Studying ${esc(session.code)}${session.mode?' · '+esc(modeName(session.mode)):''} · started ${esc(new Date(session.t0).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hour12:false}))}`:esc(note?.text||'Pick a course and a mode, then press Start.');
   return `<div class="card watch ${session?'running':''}">
@@ -395,8 +402,9 @@ function watch(){
       :`<button class="btn ${session?'stop':''}" type="button" data-act="${session?'stop':'start'}" ${busy?'disabled':''}>${session?'Stop':'Start'}</button>`}
   </div>`;
 }
-function menu(name,open){for(const n of ['course','mode']){const p=$('#'+n+'Pop'),b=$('#'+n+'Btn');if(!p||!b)continue;const on=open&&n===name;p.classList.toggle('open',on);b.setAttribute('aria-expanded',on);if(on)p.querySelector('[aria-selected="true"]')?.focus()}}
-const openMenu=()=>['course','mode'].find(n=>$('#'+n+'Pop')?.classList.contains('open'))||null;
+const MENUS=['course','mode','taskCourse'];
+function menu(name,open){for(const n of MENUS){const p=$('#'+n+'Pop'),b=$('#'+n+'Btn');if(!p||!b)continue;const on=open&&n===name;p.classList.toggle('open',on);b.setAttribute('aria-expanded',on);if(on)p.querySelector('[aria-selected="true"]')?.focus()}}
+const openMenu=()=>MENUS.find(n=>$('#'+n+'Pop')?.classList.contains('open'))||null;
 
 // ---- Today: the week, today's minutes, the streak (D-286)
 // D-290: "Edit target" writes a new capacity row from the Monday of this week, through POST /capacity.
@@ -445,13 +453,20 @@ function todayTasks(){
 }
 const isDone=it=>it.custom?!!it.custom.done:status(it)==='done';
 const taskMeta=it=>[LANE_NAME[it.lane],it.course?.code,it.chapter,it.custom?(it.mins?it.mins+' min':null):(it.mins==null?'time unknown':it.mins+' min')].filter(Boolean).map(esc).join(' · ');
+// D-301: a personal task can name a course, picked in the stopwatch's menu style; the menu keeps
+// his last pick for the next task
+let taskDraft='';
+const taskCourse=()=>pickList().find(c=>c.code===store.taskCourse)||null;
+const courseSelect=()=>{const on=taskCourse(),opt=(id,code,name)=>`<button type="button" class="opt" role="option" data-act="pick" data-menu="taskCourse" data-id="${esc(id)}" aria-selected="${(on?.code||'')===id}">${TICK}<b>${esc(code)}</b><span>${esc(name)}</span></button>`;
+  return `<div class="menu"><button class="menu-btn" id="taskCourseBtn" type="button" data-act="menu" data-id="taskCourse" aria-haspopup="listbox" aria-expanded="false" aria-label="Course for the task"><b>${esc(on?on.code:'No course')}</b>${ARROWS}</button>
+    <div class="pop" id="taskCoursePop" role="listbox" aria-label="Courses">${opt('','No course','')}${pickList().map(c=>opt(c.code,c.code,c.name)).join('')}</div></div>`};
 // D-291: collapsed, the card shows one task - the first open one, or the first when all are done
 function tasks(){
   const all=todayTasks(),open=all.filter(x=>!isDone(x)).length,folded=!!store.tasksFolded&&all.length>1;
   const xs=folded?[all.find(x=>!isDone(x))||all[0]]:all;
   const toggle=all.length>1?`<button class="fold-btn ${folded?'':'up'}" type="button" data-act="fold-tasks" aria-expanded="${!folded}" aria-controls="taskrows" aria-label="${folded?`Show all ${all.length} tasks`:'Collapse to the first task'}" title="${folded?`Show all ${all.length}`:'Collapse'}">${CHEV}</button>`:'';
   return `<div class="card list" id="taskrows"><div class="list-head"><b>Tasks</b><span class="head-end"><span class="muted">${open} open</span>${toggle}</span></div>${xs.length?xs.map(it=>`<div class="row ${isDone(it)?'done':''}"><button class="check" type="button" data-act="done" data-id="${esc(it.uid)}" aria-pressed="${isDone(it)}" aria-label="Mark done: ${esc(it.what)}">${WHITE_TICK}</button><div><div class="t">${esc(it.what)}</div><div class="m">${taskMeta(it)}</div></div>${isDone(it)?'':`<button class="quiet" type="button" data-act="skip" data-id="${esc(it.uid)}">Skip</button>`}</div>`).join(''):'<p class="empty">No open tasks. The plan shows nothing to study right now.</p>'}
-    <form class="add" id="add"><input name="title" required maxlength="120" placeholder="Add a personal task" aria-label="Personal task"><button class="quiet" type="submit">Add</button></form></div>`;
+    <form class="add" id="add"><input name="title" required maxlength="120" placeholder="Add a task" aria-label="Personal task" value="${esc(taskDraft)}">${courseSelect()}<button class="quiet" type="submit">Add</button></form></div>`;
 }
 
 // ---- Today: the two plan numbers (4.7, 4.8)
@@ -560,7 +575,7 @@ document.addEventListener('click',e=>{
   if(act==='goal-cancel'){goalEdit={...GOAL_CLOSED};draw();return}
   if(act==='fold-tasks'){store.tasksFolded=!store.tasksFolded;saveStore();draw();$('[data-act="fold-tasks"]')?.focus();return}
   if(act==='menu')return menu(id,openMenu()!==id);
-  if(act==='pick'){const which=b.dataset.menu;store[which]=id;saveStore();note=null;draw();$('#'+which+'Btn')?.focus();return}
+  if(act==='pick'){const which=b.dataset.menu;store[which]=id;saveStore();if(which!=='taskCourse')note=null;draw();$('#'+which+'Btn')?.focus();return}
   if(act==='start')return start();
   if(act==='stop')return stop();
   if(act==='continue')return stop('continue');
@@ -580,9 +595,9 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='Escape'){menu(null,false);$('#'+name+'Btn')?.focus()}
 });
 document.addEventListener('toggle',e=>{const id=e.target.dataset?.fold;if(id)e.target.open?openFolds.add(id):openFolds.delete(id)},true);
-document.addEventListener('input',e=>{if(e.target.closest('#goal'))goalEdit.draft=e.target.value}); // a redraw keeps what he typed
+document.addEventListener('input',e=>{if(e.target.closest('#goal'))goalEdit.draft=e.target.value;if(e.target.closest('#add'))taskDraft=e.target.value}); // a redraw keeps what he typed
 document.addEventListener('submit',e=>{if(e.target.id==='goal'){e.preventDefault();if(!goalEdit.busy)saveGoal(Number(new FormData(e.target).get('hours')));return}
-  if(e.target.id!=='add')return;e.preventDefault();const title=String(new FormData(e.target).get('title')||'').trim();if(!title)return;store.custom.unshift({id:Math.random().toString(36).slice(2),title,course:null,mins:null,done:false});saveStore();draw();$('#add input')?.focus()});
+  if(e.target.id!=='add')return;e.preventDefault();const title=String(new FormData(e.target).get('title')||'').trim(),course=taskCourse()?.code||null;if(!title)return;taskDraft='';store.custom.unshift({id:Math.random().toString(36).slice(2),title,course,mins:null,done:false});saveStore();draw();$('#add input')?.focus()});
 addEventListener('hashchange',()=>{draw();scrollTo({top:0})});
 addEventListener('resize',nav);
 
