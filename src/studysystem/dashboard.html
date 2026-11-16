@@ -207,6 +207,10 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
 .chip{padding:6px 14px;border-radius:999px;background:var(--fill);color:var(--text-2);font-size:.875rem;font-weight:500;transition:transform .1s ease-out}
 .chip:active{transform:scale(.96)}
 .chip[aria-current="true"]{background:var(--text);color:var(--bg)}
+/* D-302: a 2x2 grid; each lane spans two rows of it (heading, card), so the headings line up and
+   the two cards in a row stretch to one height */
+.lanes{display:grid;grid-template-columns:1fr 1fr;column-gap:20px}
+.lanes>.lane{display:grid;grid-row:span 2;grid-template-rows:subgrid;min-width:0}
 .lane h2{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
 .lane h2 small{font-size:1rem;font-weight:500;color:var(--text-2);letter-spacing:0}
 .lane .list-head{padding-bottom:6px}
@@ -230,7 +234,7 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
 .nowline::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--accent)}
 
 @media (max-width:860px){
-  .hero,.cols,.pair{grid-template-columns:1fr}
+  .hero,.cols,.pair,.lanes{grid-template-columns:1fr}
   .watch{min-height:300px}
 }
 @media (max-width:560px){
@@ -447,9 +451,10 @@ function classes(){
     return `<div class="row ${m.end&&m.end<=now?'past':''}"><time>${esc(m.start)}<small>${esc(m.end)}</small></time><div><div class="t">${esc(m.code||c?.code||'Class')}${c?' · '+esc(c.name):''}</div><div class="m">${esc(kind)} · ${m.room?esc(m.room):'room unknown'}</div></div>${m.start<=now&&now<m.end?'<span class="tag now">Now</span>':''}</div>`}).join(''):'<p class="empty">No classes today.</p>'}</div>`;
 }
 const LANE_NAME={review:'Review',study:'Study',setup:'Setup',custom:'Personal'};
+// his own tasks, as Today shows them: open ones and ones ticked today (Plan reads them too, D-302)
+const personal=()=>store.custom.filter(x=>!x.done||x.doneDay===TODAY).map(x=>({uid:'custom:'+x.id,custom:x,lane:'custom',what:x.title,course:courses.find(c=>c.code===x.course)||null,chapter:null,mins:x.mins??null}));
 function todayTasks(){
-  const custom=store.custom.filter(x=>!x.done||x.doneDay===TODAY).map(x=>({uid:'custom:'+x.id,custom:x,lane:'custom',what:x.title,course:courses.find(c=>c.code===x.course)||null,chapter:null,mins:x.mins??null}));
-  return custom.concat(plan.filter(x=>x.lane!=='setup'&&status(x)!=='skipped'));
+  return personal().concat(plan.filter(x=>x.lane!=='setup'&&status(x)!=='skipped'));
 }
 const isDone=it=>it.custom?!!it.custom.done:status(it)==='done';
 const taskMeta=it=>[LANE_NAME[it.lane],it.course?.code,it.chapter,it.custom?(it.mins?it.mins+' min':null):(it.mins==null?'time unknown':it.mins+' min')].filter(Boolean).map(esc).join(' · ');
@@ -512,15 +517,25 @@ function todayPage(){
 // ---- Plan: study, then review, then setup (D-285), each in the server's rank order
 const LANES={study:['Study','Topics to learn, ranked by exam stakes and effort.'],review:['Review','Revision of topics you already studied.'],setup:['Setup','Get material in: past papers and chapters the plan still needs.']};
 function planPage(){
-  const created=raw.plan?.current?.created_at,cf=param('course')||'all',withItems=courses.filter(c=>plan.some(x=>x.course===c));
+  const own=personal(),created=raw.plan?.current?.created_at,cf=param('course')||'all',withItems=courses.filter(c=>plan.some(x=>x.course===c)||own.some(x=>x.course===c));
   const chip=(id,label)=>`<a class="chip" href="#/plan${id==='all'?'':'?course='+encodeURIComponent(id)}" aria-current="${cf===id}">${esc(label)}</a>`;
   return `<div class="eyebrow">All ranked work · ${created?'refreshed '+fmt(created.slice(0,10)):'no plan stored yet'}</div><h1>Plan</h1>
-    <p class="sub">Study first, then review, then setup. The server ranks; this page only shows.</p>
+    <p class="sub">Study first, then review, then setup. The server ranks; this page only shows. Your own tasks sit beside Study, unranked.</p>
     ${withItems.length>1?`<div class="chips">${chip('all','All courses')}${withItems.map(c=>chip(c.course_id,c.code)).join('')}</div>`:''}
-    ${Object.entries(LANES).map(([k,[name,desc]])=>{
-      const xs=plan.filter(x=>x.lane===k&&(cf==='all'||x.course?.course_id===cf)),hidden=raw.plan?.current?.lanes?.[k]?.hidden||0;
+    <div class="lanes">${rankedLane('study',cf)}${personalLane(own,cf)}${rankedLane('review',cf)}${rankedLane('setup',cf)}</div>`;
+}
+// D-302: Study and Personal side by side, Review and Setup under them; each row's cards share one height
+function rankedLane(k,cf){
+      const [name,desc]=LANES[k],xs=plan.filter(x=>x.lane===k&&(cf==='all'||x.course?.course_id===cf)),hidden=raw.plan?.current?.lanes?.[k]?.hidden||0;
       return `<section class="lane"><h2>${name}<small>${desc}</small></h2><div class="card list"><div class="list-head"><span class="muted">${xs.length} shown${hidden?` · ${hidden} more not shown by the server`:''}</span></div>${xs.length?xs.map(it=>{const st=status(it);
-        return `<div class="row"><span class="rank">${it.rank??'–'}</span><div><div class="t">${esc(it.what)}</div><div class="m">${[it.course?it.course.code+' · '+it.course.name:null,it.chapter].filter(Boolean).map(esc).join(' · ')}</div>${it.why&&it.why!==it.what?`<details class="why"><summary>Why ranked</summary><p>${esc(it.why)}</p></details>`:''}</div>${st!=='upcoming'?`<span class="tag">${esc(st)}</span>`:k==='setup'?'':`<span class="tag">${it.mins==null?'time unknown':it.mins+' min'}</span>`}</div>`}).join(''):'<p class="empty">Nothing in this lane right now.</p>'}</div></section>`}).join('')}`;
+        return `<div class="row"><span class="rank">${it.rank??'–'}</span><div><div class="t">${esc(it.what)}</div><div class="m">${[it.course?it.course.code+' · '+it.course.name:null,it.chapter].filter(Boolean).map(esc).join(' · ')}</div>${it.why&&it.why!==it.what?`<details class="why"><summary>Why ranked</summary><p>${esc(it.why)}</p></details>`:''}</div>${st!=='upcoming'?`<span class="tag">${esc(st)}</span>`:k==='setup'?'':`<span class="tag">${it.mins==null?'time unknown':it.mins+' min'}</span>`}</div>`}).join(''):'<p class="empty">Nothing in this lane right now.</p>'}</div></section>`;
+}
+// D-302: his own tasks, filtered by the same chip, with no rank; ticking stays on Today
+function personalLane(own,cf){
+  const xs=own.filter(x=>cf==='all'||x.course?.course_id===cf);
+  return `<section class="lane"><h2>Personal<small>Tasks you added on Today. Not ranked.</small></h2><div class="card list"><div class="list-head"><span class="muted">${xs.length} shown</span></div>${xs.length?xs.map(it=>
+    `<div class="row ${isDone(it)?'done':''}"><span class="rank">•</span><div><div class="t">${esc(it.what)}</div><div class="m">${it.course?esc(it.course.code+' · '+it.course.name):'No course'}</div></div>${isDone(it)?'<span class="tag">done</span>':''}</div>`).join('')
+    :`<p class="empty">${cf==='all'?'No personal tasks. Add one on Today.':'No personal tasks for this course.'}</p>`}</div></section>`;
 }
 
 // ---- Schedule: the week's classes
