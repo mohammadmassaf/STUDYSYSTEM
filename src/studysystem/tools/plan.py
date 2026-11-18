@@ -28,7 +28,12 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "every item returned, since the plan records them as shown. The study lane also "
             "returns entries: show it as those, one per chapter with its topics, or one per topic "
             "with no chapter, marked not taught yet. Log a chapter's minutes with its "
-            "material_id, and a topic's with its topic_id. Every call saves a new plan."
+            "material_id, and a topic's with its topic_id. Every call saves a new plan. The "
+            "reply also holds shortfall: the hours his targets still need against his declared "
+            "capacity up to the last exam, each course with how far behind it is, and offers - "
+            "catch-up for the course furthest behind, and when short the three levers (lower a "
+            "target, add capacity, concede a course), each naming its tool. Tell him about an "
+            "offer and act on it only when he chooses it."
         ),
     )
     def study_get_plan(shown_n: str | float = plan.SHOWN_N) -> CallToolResult:

@@ -55,6 +55,7 @@ from studysystem.services.profiles import (
     pin_weights,
     pins_of,
 )
+from studysystem.services.shortfall import shortfall
 from studysystem.services.study_loop import retrievability
 from studysystem.services.topics import best_scores
 from studysystem.services.units import write_unit
@@ -1035,6 +1036,7 @@ def get_plan(
     Returns {"plan_id", "lanes": {"review" | "study" | "setup": {"items": [the shown items, in
     full], "hidden": count}}} - only what is returned is marked shown (D-92). The study lane also
     holds "entries": its shown items grouped by chapter, what the student picks from (D-238).
+    "shortfall" is the shortfall alert (`services.shortfall.shortfall`, 4.9): read, not stored.
 
     Refuses `shown_n` below 1, or not whole, before anything is read; "5" counts as 5 (the tool
     types it loosely, so the refusal is this structured one, D-36). Weakness is 1.0 for a topic
@@ -1228,6 +1230,10 @@ def get_plan(
             skip=unplanned,
         )
 
+        # The shortfall alert (D-15, 4.9), read from the same moment and sent with the plan so
+        # the host sees the offers. Read only: nothing about it is stored (no offer table).
+        alert = shortfall(conn, user_id, today)
+
     # Report: after the commit, so only a saved plan is logged.
     filtered = setup["filtered"] + no_exam_left + untaught
     log.info(
@@ -1239,6 +1245,13 @@ def get_plan(
                 "filtered": filtered,
                 "untaught": untaught,  # of `filtered`: topics not taught yet, exams in term
                 "lanes": {lane: len(items) for lane, items in lanes.items()},
+                # why an offer was made (D-15): the totals and the ladder's kinds
+                "shortfall": {
+                    "need": alert["need"],
+                    "capacity": alert["capacity"],
+                    "gap": alert["gap"],
+                    "offers": [offer["kind"] for offer in alert["offers"]],
+                },
                 "ms": round((time.perf_counter() - started) * 1000),
             }
         )
@@ -1254,6 +1267,7 @@ def get_plan(
         },
     }
     answer["lanes"]["study"]["entries"] = entries_of(i for i in lanes["study"] if i["shown"])
+    answer["shortfall"] = alert
     return answer
 
 

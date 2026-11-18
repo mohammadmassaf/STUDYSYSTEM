@@ -117,6 +117,8 @@ def untouched(row) -> bool:
         and (row["instructor"], row["instructor_tier"]) == (None, "unknown")
         and row["target_grade"] is None
         and row["vault_folder"] is None
+        and (row["hours_per_credit"], row["hours_per_credit_tier"]) == (None, "unknown")
+        and row["elective"] == 0
     )
 
 
@@ -152,6 +154,31 @@ def test_target_grade_is_stored_and_has_no_tier(service_engine, user_id, web):
 
     assert result == {"course_id": web["course_id"], "field": "target_grade", "value": 85}
     assert course_row(service_engine, web["course_id"])["target_grade"] == 85
+
+
+def test_hours_per_credit_is_stored_declared(service_engine, user_id, web):
+    """D-294: a course's own H, over the default the shortfall detector reads while unknown."""
+    result = set_course_input(service_engine, user_id, "I3302-E", "hours_per_credit", "2.7")
+
+    assert result == {
+        "course_id": web["course_id"],
+        "field": "hours_per_credit",
+        "value": 2.7,
+        "tier": "declared",
+    }
+    c = course_row(service_engine, web["course_id"])
+    assert (c["hours_per_credit"], c["hours_per_credit_tier"]) == (2.7, "declared")
+
+
+def test_elective_is_a_flag_with_no_tier_that_can_be_undone(service_engine, user_id, web):
+    """D-300: an elective is listed first by the shortfall alert; false undoes a wrong true."""
+    result = set_course_input(service_engine, user_id, "I3302-E", "elective", "true")
+
+    assert result == {"course_id": web["course_id"], "field": "elective", "value": True}
+    assert course_row(service_engine, web["course_id"])["elective"] == 1
+
+    set_course_input(service_engine, user_id, "I3302-E", "elective", False)
+    assert course_row(service_engine, web["course_id"])["elective"] == 0
 
 
 FOLDER = "uni/Semester 1 2026-2027/Server-Side Web Development"
@@ -199,6 +226,11 @@ def test_a_second_set_overwrites_the_first(service_engine, user_id, web):
         ("vault_folder", "uni//Semester"),
         ("vault_folder", "   "),
         ("vault_folder", None),
+        ("hours_per_credit", 0),
+        ("hours_per_credit", -1),
+        ("hours_per_credit", None),
+        ("elective", "maybe"),
+        ("elective", None),
     ],
 )
 def test_a_bad_value_is_invalid_and_changes_nothing(service_engine, user_id, web, field, value):
@@ -216,7 +248,8 @@ def test_a_bad_value_is_invalid_and_changes_nothing(service_engine, user_id, web
         ("weight", "study_set_assessment_input"),
         ("date", "study_set_assessment_input"),
         ("exam_date", "set date with study_set_assessment_input"),
-        ("strategy", "planner's offer (not built yet)"),
+        ("strategy", "study_respond_to_offer"),  # built in 4.9 (D-296)
+        ("conceded", "study_respond_to_offer"),
     ],
 )
 def test_a_field_with_another_home_is_unknown_field_naming_that_home(
@@ -228,7 +261,6 @@ def test_a_field_with_another_home_is_unknown_field_naming_that_home(
     assert excinfo.value.code == "unknown_field"
     assert excinfo.value.field_errors[0]["field"] == "field"
     assert home in excinfo.value.fix
-    assert "study_respond_to_offer" not in excinfo.value.fix  # a 4.9 tool, not built yet
     assert untouched(course_row(service_engine, web["course_id"]))
 
 

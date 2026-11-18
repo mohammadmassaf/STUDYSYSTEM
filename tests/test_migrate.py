@@ -31,7 +31,7 @@ from studysystem.db.tables import (
 )
 from tests._study import run_study
 
-HEAD = "0024"
+HEAD = "0025"
 
 
 def stamp() -> str | None:
@@ -1232,3 +1232,57 @@ def test_0024_adds_a_nullable_guess_changed_and_a_downgrade_drops_it(empty_engin
     command.downgrade(migrate.alembic_config(empty_engine), "0023")
 
     assert "guess_changed" not in {c["name"] for c in inspect(empty_engine).get_columns("plan")}
+
+
+# --- 0025: a course's own hours per credit, and the elective flag (D-294, D-300) --------------
+
+
+def test_0025_adds_hours_per_credit_and_elective_and_keeps_the_course_code_index(empty_engine):
+    migrate.upgrade(empty_engine)
+
+    columns = {c["name"]: c for c in inspect(empty_engine).get_columns("course")}
+    assert columns["hours_per_credit"]["nullable"] is True
+    assert columns["hours_per_credit_tier"]["nullable"] is False
+    assert columns["elective"]["nullable"] is False
+    assert "ux_course_code" in reflected_indexes(empty_engine)
+    with empty_engine.connect() as conn:
+        checks = {c["name"] for c in inspect(conn).get_check_constraints("course")}
+    assert {
+        "ck_course_hours_per_credit_range",
+        "ck_course_hours_per_credit_tier_enum",
+        "ck_course_hours_per_credit_tier_rule",
+        "ck_course_elective_bool",
+    } <= checks
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0024")
+
+    names = {c["name"] for c in inspect(empty_engine).get_columns("course")}
+    assert not {"hours_per_credit", "hours_per_credit_tier", "elective"} & names
+    assert "ux_course_code" in reflected_indexes(empty_engine)
+
+
+def test_0025_starts_every_course_unknown_and_not_elective(empty_engine):
+    """A course stored before 0025 comes through with H unknown (the default reads, D-294) and
+    elective 0 - no backfill."""
+    command.upgrade(migrate.alembic_config(empty_engine), "0024")
+    with empty_engine.begin() as conn:
+        conn.execute(insert(user).values(id="u" * 26, created_at="2026-11-15T00:00:00Z"))
+        conn.execute(
+            insert(course).values(
+                id="c" * 26,
+                user_id="u" * 26,
+                code="DHR300",
+                name="Human rights",
+                instructor_tier="unknown",
+                credits_tier="unknown",
+                semester_name="S5",
+                created_at="2026-11-15T00:00:00Z",
+            )
+        )
+    command.upgrade(migrate.alembic_config(empty_engine), "0025")
+
+    with empty_engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT hours_per_credit, hours_per_credit_tier, elective FROM course")
+        ).one()
+    assert tuple(row) == (None, "unknown", 0)

@@ -28,19 +28,23 @@ COURSE_FIELDS = {
     "no_past_papers": lambda v: values.flag("no_past_papers", v),
     # his group in this course's labs (e.g. G1): the week shows only its meetings (D-227)
     "lab_group": lambda v: values.text("lab_group", v),
+    # the shortfall's hours per credit for this course, over the default H (D-294)
+    "hours_per_credit": lambda v: values.number("hours_per_credit", v, gt=0),
+    # true: an elective, listed last when the shortfall alert names courses (D-300)
+    "elective": lambda v: values.flag("elective", v),
 }
 
-# Inputs that can only ever be declared - no tier column: NULL (or no_past_papers' default 0)
-# already says "not declared".
-NO_TIER = ("target_grade", "vault_folder", "no_past_papers", "lab_group")
+# Inputs that can only ever be declared - no tier column: NULL (or a flag's default 0) already
+# says "not declared".
+NO_TIER = ("target_grade", "vault_folder", "no_past_papers", "lab_group", "elective")
 
 # Fields that sound like course inputs but have another home - the unknown_field fix names it.
-# strategy's tool, study_respond_to_offer, arrives with 4.9; until then the fix names no tool.
 OTHER_HOMES = {
     "weight": "set weight with study_set_assessment_input",
     "date": "set date with study_set_assessment_input",
     "exam_date": "set date with study_set_assessment_input",
-    "strategy": "strategy is set by the planner's offer (not built yet), not by a course input",
+    "strategy": "answer the plan's offer with study_respond_to_offer (choice catch-up or default)",
+    "conceded": "answer the plan's offer with study_respond_to_offer (concede or unconcede)",
 }
 
 

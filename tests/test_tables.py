@@ -287,6 +287,12 @@ RULE_CASES: list[tuple[str, str, dict]] = [
     ("ck_course_instructor_tier_rule", "course", dict(instructor_tier="unknown")),
     ("ck_course_credits_tier_rule", "course", dict(credits=None, credits_tier="declared")),
     ("ck_course_credits_range", "course", dict(credits=0)),
+    ("ck_course_hours_per_credit_tier_rule", "course", dict(hours_per_credit_tier="declared")),
+    (
+        "ck_course_hours_per_credit_range",
+        "course",
+        dict(hours_per_credit=0, hours_per_credit_tier="declared"),
+    ),
     ("ck_course_source_course_v1", "course", dict(source_course_id=C)),
     ("ck_course_semester_order", "course", dict(semester_end="2026-08-01")),
     # assessment
