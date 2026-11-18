@@ -76,14 +76,18 @@ def course_reading(entries: list[dict], unreached: set[str], unexamined: int) ->
     }
 
 
-def write_readings(conn: Connection, user_id: str, topics: dict, skip: set[str]) -> None:
+def write_readings(
+    conn: Connection, user_id: str, topics: dict, skip: set[str], stamp: str | None = None
+) -> None:
     """Insert one `coverage_reading` per course with a reading, inside the plan run's write unit
     (D-268). Insert-only: an older reading is never changed (D-12).
 
     `topics`: `plan._topic_exams` over every row before the taught filter - coverage counts a
     topic not taught yet too. `skip`: course ids the plan leaves out (dropped, never planned,
-    D-216, D-217) - `_study_rows` still returns their topics.
+    D-216, D-217) - `_study_rows` still returns their topics. `stamp`: the `computed_at` to
+    write, None = now (D-308: only `get_plan`'s demo-seed clock passes it).
     """
+    stamp = stamp or now()
     unreached = {row.id for row in conn.execute(unreached_topics(user_id))}
     unexamined = {
         row.course_id: row.n
@@ -110,7 +114,7 @@ def write_readings(conn: Connection, user_id: str, topics: dict, skip: set[str])
                 "user_id": user_id,
                 "course_id": course_id,
                 **reading,
-                "computed_at": now(),
+                "computed_at": stamp,
             }
         )
     if rows:

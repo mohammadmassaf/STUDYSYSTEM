@@ -46,7 +46,8 @@ from studysystem.db.tables import (
     topic_state,
     topic_weight,
 )
-from studysystem.services.ids import new_id, now
+from studysystem.services.ids import new_id
+from studysystem.services.ids import now as real_now
 from studysystem.services.profiles import (
     MIN_PAPERS,
     counting_statements,
@@ -1024,8 +1025,12 @@ def get_plan(
     today: datetime.date,
     shown_n: object = SHOWN_N,
     tz: datetime.tzinfo | None = None,
+    now: str | None = None,
 ) -> dict:
     """Rank every course's work into three lanes and record it, as one write unit (D-12).
+
+    `now` is the clock the plan and its coverage readings are stamped with, a UTC timestamp
+    string as `ids.now()` returns; None = the real clock. D-308: only the demo seed passes it.
 
     Writes one `plan` (scope `all-courses`, `shown_n`, `strategy_snapshot` with one key per
     course) and one `plan_item` per item in every lane, ranks 1..n per lane, ties broken by
@@ -1057,6 +1062,7 @@ def get_plan(
             "send how many items of each lane to show, e.g. 5",
         )
     shown_n = int(nb)
+    stamp = now or real_now()
 
     with write_unit(engine) as conn:
         # Gather: every read sits inside the unit, so the plan comes from one moment.
@@ -1183,7 +1189,7 @@ def get_plan(
                 shown_n=shown_n,
                 strategy_snapshot=json.dumps(snapshot),
                 guess_changed=guess_changed,
-                created_at=now(),
+                created_at=stamp,
             )
         )
         rows = [
@@ -1228,6 +1234,7 @@ def get_plan(
                 stated=stated,
             ),
             skip=unplanned,
+            stamp=stamp,
         )
 
         # The shortfall alert (D-15, 4.9), read from the same moment and sent with the plan so

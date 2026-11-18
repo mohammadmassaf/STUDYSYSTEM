@@ -60,6 +60,7 @@ HOURS_FIELDS = (
     "voids",
     "semester_name",
     "deviation_reason",
+    "started_at",
 )
 START_FIELDS = ("code", "mode", "subject_type", "subject_id", "semester_name")
 STOP_FIELDS = ("code", "session_id", "minutes", "setup_key", "semester_name", "deviation_reason")

@@ -431,3 +431,38 @@ def test_a_late_reason_keeps_the_voided_entrys_start(service_engine, user_id, ne
             select(hours_entry.c.occurred_at).where(hours_entry.c.id == new)
         ).scalar_one()
     assert start == "2026-11-11T18:02:54Z"
+
+
+# --- started_at moves the start across the plan's moment (D-307) --------------------------------
+
+
+def _local_text(utc: datetime.datetime) -> str:
+    """A UTC moment as `started_at` text on this machine's clock (the zone log_hours reads)."""
+    return utc.astimezone().strftime("%Y-%m-%dT%H:%M")
+
+
+def test_in_plan_reads_the_started_at_start(service_engine, user_id, nets, layers, plan_mon):
+    # plan_mon is made at 2026-11-02T08:00:00Z. An hour started before it saw no plan; one
+    # started after it did.
+    _study_item(service_engine, user_id, plan_mon, nets, layers, 1, True)
+    plan_at = datetime.datetime(2026, 11, 2, 8, 0, tzinfo=datetime.UTC)
+
+    before = log_hours(
+        service_engine,
+        user_id,
+        "I3304",
+        30,
+        topic_id=layers,
+        started_at=_local_text(plan_at - datetime.timedelta(hours=1)),
+    )
+    after = log_hours(
+        service_engine,
+        user_id,
+        "I3304",
+        30,
+        topic_id=layers,
+        started_at=_local_text(plan_at + datetime.timedelta(hours=1)),
+    )
+
+    assert before["in_plan"] is False
+    assert after["in_plan"] is True

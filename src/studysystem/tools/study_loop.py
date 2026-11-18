@@ -87,7 +87,11 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "student studied something other than what the plan showed, pass deviation_reason "
             "if they give one: external-deadline (a quiz or deadline the plan did not know), "
             "disagreed, too-tired, topic-wrong, backlog (went by the chapters left to study), "
-            "or unexplained. It is optional - never press for it."
+            "or unexplained. It is optional - never press for it. started_at (optional, with "
+            "minutes, never with session_id or voids) says when the work began, on the "
+            "student's local clock: 'YYYY-MM-DDTHH:MM', or a date 'YYYY-MM-DD' meaning the "
+            "work ended by that day's end. Never in the future. Without it, the work began "
+            "'minutes' ago."
         ),
     )
     def study_log_hours(
@@ -100,6 +104,7 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         semester_name: str | None = None,
         material_id: str | None = None,
         deviation_reason: str | None = None,
+        started_at: str | None = None,
     ) -> CallToolResult:
         return run(
             lambda: study_loop.log_hours(
@@ -114,5 +119,6 @@ def register(mcp: MCPServer, engine: Engine) -> None:
                 semester_name,
                 material_id,
                 deviation_reason,
+                started_at,
             )
         )
