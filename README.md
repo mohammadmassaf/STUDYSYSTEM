@@ -8,6 +8,19 @@ server stores, validates and schedules. Generation is a two-tool contract: the h
 `study_start_generation` for a task, does it, and hands the result to `study_submit_generation`,
 which keeps what passes the schema.
 
+## Try it
+
+See a working dashboard with no setup and none of your own data:
+
+1. Clone the repo and install [uv](https://docs.astral.sh/uv/).
+2. From the repo, run `uv run study demo`.
+3. Open http://127.0.0.1:8766.
+
+The data is invented, shaped like a real semester: nine courses, past papers, topics, a ranked
+plan and a month of logged hours, all dated relative to the day you run it. The command builds
+its own database in a folder of its own (`studysystem-demo` beside the real data folder) and
+rebuilds it on every run. It never opens, reads or changes your own database.
+
 ## Tools
 
 All tools start with `study_`. A failure comes back as `{code, message, field_errors[], fix}`.

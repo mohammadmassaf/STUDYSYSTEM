@@ -125,6 +125,31 @@ def dashboard(port: int) -> None:
     main(port)
 
 
+@study.command()
+@click.option("--port", default=8766, show_default=True, help="The port on 127.0.0.1.")
+def demo(port: int) -> None:
+    """Build a demo database of invented data in its own folder, then serve the dashboard on it.
+    It never opens your own database (D-305)."""
+    # Imported here, as `dashboard` does: the seed pulls in every service.
+    from studysystem import demo as seeded
+    from studysystem.dashboard import main
+
+    folder = seeded.demo_dir()
+    click.echo(f"building the demo database in {folder} ...")
+    try:
+        _, summary, path = seeded.build(folder)
+    except StudyError as e:
+        raise _line(e) from None
+    click.echo(f"database: {path}")
+    click.echo(
+        f"{summary['courses']} courses, {summary['papers']} past papers, "
+        f"{summary['materials']} chapters and slides, {summary['meetings']} class meetings, "
+        f"{summary['hours']} hours entries ({summary['minutes']} min), {summary['plans']} plans"
+    )
+    click.echo(f"dashboard: http://127.0.0.1:{port}  (invented data; Ctrl+C to stop)")
+    main(port)
+
+
 # `python -m studysystem.cli dashboard`: how study_dashboard starts it (D-289).
 if __name__ == "__main__":
     study()
