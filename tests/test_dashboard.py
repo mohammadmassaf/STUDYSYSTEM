@@ -344,3 +344,40 @@ def test_study_dashboard_refuses_an_empty_database_as_serve_does():
     assert f"database has no schema yet, head is {head_revision()}" in proc.stderr
     assert "run: study migrate" in proc.stderr
     assert not db_path().exists()
+
+
+# --- started_at on POST /hours (D-307) --------------------------------------------------------
+
+
+def test_post_hours_takes_started_at(client, service_engine, web):
+    response = client.post(
+        "/hours", json={"code": "I3302", "minutes": 60, "started_at": "2026-11-01T20:00"}
+    )
+
+    assert response.status_code == 200
+    expected = datetime.datetime(2026, 11, 1, 20, 0).astimezone(datetime.UTC)  # noqa: DTZ001
+    with service_engine.connect() as conn:
+        row = conn.execute(select(hours_entry)).one()
+    assert row.occurred_at == expected.strftime(study_loop.TIMESTAMP)
+
+
+def test_post_hours_refuses_a_bad_started_at_with_the_tools_error(
+    client, call, service_engine, web
+):
+    response = client.post(
+        "/hours", json={"code": "I3302", "minutes": 60, "started_at": "yesterday"}
+    )
+    tool = call("study_log_hours", {"code": "I3302", "minutes": 60, "started_at": "yesterday"})
+
+    assert response.status_code == 400
+    assert response.json() == tool.structured_content
+    assert response.json()["field_errors"][0]["field"] == "started_at"
+    assert entries(service_engine) == 0
+
+
+def test_post_hours_refuses_a_non_text_started_at(client, service_engine, web):
+    response = client.post("/hours", json={"code": "I3302", "minutes": 60, "started_at": 20261117})
+
+    assert response.status_code == 400
+    assert response.json()["field_errors"][0]["field"] == "started_at"
+    assert entries(service_engine) == 0

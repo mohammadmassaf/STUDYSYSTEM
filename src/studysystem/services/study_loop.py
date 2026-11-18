@@ -10,6 +10,7 @@ import datetime
 import json
 import logging
 import math
+import re
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -311,6 +312,48 @@ def _check_setup_key(conn: Connection, user_id: str, course_id: str, code: str, 
         )
 
 
+_LOCAL_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_LOCAL_MOMENT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?")
+
+
+def _local_start(started_at: str, minutes: int, stamp: str) -> str:
+    """`started_at` (the student's local clock, this machine's zone) as the UTC start
+    timestamp `occurred_at` stores (D-307). A date-time is the start itself; a date alone means
+    the work ended at that day's end, so the start is the next local midnight minus `minutes` -
+    or now minus `minutes` when that day is today.
+    Refuses a string of neither form, and a start after `stamp` (now).
+
+    2026-11-17 with 60 minutes in Beirut (UTC+2) -> "2026-11-17T21:00:00Z" (23:00 local).
+    """
+    fix = "send YYYY-MM-DDTHH:MM (local time) or a date, YYYY-MM-DD"
+    if not isinstance(started_at, str) or not (
+        _LOCAL_DATE.fullmatch(started_at) or _LOCAL_MOMENT.fullmatch(started_at)
+    ):
+        raise values.invalid("started_at", f"{started_at!r} is not a date or date-time", fix)
+    try:
+        if "T" in started_at:
+            local = datetime.datetime.fromisoformat(started_at)
+        else:
+            day = datetime.date.fromisoformat(started_at) + datetime.timedelta(days=1)
+            local = datetime.datetime.combine(day, datetime.time())
+    except ValueError:
+        raise values.invalid("started_at", f"{started_at!r} is not a real date", fix) from None
+    start = local.astimezone().astimezone(datetime.UTC)  # naive = this machine's zone
+    current = datetime.datetime.fromisoformat(stamp)
+    if "T" not in started_at:
+        if start - datetime.timedelta(days=1) > current:  # the day itself has not begun
+            start = current + datetime.timedelta(days=1)  # refused just below
+        else:  # today's date has not ended yet: the work ended now, so today stays loggable
+            start = min(start, current) - datetime.timedelta(minutes=minutes)
+    if start > current:
+        raise values.invalid(
+            "started_at",
+            f"{started_at} starts in the future",
+            "send a start that has already passed",
+        )
+    return start.strftime(TIMESTAMP)
+
+
 def log_hours(
     engine: Engine,
     user_id: str,
@@ -323,6 +366,7 @@ def log_hours(
     semester_name: str | None = None,
     material_id: str | None = None,
     deviation_reason: str | None = None,
+    started_at: str | None = None,
 ) -> dict:
     """Assert the minutes studied on a course - minutes enter here or at the timer's stop (D-17,
     D-198). One write unit: the new `hours_entry`, the entry it `voids`, and the session it closes.
@@ -333,8 +377,11 @@ def log_hours(
     mistyped key would snooze nothing (D-22). A session it names must be this course's; a
     still-open one is ended now. A mistyped entry is never edited: send `voids` with its id - and
     the corrected minutes, or none to only void it. The work started at the session's start, else
-    at the voided entry's start when it replaces one (D-277), else `minutes` ago - entries logged
-    together share that start (D-275). `deviation_reason` says why
+    at the voided entry's start when it replaces one (D-277), else at `started_at` - a local
+    `YYYY-MM-DDTHH:MM` start, or a local `YYYY-MM-DD` meaning the work ended at that day's end
+    (D-307) - else `minutes` ago; entries logged together share that start (D-275).
+    `started_at` never comes with a session or `voids` (they fix the start), nor without
+    minutes, and may not be in the future. `deviation_reason` says why
     an off-plan hour was off the plan, one of DEVIATION_REASONS (D-276); a late reason is a void
     plus the entry again with it.
 
@@ -353,10 +400,26 @@ def log_hours(
             " or reason",
             "send the corrected minutes with them, or send voids alone",
         )
+    if started_at is not None:
+        if minutes is None:
+            raise values.invalid(
+                "started_at",
+                "voiding alone writes no entry, so it has no start",
+                "send the corrected minutes with started_at, or send voids alone",
+            )
+        if session_id is not None or voids is not None:
+            raise values.invalid(
+                "started_at",
+                "a session or a voided entry already fixes the start (D-277)",
+                "send started_at, or session_id, or voids - one of them",
+            )
     if deviation_reason is not None:
         deviation_reason = values.choice("deviation_reason", deviation_reason, DEVIATION_REASONS)
+    stamp = now()
     if minutes is not None:
         minutes = _minutes(minutes)
+        if started_at is not None:
+            started_at = _local_start(started_at, minutes, stamp)
     if len(scoped) > 1:
         raise values.invalid(
             scoped[-1],
@@ -364,7 +427,6 @@ def log_hours(
             "send material_id, topic_id or setup_key, or none for course-level hours",
         )
 
-    stamp = now()
     with write_unit(engine) as conn:
         course_id = find_course(conn, user_id, code, semester_name)
         voided = _void(conn, user_id, course_id, voids, stamp) if voids is not None else None
@@ -389,7 +451,7 @@ def log_hours(
         if setup_key is not None:
             _check_setup_key(conn, user_id, course_id, code, setup_key)
 
-        started = None
+        started = started_at  # already UTC text, or None (D-307)
         if session_id is not None:
             session = _named_session(conn, user_id, course_id, code, session_id)
             started = session.started_at

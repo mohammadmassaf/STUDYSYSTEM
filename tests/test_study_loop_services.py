@@ -949,3 +949,161 @@ def test_another_students_topic_cannot_be_attempted_without_an_item(
     _not_found(err, "attempts[0].topic_id")
     assert _count(service_engine, attempt) == 0
     assert _count(service_engine, study_session) == 0
+
+
+# --- log_hours: started_at (D-307) -----------------------------------------------------------
+
+NOW = "2026-11-18T12:00:00Z"  # the pinned clock: far from any local midnight offset trouble
+
+
+def _utc_of(local: datetime.datetime) -> datetime.datetime:
+    """A naive local wall-clock time on this machine as an aware UTC time (any zone)."""
+    return local.astimezone().astimezone(datetime.UTC)
+
+
+def _only_entry(engine):
+    with engine.connect() as conn:
+        return conn.execute(select(hours_entry)).one()
+
+
+def test_a_local_date_time_is_the_start_and_created_at_stays_now(
+    service_engine, user_id, web, monkeypatch
+):
+    clock = _clock(monkeypatch)
+    clock["now"] = NOW
+
+    log_hours(service_engine, user_id, "I3302", 60, started_at="2026-11-17T20:00")
+
+    row = _only_entry(service_engine)
+    expected = _utc_of(datetime.datetime(2026, 11, 17, 20, 0))  # noqa: DTZ001 - local wall clock
+    assert row.occurred_at == expected.strftime(study_loop.TIMESTAMP)
+    assert row.created_at == NOW
+
+
+def test_a_date_time_with_seconds_is_accepted(service_engine, user_id, web, monkeypatch):
+    clock = _clock(monkeypatch)
+    clock["now"] = NOW
+
+    log_hours(service_engine, user_id, "I3302", 60, started_at="2026-11-17T20:00:30")
+
+    expected = _utc_of(datetime.datetime(2026, 11, 17, 20, 0, 30))  # noqa: DTZ001
+    assert _only_entry(service_engine).occurred_at == expected.strftime(study_loop.TIMESTAMP)
+
+
+def test_a_date_alone_means_the_work_ended_at_that_days_end(
+    service_engine, user_id, web, monkeypatch
+):
+    clock = _clock(monkeypatch)
+    clock["now"] = NOW
+
+    log_hours(service_engine, user_id, "I3302", 60, started_at="2026-11-17")
+
+    row = _only_entry(service_engine)
+    midnight = _utc_of(datetime.datetime(2026, 11, 18, 0, 0))  # noqa: DTZ001
+    assert row.occurred_at == (midnight - datetime.timedelta(minutes=60)).strftime(
+        study_loop.TIMESTAMP
+    )
+    local = datetime.datetime.fromisoformat(row.occurred_at).astimezone()
+    assert (local.date(), local.hour, local.minute) == (datetime.date(2026, 11, 17), 23, 0)
+    assert row.created_at == NOW
+
+
+def test_todays_date_alone_ends_now_and_is_not_refused(service_engine, user_id, web, monkeypatch):
+    clock = _clock(monkeypatch)
+    clock["now"] = NOW
+    today = datetime.datetime.fromisoformat(NOW).astimezone().date().isoformat()
+
+    log_hours(service_engine, user_id, "I3302", 40, started_at=today)
+
+    assert _only_entry(service_engine).occurred_at == "2026-11-18T11:20:00Z"
+
+
+def test_without_started_at_the_start_is_minutes_ago(service_engine, user_id, web, monkeypatch):
+    clock = _clock(monkeypatch)
+    clock["now"] = NOW
+
+    log_hours(service_engine, user_id, "I3302", 40)
+
+    assert _only_entry(service_engine).occurred_at == "2026-11-18T11:20:00Z"
+
+
+@pytest.mark.parametrize("started_at", ["2026-11-19T09:00", "2026-11-20"])
+def test_a_start_in_the_future_is_refused(service_engine, user_id, web, monkeypatch, started_at):
+    clock = _clock(monkeypatch)
+    clock["now"] = NOW
+
+    with pytest.raises(StudyError) as err:
+        log_hours(service_engine, user_id, "I3302", 60, started_at=started_at)
+
+    assert err.value.code == "invalid_value"
+    assert err.value.field_errors[0]["field"] == "started_at"
+    assert _count(service_engine, hours_entry) == 0
+
+
+@pytest.mark.parametrize(
+    "started_at", ["17/11/2026", "2026-11-17 20:00:99", "yesterday", "2026-13-40"]
+)
+def test_a_malformed_started_at_is_refused(service_engine, user_id, web, monkeypatch, started_at):
+    clock = _clock(monkeypatch)
+    clock["now"] = NOW
+
+    with pytest.raises(StudyError) as err:
+        log_hours(service_engine, user_id, "I3302", 60, started_at=started_at)
+
+    assert err.value.code == "invalid_value"
+    assert err.value.field_errors[0]["field"] == "started_at"
+    assert _count(service_engine, hours_entry) == 0
+
+
+def test_started_at_with_a_session_is_refused_and_the_session_stays_open(
+    service_engine, user_id, web, monkeypatch
+):
+    session = start_session(service_engine, user_id, "I3302", "practice")["session_id"]
+
+    with pytest.raises(StudyError) as err:
+        log_hours(
+            service_engine,
+            user_id,
+            "I3302",
+            30,
+            session_id=session,
+            started_at="2026-11-17T20:00",
+        )
+
+    assert err.value.field_errors[0]["field"] == "started_at"
+    assert _count(service_engine, hours_entry) == 0
+    with service_engine.connect() as conn:
+        assert conn.execute(select(study_session.c.ended_at)).scalar_one() is None
+
+
+def test_started_at_with_voids_is_refused_and_the_entry_stays_live(
+    service_engine, user_id, web, monkeypatch
+):
+    entry = log_hours(service_engine, user_id, "I3302", 30)["hours_entry_id"]
+
+    with pytest.raises(StudyError) as err:
+        log_hours(service_engine, user_id, "I3302", 45, voids=entry, started_at="2026-11-17T20:00")
+
+    assert err.value.field_errors[0]["field"] == "started_at"
+    assert _count(service_engine, hours_entry) == 1
+    assert _only_entry(service_engine).voided_at is None
+
+
+def test_started_at_with_no_minutes_is_refused(service_engine, user_id, web):
+    entry = log_hours(service_engine, user_id, "I3302", 30)["hours_entry_id"]
+
+    with pytest.raises(StudyError) as err:
+        log_hours(service_engine, user_id, "I3302", voids=entry, started_at="2026-11-17T20:00")
+
+    assert err.value.field_errors[0]["field"] == "started_at"
+    assert _only_entry(service_engine).voided_at is None
+
+
+def test_the_tool_takes_started_at(call, service_engine, user_id, web):
+    result = call(
+        "study_log_hours", {"code": "I3302", "minutes": 60, "started_at": "2026-11-01T20:00"}
+    )
+
+    assert not result.is_error
+    expected = _utc_of(datetime.datetime(2026, 11, 1, 20, 0))  # noqa: DTZ001
+    assert _only_entry(service_engine).occurred_at == expected.strftime(study_loop.TIMESTAMP)

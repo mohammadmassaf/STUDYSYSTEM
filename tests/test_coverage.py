@@ -4,7 +4,7 @@
 import pytest
 from sqlalchemy import func, select, update
 
-from studysystem.db.tables import course, coverage_reading
+from studysystem.db.tables import course, coverage_reading, plan
 from studysystem.services import state
 from studysystem.services.coverage import course_reading
 from studysystem.services.ids import now
@@ -260,3 +260,29 @@ def test_11_reading_the_state_writes_no_reading(service_engine, user_id):
     state.get_state(service_engine, user_id, TODAY, "test")
 
     assert _readings(service_engine, course_id) == []
+
+
+def test_get_plan_stamps_the_plan_and_its_readings_with_the_clock_it_is_given(
+    service_engine, user_id
+):
+    # D-308: only the demo seed passes `now`; the default stays the real clock.
+    with write_unit(service_engine) as conn:
+        i3302 = _course(conn, user_id, "I3302")
+        slot, final = _exam(conn, user_id, i3302)
+        mysql = _topic(conn, user_id, i3302, "MySQL")
+        _edge(conn, user_id, mysql, final)
+        _profile(conn, user_id, slot, 1, {mysql: 100.0})
+    clock = "2026-11-02T08:00:00Z"
+
+    given = get_plan(service_engine, user_id, TODAY, now=clock)
+    before = now()
+    real = get_plan(service_engine, user_id, TODAY)
+    after = now()
+
+    with service_engine.connect() as conn:
+        stamps = dict(conn.execute(select(plan.c.id, plan.c.created_at)).all())
+    assert stamps[given["plan_id"]] == clock
+    assert before <= stamps[real["plan_id"]] <= after
+    first, second = _readings(service_engine, i3302)
+    assert first.computed_at == clock
+    assert before <= second.computed_at <= after
