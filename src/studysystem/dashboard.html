@@ -167,6 +167,17 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
 .add{position:relative}
 .add .pop{top:auto;right:24px;bottom:calc(100% + 8px);transform-origin:bottom right}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px}
+.hon .muted{margin:2px 0 12px}
+.hon .big{margin-top:4px}
+.hon-rows{list-style:none;padding:0;margin:8px 0 0}
+.hon-rows li{display:grid;grid-template-columns:auto auto 1fr;align-items:baseline;gap:4px 12px;padding:9px 0;border-top:1px solid var(--hair);font-size:.9375rem}
+.hon-rows li small{grid-column:1/-1;color:var(--text-3);font-size:.8125rem}
+.hon-rows em{font-style:normal;color:var(--text-2);text-align:right}
+.hon-rows b{font-weight:600;font-variant-numeric:tabular-nums}
+.hon-rows.plain li{display:flex;justify-content:space-between;gap:12px}
+.hon-rows.plain li small{display:inline;margin-left:6px}
+.hon .meta{font-size:.8125rem;color:var(--text-3);margin-top:8px}
+.hon-sub{margin-top:14px}
 
 /* Courses */
 /* D-291: each card takes its row's height; the foot sits at the bottom, so the folds line up */
@@ -474,19 +485,46 @@ function tasks(){
     <form class="add" id="add"><input name="title" required maxlength="120" placeholder="Add a task" aria-label="Personal task" value="${esc(taskDraft)}">${courseSelect()}<button class="quiet" type="submit">Add</button></form></div>`;
 }
 
-// ---- Today: the two plan numbers (4.7, 4.8)
-function planNumbers(){
-  const a=raw.metrics?.adherence,g=raw.metrics?.guess_sensitivity;let out='';
-  if(a){const off=Object.entries(a.deviations||{}).filter(([,m])=>m>0).map(([r,m])=>`${r} ${m} min`),why=[...off,a.missing_input?`missing input ${a.missing_input} min`:null].filter(Boolean).join(' · ');
-    out+=`<div class="card tile" title="${esc(why||'no off-plan minutes')}"><div class="label">Matched the plan this week</div><div class="big num">${a.adherence==null?'—':Math.round(a.adherence*100)+'%'}</div><div class="muted">${a.adherence==null?'no minutes to score':`${a.in_plan} of ${a.minutes-a.missing_input} minutes went to a shown plan item`}</div></div>`}
-  if(g)out+=`<div class="card tile" title="the latest plan ranked again with every inferred exam edge dropped (D-280)"><div class="label">Guess sensitivity</div><div class="big num">${g.changed==null?'—':g.changed+' of '+g.shown}</div><div class="muted">${g.changed==null?'not measurable yet':'top topics changed by dropping inferred exam edges'}</div></div>`;
-  return out?`<div class="pair">${out}</div>`:'';
+// ---- Today: the honesty panel - four numbers, never blended (D-12, D-304)
+const hrs=h=>(Math.round(h*10)/10)+' h';
+const honCard=(label,sub,body,title)=>`<div class="card hon"${title?` title="${esc(title)}"`:''}><div class="label">${label}</div><p class="muted">${sub}</p>${body}</div>`;
+function coverageCard(){
+  const rows=pickList().map(c=>{const r=c.coverage;
+    return r?`<li title="${esc(r.tier_note)}"><span class="code" style="--h:${hue(c)}"><i></i>${esc(c.code)}</span><b class="num">${(r.value*100).toFixed(0)}%</b><em>${esc(r.denominator_tier)}</em><small>${esc(r.tier_note)} · plan of ${fmt(r.computed_at.slice(0,10))}</small></li>`
+      :`<li><span class="code" style="--h:${hue(c)}"><i></i>${esc(c.code)}</span><b class="num">—</b><em>${esc(c.coverage_tier||'unknown')}</em><small>unknown - no reading yet</small></li>`}).join('');
+  return honCard('Coverage at exam','How much of each course the plan reaches by its exam, one figure per course.',rows?`<ul class="hon-rows">${rows}</ul>`:'<p class="muted">No courses yet.</p>');
 }
+function adherenceCard(){
+  const a=raw.metrics?.adherence;
+  if(!a)return honCard('Adherence this week','Share of this week’s logged minutes that went to a shown plan item.','<div class="big num">—</div><div class="muted">no reading yet</div>');
+  const off=Object.entries(a.deviations||{}).filter(([,m])=>m>0),mi=a.missing_input||0;
+  const list=off.map(([r,m])=>`<li><span>${esc(r)}</span><em>${m} min</em></li>`).concat(mi?[`<li><span>missing input</span><em>${mi} min</em></li>`]:[]).join('');
+  return honCard('Adherence this week','Share of this week’s logged minutes that went to a shown plan item.',
+    `<div class="big num">${a.adherence==null?'—':Math.round(a.adherence*100)+'%'}</div><div class="muted">${a.adherence==null?'no minutes to score':`${a.in_plan} of ${a.minutes-mi} minutes went to a shown plan item`}</div>
+    <p class="meta">${a.week_start?'Week of '+fmt(a.week_start):'This week'}</p>${list?`<ul class="hon-rows plain">${list}</ul>`:'<p class="meta">No off-plan minutes.</p>'}${mi?'<p class="meta">Missing input is a gap in what was logged, not a miss.</p>':''}`);
+}
+function sensitivityCard(){
+  const g=raw.metrics?.guess_sensitivity;
+  if(!g)return honCard('Guess sensitivity','How much the top of the plan leans on inferred exam edges.','<div class="big num">—</div><div class="muted">not measurable yet</div>');
+  return honCard('Guess sensitivity','How much the top of the plan leans on inferred exam edges.',`<div class="big num">${g.changed==null?'—':g.changed+' of '+g.shown}</div><div class="muted">${g.changed==null?'not measurable yet':'top topics changed by dropping inferred exam edges'}</div>`,'the latest plan ranked again with every inferred exam edge dropped (D-280)');
+}
+function shortfallCard(){
+  const f=raw.shortfall,sub='Study hours needed against hours declared free, up to the last exam.';
+  if(!f)return honCard('Shortfall',sub,'<div class="big num">—</div><div class="muted">unknown - no reading yet</div>');
+  const known=f.gap!=null&&f.capacity!=null;
+  const verdict=!known?'unknown - no exam ahead':f.short?`short by ${hrs(-f.gap)}`:`no shortfall, ${hrs(f.gap)} to spare`;
+  const nc=(f.not_counted||[]).map(n=>`${esc(n.code)} (${esc(n.reason)})`).join(' · ');
+  const offers=(f.offers||[]).map(o=>`<li><span>${esc(o.kind)}${o.code?' · '+esc(o.code):''}</span><em>${hrs(o.hours)}</em></li>`).join('');
+  return honCard('Shortfall',sub,
+    `<div class="big num">${verdict}</div>
+    <ul class="hon-rows plain"><li><span>Need <small>${esc(f.need_tier)}</small></span><em>${f.need==null?'unknown':hrs(f.need)}</em></li><li><span>Capacity <small>${esc(f.capacity_tier)}</small></span><em>${f.capacity==null?'unknown':hrs(f.capacity)}</em></li></ul>
+    ${nc?`<p class="meta">Not counted: ${nc}</p>`:''}${offers?`<p class="label hon-sub">Offers, in order</p><ul class="hon-rows plain">${offers}</ul>`:''}`);
+}
+const honesty=()=>`<h2>How the plan is doing</h2><p class="sub">Four separate numbers. The page never blends them into one score.</p><div class="pair">${coverageCard()}${adherenceCard()}</div><div class="pair">${sensitivityCard()}${shortfallCard()}</div>`;
 
 // ---- Today: one card per course, with the papers he ticks as completed (D-285)
 const paperName=p=>`${p.assessment_name.replace(/ exam$/i,'')} · ${new Date(p.session_date+'T00:00:00').toLocaleDateString(undefined,p.session_date_approx?{month:'short',year:'numeric'}:{day:'numeric',month:'short',year:'numeric'})} · ${p.session_type==='second'?'2nd':'1st'} session`;
 const fold=(id,head,body)=>`<details class="fold" data-fold="${esc(id)}" ${openFolds.has(id)?'open':''}><summary>${head}</summary>${body}</details>`;
-function coverage(c){const r=c.coverage;return r?`<p class="meta" title="${esc(r.tier_note)}">Coverage · <b>${(r.value*100).toFixed(0)}%</b> · ${esc(r.denominator_tier)} · plan of ${fmt(r.computed_at.slice(0,10))}<small>${esc(r.tier_note)}</small></p>`:`<p class="meta">Coverage · unknown, no reading yet</p>`}
 /* D-267: a taught chapter with no topic beside the topics no chapter reaches - a question, not an alarm */
 function unconfirmed(c){const u=c.unconfirmed;if(!u||!u.chapters.length)return '';
   return fold('u:'+c.course_id,`<b>No topic: ${u.chapters.map(x=>esc(x.chapter)).join(', ')}</b><span>${u.topics.length} ${u.topics.length===1?'topic':'topics'}</span>${CHEV}`,`<p>Does ${u.chapters.length===1?'it':'one of them'} teach any of these? ${u.topics.map(t=>esc(t.name)).join(' · ')}</p>`)}
@@ -502,7 +540,7 @@ function courseCards(){
     const strat=c.conceded?'Conceded':(c.strategy&&c.strategy!=='default'?c.strategy:null);
     return `<article class="card course"><div class="code" style="--h:${hue(c)}"><i></i>${esc(c.code)}</div><h3>${esc(c.name)}</h3>${meta?`<p class="meta">${esc(meta)}</p>`:''}
       <div class="stats"><div><b>${hm(c.minutes_logged)}</b><span>logged</span></div><div><b>${left==null?'—':left+(left===1?' day':' days')}</b><span>${next?esc(next.name)+' · '+fmt(next.date):'no dated exam'}</span></div></div>
-      ${coverage(c)}${strat?`<p class="meta">Strategy · ${esc(strat)}</p>`:''}
+      ${strat?`<p class="meta">Strategy · ${esc(strat)}</p>`:''}
       ${exams.length?`<ul class="assess">${exams.map(a=>`<li><span>${esc(a.name)}<small>${fmt(a.date)} · ${a.weight!=null?a.weight+'%':'weight unknown'}</small></span><em>${a.mark==null?'ungraded':a.mark+'%'}</em></li>`).join('')}</ul>`:''}
       <div class="foot">${unconfirmed(c)}${papers(c)}${xs.length?`<a class="planlink" href="#/plan?course=${encodeURIComponent(c.course_id)}">View ${xs.length} ranked ${xs.length===1?'task':'tasks'}</a>`:''}</div></article>`}).join('')}</div>`;
 }
@@ -510,7 +548,7 @@ function todayPage(){
   const next=(raw.assessment_slots||[]).filter(a=>a.date&&a.date>=TODAY).sort((a,b)=>a.date.localeCompare(b.date))[0],d=next?daysTo(next.date):null;
   return `<div class="eyebrow">${esc(new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'}))}${next?` · ${d===0?'today:':d+(d===1?' day to':' days to')} ${esc(next.name)}`:''}</div><h1>Today</h1>
     <div class="hero">${watch()}<div class="side">${weekCard()}${tiles()}</div></div>
-    <h2>Today’s schedule</h2><div class="cols">${classes()}${tasks()}</div>${planNumbers()}
+    <h2>Today’s schedule</h2><div class="cols">${classes()}${tasks()}</div>${honesty()}
     <h2>Courses</h2>${courseCards()}`;
 }
 
