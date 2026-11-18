@@ -9,7 +9,7 @@ from mcp.server import MCPServer
 from mcp.types import CallToolResult
 from sqlalchemy import Engine
 
-from studysystem.services import assessments, capacity, courses
+from studysystem.services import assessments, capacity, courses, shortfall
 from studysystem.services.users import current_user
 from studysystem.tools.results import run
 
@@ -47,7 +47,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "Development') or 'no_past_papers' (true when the course has no past papers at all, "
             "e.g. a new course - the plan stops asking for papers; false if that was wrong) or "
             "'lab_group' (his group in the course's labs, as the timetable names it, e.g. 'G1' - "
-            "his week then shows the whole-class meetings and that group's, not the others). "
+            "his week then shows the whole-class meetings and that group's, not the others) or "
+            "'hours_per_credit' (a number above 0: study hours one credit of this course needs "
+            "to reach its target; unset, the shortfall check uses its default) or 'elective' "
+            "(true for an elective course - the shortfall alert lists electives last). "
             "Setting a value marks it declared; it cannot be set back to "
             "unknown. Pass semester_name only when the code exists in more than one semester."
         ),
@@ -140,6 +143,28 @@ def register(mcp: MCPServer, engine: Engine) -> None:
     )
     def study_drop_course(code: str, semester_name: str | None = None) -> CallToolResult:
         return run(lambda: courses.drop_course(engine, current_user(engine), code, semester_name))
+
+    @mcp.tool(
+        name="study_respond_to_offer",
+        description=(
+            "Record the student's answer to an offer in the plan's shortfall alert, on one "
+            "course found by its code. Only after the student chooses it - nothing is ever "
+            "changed for him. choice: 'catch-up' (take the catch-up offer), 'default' (end "
+            "catch-up), 'concede' (aim only to pass this course, read at 50) or 'unconcede' "
+            "(undo that). The change is dated and the plan's ranking stays as it is. The other "
+            "levers have their own tools: lower a target with study_set_course_input "
+            "(target_grade), add hours with study_set_capacity. Pass semester_name only when "
+            "the code exists in more than one semester."
+        ),
+    )
+    def study_respond_to_offer(
+        code: str, choice: str, semester_name: str | None = None
+    ) -> CallToolResult:
+        return run(
+            lambda: shortfall.respond_to_offer(
+                engine, current_user(engine), code, choice, semester_name
+            )
+        )
 
     @mcp.tool(
         name="study_accept_capacity_suggestion",

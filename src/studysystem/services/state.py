@@ -34,6 +34,7 @@ from studysystem.db.tables import (
 from studysystem.services.adherence import DEVIATION_KEYS, weekly_adherence
 from studysystem.services.ids import now
 from studysystem.services.plan import chapter_name, entries_of
+from studysystem.services.shortfall import shortfall
 from studysystem.services.topics import TAGGABLE as LIVE_TOPICS  # the live statuses
 from studysystem.services.unconfirmed import unconfirmed_by_course
 from studysystem.services.units import read_unit
@@ -611,12 +612,75 @@ def _metrics(conn: Connection, user_id: str, today: datetime.date) -> dict:
     }
 
 
+# --- shortfall ----------------------------------------------------------------
+
+SHORTFALL_COURSE_SCHEMA = _record(
+    {
+        "course_id": ID,
+        "code": TEXT,
+        "credits": NUMBER,
+        "need": NUMBER,
+        "strategy": {"enum": ["default", "catch-up"]},
+        "conceded": BOOL,
+        "elective": BOOL,
+        "frees_conceding": NUMBER,
+        "frees_lowering": NUMBER,
+    },
+    {"h": NUMBER, "behind": NUMBER},
+)
+OFFER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "kind": {"enum": ["catch-up", "lower-target", "add-capacity", "concede"]},
+        "tool": TEXT,
+        "hours": NUMBER,
+        "code": TEXT,  # catch-up only: the course it is offered for
+    },
+    "required": ["kind", "tool", "hours"],
+    "additionalProperties": False,
+}
+SHORTFALL_SCHEMA = _record(
+    {
+        "not_counted": _list(_record({"code": TEXT, "reason": TEXT})),
+        "courses": _list(SHORTFALL_COURSE_SCHEMA),
+        "offers": _list(OFFER_SCHEMA),
+    },
+    {"need": NUMBER, "capacity": NUMBER, "gap": NUMBER, "short": BOOL},
+)
+
+
+def _shortfall(conn: Connection, user_id: str, today: datetime.date) -> dict:
+    """D-15's alert for `today` (4.9): need against capacity, who is behind, and the offers -
+    computed on each read, nothing stored. Every uncertain figure travels with its tier: need and
+    behind `inferred` (H is a guess, D-294), capacity `declared`; with no exam ahead, capacity,
+    gap and short go null and `unknown`."""
+    alert = shortfall(conn, user_id, today)
+    courses = [
+        {
+            **{k: v for k, v in c.items() if k not in ("h", "h_tier", "behind")},
+            "h": c["h"],
+            "h_tier": c["h_tier"],
+            **_pair("behind", c["behind"], "inferred"),
+        }
+        for c in alert["courses"]
+    ]
+    return {
+        **_pair("need", alert["need"], alert["need_tier"]),
+        **_pair("capacity", alert["capacity"], "declared"),
+        **_pair("gap", alert["gap"], "inferred"),
+        **_pair("short", alert["short"], "inferred"),
+        "not_counted": alert["not_counted"],
+        "courses": courses,
+        "offers": alert["offers"],
+    }
+
+
 # --- the blob -----------------------------------------------------------------
 
 Builder = Callable[[Connection, str, datetime.date], object]
 
 # One builder and one schema per top-level section (D-22), in the order the blob sends them.
-# shortfall and quality join when their tasks build them (D-163); metrics holds adherence (4.7).
+# quality joins when its task builds it (D-163); metrics holds adherence (4.7), shortfall 4.9's.
 SECTIONS: dict[str, tuple[Builder, dict]] = {
     "semester": (_semester, SEMESTER_SCHEMA),
     "capacity": (_capacity, CAPACITY_SCHEMA),
@@ -625,6 +689,7 @@ SECTIONS: dict[str, tuple[Builder, dict]] = {
     "plan": (_plan, PLAN_SCHEMA),
     "courses": (_courses, COURSES_SCHEMA),
     "metrics": (_metrics, METRICS_SCHEMA),
+    "shortfall": (_shortfall, SHORTFALL_SCHEMA),
 }
 CHECKS = {name: Draft202012Validator(schema) for name, (_, schema) in SECTIONS.items()}
 

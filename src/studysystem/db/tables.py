@@ -103,14 +103,15 @@ def iff(name: str, a: str, b: str) -> CheckConstraint:
     return CheckConstraint(f"(({a}) AND ({b})) OR (NOT ({a}) AND NOT({b}))", name=name)
 
 
-def tier_pair(field: str, type_, rule: str | None = None) -> list:
+def tier_pair(field: str, type_, rule: str | None = None, *, default: str | None = None) -> list:
     """The value column, its `<field>_tier` column, and the tier rule: unknown <=> NULL.
     `rule` is an extra CHECK on the value (e.g. `credits > 0`); NULL passes it, as CHECKs do.
+    `default` is the tier's server default - a pair added to a table with rows needs `unknown`.
     Splat into the Table: `*tier_pair("credits", Float, "credits > 0")`."""
     checks = [CheckConstraint(rule, name=f"{field}_range")] if rule is not None else []
     return [
         Column(field, type_, *checks, nullable=True),
-        enum_col(f"{field}_tier", TIERS),
+        enum_col(f"{field}_tier", TIERS, default=default),
         iff(f"{field}_tier_rule", f"{field}_tier = 'unknown'", f"{field} is NULL"),
     ]
 
@@ -161,6 +162,9 @@ course = Table(
     CheckConstraint("semester_end > semester_start", name="semester_order"),
     bool_col("semester_end_approx"),
     Column("vault_folder", Text, nullable=True),  # under the vault root; NULL = not declared (D-72)
+    # the shortfall's H for this course; NULL / unknown reads the default (D-294). Migration 0025.
+    *tier_pair("hours_per_credit", Float, "hours_per_credit > 0", default="unknown"),
+    bool_col("elective"),  # 1 = declared elective: listed last by the shortfall alert (D-300)
     ts(),
 )
 Index(
