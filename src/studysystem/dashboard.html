@@ -108,6 +108,21 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
 .watch-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:12px}
 .watch-actions .btn{min-width:150px}
 .status.ask{color:var(--orange-text);font-weight:500}
+.wtabs{display:inline-flex;background:var(--fill);border-radius:999px;padding:3px;flex:none}
+.wtab{border:0;background:none;padding:6px 16px;border-radius:999px;font-size:.9375rem;font-weight:500;color:var(--text-2);cursor:pointer;transition:color .2s ease,background-color .2s ease}
+.wtab[aria-selected="true"]{background:var(--thumb);color:var(--text);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.runstrip{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:14px;padding:10px 14px;border-radius:14px;background:var(--fill)}
+.runstrip .num{color:var(--green-text);font-weight:600;font-variant-numeric:tabular-nums}
+.runstrip .btn{height:36px;min-width:0;padding:0 16px;margin-left:auto}
+.runstrip .err{flex-basis:100%;color:var(--red-text);font-size:.875rem}
+.logform{flex:1;display:flex;flex-direction:column;justify-content:center;gap:14px;padding-top:16px}
+.lf-row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.lf-field{display:flex;flex-direction:column;gap:6px;font-size:.8125rem;font-weight:600;color:var(--text-2);min-width:0}
+.lf-field input{font:inherit;font-size:.9375rem;font-weight:400;color:var(--text);border:0;background:var(--fill);border-radius:10px;padding:9px 12px;min-height:38px;font-variant-numeric:tabular-nums}
+.lf-field input[name="minutes"]{width:7em}
+.lf-hint{margin:0;color:var(--text-2);font-size:.8125rem}
+.logform .status{margin:0}
+.logform .pop{left:0;right:auto;transform-origin:top left}
 
 .side{display:grid;gap:20px;grid-template-rows:1fr auto}
 .week{display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:center}
@@ -391,20 +406,19 @@ async function stop(how){
 }
 setInterval(()=>{
   if(!session)return;
-  const el=$('#digits');if(el)el.textContent=clock();
+  const el=$('#digits');if(el)el.textContent=clock();const el2=$('#stripdigits');if(el2)el2.textContent=clock();
   const t=elapsed();
   if(t>=END_AT&&!busy&&!autoTried){autoTried=true;stop('auto')}  // once: a failed stop stays shown
   else if(t>=ASK_AT&&!askShown){askShown=true;draw()}
   else paintNotice();  // the minutes so far, and gone past 4h
 },500);
-function watch(){
-  const c=session?courses.find(x=>x.code===session.code)||{code:session.code,name:''}:picked();
-  if(!c)return `<div class="card watch"><div class="watch-top"><span class="label">Stopwatch</span></div><div class="digits num">00:00:00</div><div class="status">Add a course to use the stopwatch.</div></div>`;
+const watchCourse=()=>session?courses.find(x=>x.code===session.code)||{code:session.code,name:''}:picked();
+function stopwatchView(left){
+  const c=watchCourse();
   const m=session?[session.mode,modeName(session.mode||DEFAULT_MODE)]:pickedMode(),off=session||busy?'disabled':'';
   const asking=session&&!note?.err&&elapsed()>=ASK_AT;
   const line=session&&note?.err?esc(note.text):asking?'Still studying? At 3h55m this session stops and logs itself.':session&&note?`<i class="dot"></i>${esc(note.text)} Started ${esc(new Date(session.t0).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hour12:false}))}.`:session?`<i class="dot"></i>Studying ${esc(session.code)}${session.mode?' · '+esc(modeName(session.mode)):''} · started ${esc(new Date(session.t0).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hour12:false}))}`:esc(note?.text||'Pick a course and a mode, then press Start.');
-  return `<div class="card watch ${session?'running':''}">
-    <div class="watch-top"><span class="label">Stopwatch</span>
+  return `<div class="watch-top">${left}
       <div class="pickers">
         <div class="menu"><button class="menu-btn" id="courseBtn" type="button" data-act="menu" data-id="course" aria-haspopup="listbox" aria-expanded="false" aria-label="Course to study" ${off}><b>${esc(c.code)}</b><span>${esc(c.name)}</span>${ARROWS}</button>
           <div class="pop" id="coursePop" role="listbox" aria-label="Courses">${pickList().map(x=>`<button type="button" class="opt" role="option" data-act="pick" data-menu="course" data-id="${esc(x.code)}" aria-selected="${x===c}">${TICK}<b>${esc(x.code)}</b><span>${esc(x.name)}</span></button>`).join('')}</div></div>
@@ -414,12 +428,65 @@ function watch(){
     <div class="digits num" id="digits">${session?clock():'00:00:00'}</div>
     <div class="status ${note?.err?'err':asking?'ask':''}" role="status">${line}</div>
     ${asking?`<div class="watch-actions"><button class="btn" type="button" data-act="continue" ${busy?'disabled':''}>Continue</button><button class="btn stop" type="button" data-act="stop" ${busy?'disabled':''}>Stop</button></div>`
-      :`<button class="btn ${session?'stop':''}" type="button" data-act="${session?'stop':'start'}" ${busy?'disabled':''}>${session?'Stop':'Start'}</button>`}
-  </div>`;
+      :`<button class="btn ${session?'stop':''}" type="button" data-act="${session?'stop':'start'}" ${busy?'disabled':''}>${session?'Stop':'Start'}</button>`}`;
 }
-const MENUS=['course','mode','taskCourse'];
+const MENUS=['course','mode','taskCourse','logCourse'];
 function menu(name,open){for(const n of MENUS){const p=$('#'+n+'Pop'),b=$('#'+n+'Btn');if(!p||!b)continue;const on=open&&n===name;p.classList.toggle('open',on);b.setAttribute('aria-expanded',on);if(on)p.querySelector('[aria-selected="true"]')?.focus()}}
 const openMenu=()=>MENUS.find(n=>$('#'+n+'Pop')?.classList.contains('open'))||null;
+
+// ---- Today: log past hours in the stopwatch card (D-307, D-309)
+// Two tabs; a running stopwatch stays in a strip on the Log tab
+const MODE_NAME={stopwatch:'Stopwatch',log:'Log past hours'};
+const watchMode=()=>store.watchTab==='log'?'log':'stopwatch';
+const logDraft={code:null,minutes:'',date:null,time:'',busy:false,msg:null};
+const logCourse=()=>pickList().find(c=>c.code===logDraft.code)||watchCourse();
+function tabsHead(mode){
+  return `<div class="wtabs" role="tablist" aria-label="How to record time">${['stopwatch','log'].map(id=>`<button class="wtab" type="button" role="tab" id="wtab-${id}" aria-selected="${mode===id}" aria-controls="wpanel" tabindex="${mode===id?0:-1}" data-act="wtab" data-id="${id}">${MODE_NAME[id]}</button>`).join('')}</div>`;
+}
+function runStrip(){
+  return `<div class="runstrip"><i class="dot"></i><span class="num" id="stripdigits">${clock()}</span><span class="muted">${esc(session.code)}${session.mode?' · '+esc(modeName(session.mode)):''}</span><button class="btn stop" type="button" data-act="stop" ${busy?'disabled':''}>Stop</button>${note?.err?`<p class="err">${esc(note.text)}</p>`:''}</div>`;
+}
+function logView(left){
+  const c=logCourse(),d=logDraft,off=d.busy?'disabled':'';
+  const pop=pickList().map(x=>`<button type="button" class="opt" role="option" data-act="pick" data-menu="logCourse" data-id="${esc(x.code)}" aria-selected="${x.code===c.code}">${TICK}<b>${esc(x.code)}</b><span>${esc(x.name)}</span></button>`).join('');
+  return `<div class="watch-top">${left}</div>${session?runStrip():''}
+    <form class="logform" id="logform">
+      <div class="lf-row">
+        <div class="lf-field"><span id="lfCourseLabel">Course</span>
+          <div class="menu"><button class="menu-btn" id="logCourseBtn" type="button" data-act="menu" data-id="logCourse" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="lfCourseLabel logCourseBtn" ${off}><b>${esc(c.code)}</b><span>${esc(c.name)}</span>${ARROWS}</button>
+            <div class="pop" id="logCoursePop" role="listbox" aria-label="Courses">${pop}</div></div></div>
+        <label class="lf-field">Minutes<input name="minutes" type="number" inputmode="numeric" min="1" max="720" step="1" required value="${esc(d.minutes)}" aria-label="Minutes studied, 1 to 720" ${off}></label>
+      </div>
+      <div class="lf-row">
+        <label class="lf-field">Date<input name="date" type="date" required max="${TODAY}" value="${esc(d.date||TODAY)}" aria-label="Date studied" ${off}></label>
+        <label class="lf-field">Time (optional)<input name="time" type="time" value="${esc(d.time)}" aria-label="Start time, optional" ${off}></label>
+      </div>
+      <p class="lf-hint">Date only: counted as ending that day (today: ending now).</p>
+      <div class="status ${d.msg?.err?'err':''}" role="status">${d.msg?esc(d.msg.text):''}</div>
+      <button class="btn" type="submit" ${off}>${d.busy?'Logging…':'Log'}</button>
+    </form>`;
+}
+function watch(){
+  const c=watchCourse();
+  if(!c)return `<div class="card watch"><div class="watch-top"><span class="label">Stopwatch</span></div><div class="digits num">00:00:00</div><div class="status">Add a course to use the stopwatch.</div></div>`;
+  const mode=watchMode(),cls=`card watch ${session?'running':''}`;
+  const left=tabsHead(mode);
+  return `<div class="${cls}" role="tabpanel" id="wpanel" aria-labelledby="wtab-${mode}">${mode==='log'?logView(left):stopwatchView(left)}</div>`;
+}
+async function logHours(f){
+  const d=logDraft,c=logCourse();if(d.busy||!c)return;
+  const fd=new FormData(f);d.minutes=String(fd.get('minutes')||'');d.date=String(fd.get('date')||'');d.time=String(fd.get('time')||'');
+  const minutes=Number(d.minutes),date=d.date||TODAY;
+  if(!Number.isInteger(minutes)||minutes<1||minutes>720){d.msg={err:true,text:'Not logged: minutes must be a whole number from 1 to 720.'};draw();return}
+  if(date>TODAY){d.msg={err:true,text:'Not logged: the date cannot be in the future.'};draw();return}
+  d.busy=true;d.msg=null;draw();
+  try{
+    await post('/hours',{code:c.code,minutes,started_at:d.time?`${date}T${d.time}`:date});
+    d.minutes='';d.msg={text:`Logged ${minutes} min on ${c.code} · ${fmt(date)}`};d.busy=false;
+    try{await load()}catch(x){d.msg.text+='. The page could not refresh: reload it.';draw()}
+  }catch(e){d.busy=false;d.msg={err:true,text:e?.code==='server_down'?'Not logged: the dashboard server is not running.':'Not logged: '+said(e)};draw()}
+  $('#logform input[name="minutes"]')?.focus();
+}
 
 // ---- Today: the week, today's minutes, the streak (D-286)
 // D-290: "Edit target" writes a new capacity row from the Monday of this week, through POST /capacity.
@@ -628,7 +695,8 @@ document.addEventListener('click',e=>{
   if(act==='goal-cancel'){goalEdit={...GOAL_CLOSED};draw();return}
   if(act==='fold-tasks'){store.tasksFolded=!store.tasksFolded;saveStore();draw();$('[data-act="fold-tasks"]')?.focus();return}
   if(act==='menu')return menu(id,openMenu()!==id);
-  if(act==='pick'){const which=b.dataset.menu;store[which]=id;saveStore();if(which!=='taskCourse')note=null;draw();$('#'+which+'Btn')?.focus();return}
+  if(act==='wtab'){store.watchTab=id;saveStore();draw();$('[data-act="wtab"][aria-selected="true"]')?.focus();return}
+  if(act==='pick'){const which=b.dataset.menu;if(which==='logCourse')logDraft.code=id;else{store[which]=id;saveStore()}if(which==='course'||which==='mode')note=null;draw();$('#'+which+'Btn')?.focus();return}
   if(act==='start')return start();
   if(act==='stop')return stop();
   if(act==='continue')return stop('continue');
@@ -641,6 +709,7 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('.menu'))menu(null,false)});
 document.addEventListener('keydown',e=>{
+  if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&e.target.matches?.('[role="tab"]')){const t=[...e.target.parentNode.querySelectorAll('[role="tab"]')];t[(t.indexOf(e.target)+(e.key==='ArrowRight'?1:t.length-1))%t.length].click();return}
   const name=openMenu();if(!name)return;const p=$('#'+name+'Pop');
   const os=[...p.querySelectorAll('.opt')],i=os.indexOf(document.activeElement);
   if(e.key==='ArrowDown'){e.preventDefault();os[Math.min(os.length-1,i+1)].focus()}
@@ -648,8 +717,9 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='Escape'){menu(null,false);$('#'+name+'Btn')?.focus()}
 });
 document.addEventListener('toggle',e=>{const id=e.target.dataset?.fold;if(id)e.target.open?openFolds.add(id):openFolds.delete(id)},true);
-document.addEventListener('input',e=>{if(e.target.closest('#goal'))goalEdit.draft=e.target.value;if(e.target.closest('#add'))taskDraft=e.target.value}); // a redraw keeps what he typed
-document.addEventListener('submit',e=>{if(e.target.id==='goal'){e.preventDefault();if(!goalEdit.busy)saveGoal(Number(new FormData(e.target).get('hours')));return}
+document.addEventListener('input',e=>{if(e.target.closest('#logform')&&e.target.name in logDraft){logDraft[e.target.name]=e.target.value;logDraft.msg=null}if(e.target.closest('#goal'))goalEdit.draft=e.target.value;if(e.target.closest('#add'))taskDraft=e.target.value}); // a redraw keeps what he typed
+document.addEventListener('submit',e=>{if(e.target.id==='logform'){e.preventDefault();logHours(e.target);return}
+  if(e.target.id==='goal'){e.preventDefault();if(!goalEdit.busy)saveGoal(Number(new FormData(e.target).get('hours')));return}
   if(e.target.id!=='add')return;e.preventDefault();const title=String(new FormData(e.target).get('title')||'').trim(),course=taskCourse()?.code||null;if(!title)return;taskDraft='';store.custom.unshift({id:Math.random().toString(36).slice(2),title,course,mins:null,done:false});saveStore();draw();$('#add input')?.focus()});
 addEventListener('hashchange',()=>{draw();scrollTo({top:0})});
 addEventListener('resize',nav);
