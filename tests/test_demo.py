@@ -109,6 +109,20 @@ def test_the_week_has_hours_a_streak_and_a_deviation(seeded):
     assert sum(blob["study_time"]["week_days"]) > 0
 
 
+def test_the_demo_has_room_so_it_shows_system_work(seeded):
+    """4.12's Done when, the "appears" half: the demo reads a surplus (D-310), so its Plan page
+    lists CS304's zero-estimate Partial and the proposed directive (D-311)."""
+    blob = seeded["blob"]
+    assert blob["shortfall"]["short"] is False
+    work = blob["system_work"]
+    assert [(p["code"], p["reason"].startswith("CS304 Partial exam")) for p in work["papers"]] == [
+        ("CS304", True)
+    ]
+    assert [(d["text"], d["applies_to"]) for d in work["directives"]] == [
+        (demo.DIRECTIVE, demo.DIRECTIVE_COURSE)
+    ]
+
+
 def test_only_demo_codes_and_no_marks(seeded):
     blob = seeded["blob"]
     assert all(DEMO_CODE.fullmatch(c["code"]) for c in blob["courses"])
