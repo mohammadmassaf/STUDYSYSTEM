@@ -241,7 +241,7 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
 .lane h2 small{font-size:1rem;font-weight:500;color:var(--text-2);letter-spacing:0}
 .lane .list-head{padding-bottom:6px}
 .rank{font-variant-numeric:tabular-nums;color:var(--text-3);font-weight:600;min-width:1.6em}
-.system .err{color:var(--red-text);font-size:.875rem;margin-top:4px}
+.system .err,.trials .err{color:var(--red-text);font-size:.875rem;margin-top:4px}
 .why summary{cursor:pointer;font-size:.8125rem;color:var(--accent);margin-top:4px;list-style:none}
 .why summary::-webkit-details-marker{display:none}
 .why p{font-size:.875rem;color:var(--text-2);margin-top:4px}
@@ -628,7 +628,7 @@ function planPage(){
   return `<div class="eyebrow">All ranked work · ${created?'refreshed '+fmt(created.slice(0,10)):'no plan stored yet'}</div><h1>Plan</h1>
     <p class="sub">Study first, then review, then setup. The server ranks; this page only shows. Your own tasks sit beside Study, unranked.</p>
     ${withItems.length>1?`<div class="chips">${chip('all','All courses')}${withItems.map(c=>chip(c.course_id,c.code)).join('')}</div>`:''}
-    <div class="lanes">${rankedLane('study',cf)}${personalLane(own,cf)}${rankedLane('review',cf)}${rankedLane('setup',cf)}</div>${systemWork()}`;
+    <div class="lanes">${rankedLane('study',cf)}${personalLane(own,cf)}${rankedLane('review',cf)}${rankedLane('setup',cf)}</div>${systemWork()}${trialsSwitch()}`;
 }
 // D-311: System work under the lanes. The server sends rows only on a surplus (D-310), so an
 // empty section means no block. Confirm writes through POST /directives/confirm, as the tool does.
@@ -645,6 +645,17 @@ function systemWork(){
   const rules=w.directives.map(d=>{const busy=workEdit.busy===d.id,err=workEdit.err?.id===d.id?workEdit.err.text:null;
     return `<div class="row"><span class="rank">–</span><div><div class="t">${esc(d.text)}</div><div class="m">Proposed rule for generated items · ${esc(d.applies_to)}</div>${err?`<p class="err">${esc(err)}</p>`:''}</div><button class="quiet" type="button" data-act="confirm" data-id="${esc(d.id)}" ${busy?'disabled':''}>${busy?'Confirming…':'Confirm'}</button></div>`});
   return `<section class="lane system"><h2>System work<small>The plan has hours to spare, so these show. They improve the system, not your marks.</small></h2><div class="card list">${papers.concat(rules).join('')}</div></section>`;
+}
+// D-317: the trials switch, always on Plan - off by default (D-312). The same write as study_set_trials.
+let trialsEdit={busy:false,err:null};
+async function setTrials(on){
+  trialsEdit={busy:true,err:null};draw();
+  try{await post('/trials',{on});trialsEdit={busy:false,err:null};await load()}
+  catch(e){trialsEdit={busy:false,err:e?.code==='server_down'?'Not changed: the dashboard server is not running.':'Not changed: '+said(e)};draw()}
+}
+function trialsSwitch(){
+  const on=!!raw.settings?.trials_on,off=trialsEdit.busy?'disabled':'';
+  return `<section class="lane trials"><h2>Generated-question trials<small>${on?'On: each past-paper walkthrough hides one generated question and asks "real or generated?" after each answer.':'Off: walkthroughs show only the questions of the paper.'}</small></h2><div class="card list"><div class="row"><span class="rank">–</span><div><div class="t">${on?'Trials are on':'Trials are off'}</div><div class="m">They test the generator, not you. They add one question to every walkthrough answer.</div>${trialsEdit.err?`<p class="err">${esc(trialsEdit.err)}</p>`:''}</div><button class="quiet" type="button" data-act="trials" data-on="${on?'false':'true'}" ${off}>${trialsEdit.busy?'Saving…':on?'Turn off':'Turn on'}</button></div></div></section>`;
 }
 // D-302: Study and Personal side by side, Review and Setup under them; each row's cards share one height
 function rankedLane(k,cf){
@@ -715,6 +726,7 @@ document.addEventListener('click',e=>{
   if(act==='wtab'){store.watchTab=id;saveStore();draw();$('[data-act="wtab"][aria-selected="true"]')?.focus();return}
   if(act==='pick'){const which=b.dataset.menu;if(which==='logCourse')logDraft.code=id;else{store[which]=id;saveStore()}if(which==='course'||which==='mode')note=null;draw();$('#'+which+'Btn')?.focus();return}
   if(act==='confirm')return confirmDirective(id);
+  if(act==='trials')return setTrials(b.dataset.on==='true');
   if(act==='start')return start();
   if(act==='stop')return stop();
   if(act==='continue')return stop('continue');

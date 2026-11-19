@@ -12,7 +12,7 @@ from mcp.types import CallToolResult
 from pydantic import WithJsonSchema
 from sqlalchemy import Engine
 
-from studysystem.services import study_loop
+from studysystem.services import study_loop, trials
 from studysystem.services.users import current_user
 from studysystem.tools.results import run
 
@@ -29,7 +29,10 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "'review-quiz' (due reviews). Optionally name what it is about: subject_type "
             "'topic', 'material' or 'past-exam' with subject_id from study_get_topics, or a "
             "material_id from study_get_plan. A session records no time - log the minutes with "
-            "study_log_hours when done; one left open expires after 4 hours."
+            "study_log_hours when done; one left open expires after 4 hours. An exam-walkthrough "
+            "of a past-exam returns questions, the paper's questions in order: walk them in that "
+            "order. If the student has trials on, one of them is a generated question - never "
+            "say which one or hint at it."
         ),
     )
     def study_start_session(
@@ -57,7 +60,12 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "optional root_cause ('concept', 'recall', 'procedure', 'misread', 'careless', "
             "'time-pressure') and fix_rule (the student's own rule for next time). Goes to the "
             "session named, else the course's open session, else a new practice session. "
-            "Returns each topic's next review date."
+            "Returns each topic's next review date. In an exam-walkthrough with the student's "
+            "trials on: before grading, ask 'real or generated?' and send flagged (true = they "
+            "think it is generated) and, if they say why, tell ('too-easy', 'phrasing', "
+            "'topic-scope', 'formatting', 'no-tell'); an answer without flagged is refused. A "
+            "walkthrough reply carries revealed: show the student each item's origin and answer "
+            "provenance - an 'unverified' key may be wrong."
         ),
     )
     # attempts is Any, not list[dict]: the service checks it, in the D-17 shape (D-36). The
@@ -73,6 +81,19 @@ def register(mcp: MCPServer, engine: Engine) -> None:
                 engine, current_user(engine), code, attempts, session_id, semester_name
             )
         )
+
+    @mcp.tool(
+        name="study_set_trials",
+        description=(
+            "Turn discrimination trials on or off for the student (off by default). With trials "
+            "on, each exam-walkthrough hides one generated question among the paper's questions "
+            "and asks 'real or generated?' after each answer, to test how real the generated "
+            "questions look. Only on the student's own request: it adds a question to every "
+            "walkthrough answer."
+        ),
+    )
+    def study_set_trials(on: bool | str) -> CallToolResult:
+        return run(lambda: trials.set_trials(engine, current_user(engine), on))
 
     @mcp.tool(
         name="study_log_hours",
