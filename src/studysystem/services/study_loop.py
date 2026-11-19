@@ -33,7 +33,7 @@ from studysystem.db.tables import (
     attempt as attempt_table,
 )
 from studysystem.errors import StudyError
-from studysystem.services import values
+from studysystem.services import trials, values
 from studysystem.services.adherence import DEVIATION_REASONS, in_plan
 from studysystem.services.ids import new_id, now
 from studysystem.services.lookups import find_course
@@ -233,7 +233,11 @@ def start_session(
     The subject is optional, but given it is both halves, and it must be this course's topic,
     material or past paper (Same course invariant). Tonight: I3302, practice, topic MySQL.
 
-    Returns {"session_id", "mode", "subject_type", "subject_id", "started_at", "expires_at"}.
+    A walkthrough of a past paper also returns `questions`, the paper's questions in order;
+    with the student's trials on, one hidden generated item sits among them (D-314, D-316).
+
+    Returns {"session_id", "mode", "subject_type", "subject_id", "started_at", "expires_at"},
+    plus "questions" for a walkthrough of a past paper.
     """
     mode = values.choice("mode", mode, MODES)
     if (subject_type is None) != (subject_id is None):
@@ -273,6 +277,10 @@ def start_session(
                 **row,
             )
         )
+        if mode == "exam-walkthrough" and subject_type == "past-exam" and subject_id is not None:
+            row["questions"] = trials.walkthrough_questions(
+                conn, user_id, subject_id, seed=session_id, hide=trials.trials_on(conn, user_id)
+            )
 
     return {
         "session_id": session_id,
@@ -655,7 +663,8 @@ RETIRED_ITEM = ("rejected", "superseded")  # needs-review is cleared at use (D-1
 
 def _attempt_values(raw: object, n: int) -> dict:
     """One submitted attempt, checked: {practice_item_id, topic_id, correct, score, root_cause,
-    fix_rule}. The item and topic are looked up later, inside the unit."""
+    fix_rule, flagged, tell}. The item and topic are looked up later, inside the unit. `flagged`
+    and `tell` are the trial's guess (D-315): checked always, used only when trials are on."""
     where = f"attempts[{n}]"
     if not isinstance(raw, dict):
         raise values.invalid(where, f"{raw!r} is not an object", "send each attempt as an object")
@@ -679,6 +688,15 @@ def _attempt_values(raw: object, n: int) -> dict:
         )
     root_cause = raw.get("root_cause")
     fix_rule = raw.get("fix_rule")
+    flagged, tell = raw.get("flagged"), raw.get("tell")
+    if tell is not None:
+        if flagged is None:
+            raise values.invalid(
+                f"{where}.tell",
+                "a tell is why the student guessed, so it comes with the guess",
+                "send flagged with it, or leave tell out",
+            )
+        tell = values.choice(f"{where}.tell", tell, trials.TELLS)
     return {
         "practice_item_id": item_id,
         "topic_id": topic_id,
@@ -688,6 +706,8 @@ def _attempt_values(raw: object, n: int) -> dict:
         if root_cause is None
         else values.choice(f"{where}.root_cause", root_cause, ROOT_CAUSES),
         "fix_rule": None if fix_rule is None else values.text(f"{where}.fix_rule", fix_rule),
+        "flagged": None if flagged is None else values.flag(f"{where}.flagged", flagged),
+        "tell": tell,
     }
 
 
@@ -854,15 +874,21 @@ def submit_attempts(
 ) -> dict:
     """Record one graded problem - its parts, together - and move each topic's FSRS state. One
     write unit: the attempts, every touched `topic_state`, the walkthrough's position, each
-    attempted `needs-review` item made `live` (D-253), and a `manual` session when none is open
-    (Write units).
+    attempted `needs-review` item made `live` (D-253), each trial (D-315), and a `manual` session
+    when none is open (Write units).
 
     The session's mode decides each attempt's `source` and `assisted` (MODE_SOURCE). Each
     attempt names its item (its topic follows) or only a topic; a result is a score 0-1,
     correct, or both - the score wins in the replay. Tonight: index.php's four parts in one call.
 
+    In a walkthrough with the student's trials on, each attempt on an item carries the guess
+    `flagged` (and maybe a `tell`), and writes that item's trial; one with no guess is refused
+    (D-315). Every walkthrough attempt on an item is revealed after the writes, trials on or off
+    (D-316).
+
     Returns {"session_id", "attempt_ids", "topics": [{"topic_id", "due_at", "reps", "lapses"} or
-    {"topic_id", "state": None} when nothing counts]}. Logs one line after the commit: each
+    {"topic_id", "state": None} when nothing counts]}, plus "revealed" (`trials.reveal`) when a
+    walkthrough attempt named an item. Logs one line after the commit: each
     topic's last day score and rating, so "why is MySQL due Oct 9?" has an answer (D-112).
     """
     started = time.perf_counter()
@@ -877,7 +903,9 @@ def submit_attempts(
         course_id = find_course(conn, user_id, code, semester_name)
         session = _session_for_attempts(conn, user_id, course_id, code, session_id, stamp)
         source, assisted = MODE_SOURCE[session.mode]
-        ids, touched, reached = [], [], session.position
+        walkthrough = session.mode == "exam-walkthrough"
+        guessing = walkthrough and trials.trials_on(conn, user_id)  # the switch as it is now
+        ids, touched, reached, revealed = [], [], session.position, []
         for n, a in enumerate(checked):
             topic_id, paper, position = _attempt_topic(conn, user_id, course_id, code, a, n)
             attempt_id = new_id()
@@ -899,6 +927,19 @@ def submit_attempts(
                 )
             )
             ids.append(attempt_id)
+            if walkthrough and a["practice_item_id"] is not None:
+                revealed.append(a["practice_item_id"])
+                if guessing:
+                    trials.record_trial(
+                        conn,
+                        user_id,
+                        session.id,
+                        a["practice_item_id"],
+                        topic_id,
+                        a,
+                        f"attempts[{n}]",
+                        stamp,
+                    )
             if a["practice_item_id"] is not None:
                 # solving a parked item judges it fine, right or wrong (D-253); a live one is
                 # matched by nothing, so no read of its state comes first
@@ -935,6 +976,8 @@ def submit_attempts(
             logged.append(
                 {"topic_id": topic_id, "day_score": day["score"], "rating": day["rating"], **shown}
             )
+        # Last, after every write: the trials are on disk before the reveal exists (D-315).
+        shown_origin = trials.reveal(conn, revealed) if revealed else None
 
     # Report: after the commit, so only saved attempts are logged.
     log.info(
@@ -949,4 +992,7 @@ def submit_attempts(
             }
         )
     )
-    return {"session_id": session.id, "attempt_ids": ids, "topics": topics}
+    reply = {"session_id": session.id, "attempt_ids": ids, "topics": topics}
+    if shown_origin is not None:
+        reply["revealed"] = shown_origin
+    return reply

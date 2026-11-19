@@ -129,7 +129,13 @@ def partial_unique(name: str, *cols, where: str) -> Index:
 
 # --- identity -------------------------------------------------------------
 
-user = Table("user", metadata, ulid_pk(), ts())
+user = Table(
+    "user",
+    metadata,
+    ulid_pk(),
+    ts(),
+    bool_col("trials_on"),  # 1 = walkthroughs hide a generated item and ask for a guess (D-313)
+)
 
 
 # --- course structure -----------------------------------------------------

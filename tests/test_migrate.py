@@ -31,7 +31,7 @@ from studysystem.db.tables import (
 )
 from tests._study import run_study
 
-HEAD = "0025"
+HEAD = "0026"
 
 
 def stamp() -> str | None:
@@ -1286,3 +1286,26 @@ def test_0025_starts_every_course_unknown_and_not_elective(empty_engine):
             text("SELECT hours_per_credit, hours_per_credit_tier, elective FROM course")
         ).one()
     assert tuple(row) == (None, "unknown", 0)
+
+
+# --- 0026: the trials switch on `user` (D-312, D-313) --------------------------------------
+
+
+def test_0026_adds_the_trials_switch_off_for_an_existing_user(empty_engine):
+    """A user stored before 0026 comes through with trials off - the D-312 default, no
+    backfill - and the downgrade takes the column away again."""
+    command.upgrade(migrate.alembic_config(empty_engine), "0025")
+    with empty_engine.begin() as conn:
+        conn.execute(insert(user).values(id="u" * 26, created_at="2026-11-19T00:00:00Z"))
+    command.upgrade(migrate.alembic_config(empty_engine), "0026")
+
+    columns = {c["name"]: c for c in inspect(empty_engine).get_columns("user")}
+    assert columns["trials_on"]["nullable"] is False
+    with empty_engine.connect() as conn:
+        checks = {c["name"] for c in inspect(conn).get_check_constraints("user")}
+        assert conn.execute(text('SELECT trials_on FROM "user"')).scalar_one() == 0
+    assert "ck_user_trials_on_bool" in checks
+
+    command.downgrade(migrate.alembic_config(empty_engine), "0025")
+
+    assert "trials_on" not in {c["name"] for c in inspect(empty_engine).get_columns("user")}

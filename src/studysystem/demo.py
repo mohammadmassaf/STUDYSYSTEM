@@ -19,9 +19,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import platformdirs
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 
 from studysystem.db.engine import data_dir, db_path
+from studysystem.db.tables import course, material
 from studysystem.errors import StudyError
 from studysystem.services import (
     assessments,
@@ -553,6 +554,31 @@ def _hour(engine, uid, shown, entry, k, started_at, minutes, topic_ids):
     return minutes
 
 
+def _generated_item(engine: Engine, uid: str) -> int:
+    """One practice item generated from CS304's first chapter, on the first topic its task
+    offers. Written through the generation contract, as a host would. Returns 1."""
+    with engine.connect() as conn:
+        first = conn.execute(
+            select(material.c.id)
+            .join(course, course.c.id == material.c.course_id)
+            .where(course.c.code == DIRECTIVE_COURSE, material.c.kind == "chapter")
+            .order_by(material.c.id)  # ULIDs sort by creation: the first chapter added
+            .limit(1)
+        ).scalar_one()
+    task = start_generation(engine, uid, "practice", material_id=first, count=1)
+    topic_id = task.payload["rules"]["topics"][0]["id"]
+    item = {
+        "question": "A host has address 10.4.17.200/21. Give its network address and the last "
+        "usable host address of its subnet.",
+        "answer_key": "Network 10.4.16.0; last usable host 10.4.23.254.",
+        "topic_id": topic_id,
+        "source": "from-material",
+    }
+    reply = submit_generation(engine, uid, task.payload["task_id"], {"items": [item]})
+    assert reply["status"] == "closed", reply
+    return 1
+
+
 def seed(engine: Engine, today: datetime.date | None = None) -> dict:
     """Write the whole demo through the services and check it reads back (`get_state`). Returns a
     summary: counts of what was written. `today` defaults to the machine's date."""
@@ -637,6 +663,10 @@ def seed(engine: Engine, today: datetime.date | None = None) -> dict:
             engine, uid, "format-preference", directive_text=DIRECTIVE, code=DIRECTIVE_COURSE
         )
         summary["directives"] = 1
+
+        # one generated question on a transcribed CS304 topic, so a walkthrough with trials on
+        # has an item to hide among a paper's questions (4.13, D-314)
+        summary["generated"] = _generated_item(engine, uid)
 
         # Past days, oldest first: the plan of the morning (stamped 08:00), then that day's hours.
         shown: list[dict] = []

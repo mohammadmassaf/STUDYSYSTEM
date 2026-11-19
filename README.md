@@ -34,7 +34,17 @@ All tools start with `study_`. A failure comes back as `{code, message, field_er
   `study_derive_profile`
 - **Plan and study loop:** `study_get_plan`, `study_start_session`, `study_submit_attempt`,
   `study_log_hours` (the only way minutes are recorded), `study_get_gate`
+- **Generator trials:** `study_set_trials` (off by default; see below)
 - **Smoke test:** `study_ping`
+
+### Generator trials (optional)
+
+`study_set_trials` (or the switch on the dashboard's Plan page) turns on discrimination trials.
+With them on, every walkthrough of a past paper hides one generated question among the paper's
+questions. After each answer the host asks "real or generated?", the server records the guess,
+and then it shows where the question came from. The guesses test how real the generated
+questions look. They are off by default, because they add a question to every walkthrough
+answer: turn them on only if you want to judge the generator.
 
 ## Setup
 

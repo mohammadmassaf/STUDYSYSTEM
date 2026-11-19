@@ -28,7 +28,7 @@ from starlette.routing import Route
 
 from studysystem.db.migrate import current_revision
 from studysystem.errors import StudyError, busy
-from studysystem.services import capacity, feedback, state, study_loop, values
+from studysystem.services import capacity, feedback, state, study_loop, trials, values
 from studysystem.services.users import current_user
 from studysystem.startup import open_database
 
@@ -67,8 +67,10 @@ STOP_FIELDS = ("code", "session_id", "minutes", "setup_key", "semester_name", "d
 ACCEPT_FIELDS = ("suggestion_id", "from_date")
 CAPACITY_FIELDS = ("hours_per_week", "from_date")  # study_set_capacity's (D-290)
 CONFIRM_FIELDS = ("directive_id",)  # study_confirm_directive's, from the Plan page (D-311)
-# Fields the service reads as a number; every other field must be text.
+TRIALS_FIELDS = ("on",)  # study_set_trials's (D-317)
+# Fields the service reads as a number or a true/false; every other field must be text.
 NUMBER_FIELDS = ("minutes", "hours_per_week")
+FLAG_FIELDS = ("on",)
 
 
 def _error(err: StudyError) -> JSONResponse:
@@ -135,7 +137,7 @@ def _args(body: dict, route: str, fields: tuple[str, ...], needed: tuple[str, ..
             raise values.invalid(field, "is missing", fix)
     for field in fields:
         if (
-            field not in NUMBER_FIELDS
+            field not in NUMBER_FIELDS + FLAG_FIELDS
             and body.get(field) is not None
             and not isinstance(body[field], str)
         ):
@@ -210,6 +212,7 @@ def create_app(engine: Engine) -> Starlette:
                 CONFIRM_FIELDS,
                 CONFIRM_FIELDS,
             ),
+            write("/trials", trials.set_trials, TRIALS_FIELDS, TRIALS_FIELDS),
         ],
         middleware=[Middleware(BaseHTTPMiddleware, dispatch=_own_host)],
     )

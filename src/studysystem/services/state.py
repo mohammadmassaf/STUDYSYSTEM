@@ -32,6 +32,7 @@ from studysystem.db.tables import (
     plan_item,
     topic,
 )
+from studysystem.services import trials
 from studysystem.services.adherence import DEVIATION_KEYS, weekly_adherence
 from studysystem.services.ids import now
 from studysystem.services.plan import _local_day, chapter_name, entries_of
@@ -736,6 +737,16 @@ def _system_work(conn: Connection, user_id: str, today: datetime.date) -> dict:
     return system_work(conn, user_id, shortfall(conn, user_id, today))
 
 
+# --- settings -------------------------------------------------------------------
+
+# The student's own switches. One so far: discrimination trials, off by default (D-312, D-313).
+SETTINGS_SCHEMA = _record({"trials_on": BOOL})
+
+
+def _settings(conn: Connection, user_id: str, today: datetime.date) -> dict:
+    return {"trials_on": trials.trials_on(conn, user_id)}
+
+
 # --- study time ---------------------------------------------------------------
 
 # D-283: what the Today cards read. Hours are explicit, so every 0 here is a real 0. The weekly
@@ -819,6 +830,7 @@ SECTIONS: dict[str, tuple[Builder, dict]] = {
     "shortfall": (_shortfall, SHORTFALL_SCHEMA),
     "system_work": (_system_work, SYSTEM_WORK_SCHEMA),
     "study_time": (_study_time, STUDY_TIME_SCHEMA),
+    "settings": (_settings, SETTINGS_SCHEMA),
 }
 CHECKS = {name: Draft202012Validator(schema) for name, (_, schema) in SECTIONS.items()}
 
