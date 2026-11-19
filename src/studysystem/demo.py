@@ -27,6 +27,7 @@ from studysystem.services import (
     assessments,
     capacity,
     courses,
+    feedback,
     materials,
     past_exams,
     plan,
@@ -40,6 +41,8 @@ from studysystem.services.generation import start_generation, submit_generation
 from studysystem.services.users import ensure_user
 
 DATA_ENV = "STUDYSYSTEM_DATA_DIR"
+DIRECTIVE_COURSE = "CS304"
+DIRECTIVE = "Prefer short MCQ with four options over open questions."  # written for the demo
 VAULT_ENV = "STUDYSYSTEM_VAULT_DIR"
 APP_NAME = "studysystem-demo"
 SEMESTER = "Demo Semester"
@@ -627,6 +630,13 @@ def seed(engine: Engine, today: datetime.date | None = None) -> dict:
 
         for hours, offset in CAPACITY:
             capacity.set_capacity(engine, uid, hours, day(offset).isoformat())
+
+        # one proposed directive, so the Plan page's System work block has a Confirm to show
+        # (4.12, D-311) beside CS304's Partial, whose 3 papers leave its past-papers item at 0
+        feedback.submit_feedback(
+            engine, uid, "format-preference", directive_text=DIRECTIVE, code=DIRECTIVE_COURSE
+        )
+        summary["directives"] = 1
 
         # Past days, oldest first: the plan of the morning (stamped 08:00), then that day's hours.
         shown: list[dict] = []

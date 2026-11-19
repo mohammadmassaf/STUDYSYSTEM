@@ -36,6 +36,7 @@ from studysystem.services.adherence import DEVIATION_KEYS, weekly_adherence
 from studysystem.services.ids import now
 from studysystem.services.plan import _local_day, chapter_name, entries_of
 from studysystem.services.shortfall import shortfall
+from studysystem.services.system_work import system_work
 from studysystem.services.topics import TAGGABLE as LIVE_TOPICS  # the live statuses
 from studysystem.services.unconfirmed import unconfirmed_by_course
 from studysystem.services.units import read_unit
@@ -706,6 +707,35 @@ def _shortfall(conn: Connection, user_id: str, today: datetime.date) -> dict:
     }
 
 
+# --- system work --------------------------------------------------------------
+
+# D-310, D-311: what the Plan page's System work block reads. Both lists empty = no room, or
+# nothing to do; the page then shows no block.
+SYSTEM_WORK_SCHEMA = _record(
+    {
+        "papers": _list(
+            _record({"course_id": ID, "code": TEXT, "setup_key": TEXT, "reason": TEXT})
+        ),
+        "directives": _list(
+            _record(
+                {
+                    "id": ID,
+                    "kind": {"enum": ["format-preference", "generator-correction"]},
+                    "text": TEXT,
+                    "scope": {"enum": ["topic", "course", "all"]},
+                    "applies_to": TEXT,
+                }
+            )
+        ),
+    }
+)
+
+
+def _system_work(conn: Connection, user_id: str, today: datetime.date) -> dict:
+    """4.12: zero-estimate past papers and proposed directives, only on a surplus (D-310)."""
+    return system_work(conn, user_id, shortfall(conn, user_id, today))
+
+
 # --- study time ---------------------------------------------------------------
 
 # D-283: what the Today cards read. Hours are explicit, so every 0 here is a real 0. The weekly
@@ -787,6 +817,7 @@ SECTIONS: dict[str, tuple[Builder, dict]] = {
     "courses": (_courses, COURSES_SCHEMA),
     "metrics": (_metrics, METRICS_SCHEMA),
     "shortfall": (_shortfall, SHORTFALL_SCHEMA),
+    "system_work": (_system_work, SYSTEM_WORK_SCHEMA),
     "study_time": (_study_time, STUDY_TIME_SCHEMA),
 }
 CHECKS = {name: Draft202012Validator(schema) for name, (_, schema) in SECTIONS.items()}

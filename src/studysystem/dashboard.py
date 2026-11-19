@@ -28,7 +28,7 @@ from starlette.routing import Route
 
 from studysystem.db.migrate import current_revision
 from studysystem.errors import StudyError, busy
-from studysystem.services import capacity, state, study_loop, values
+from studysystem.services import capacity, feedback, state, study_loop, values
 from studysystem.services.users import current_user
 from studysystem.startup import open_database
 
@@ -66,6 +66,7 @@ START_FIELDS = ("code", "mode", "subject_type", "subject_id", "semester_name")
 STOP_FIELDS = ("code", "session_id", "minutes", "setup_key", "semester_name", "deviation_reason")
 ACCEPT_FIELDS = ("suggestion_id", "from_date")
 CAPACITY_FIELDS = ("hours_per_week", "from_date")  # study_set_capacity's (D-290)
+CONFIRM_FIELDS = ("directive_id",)  # study_confirm_directive's, from the Plan page (D-311)
 # Fields the service reads as a number; every other field must be text.
 NUMBER_FIELDS = ("minutes", "hours_per_week")
 
@@ -202,6 +203,12 @@ def create_app(engine: Engine) -> Starlette:
                 capacity.accept_capacity_suggestion,
                 ACCEPT_FIELDS,
                 ACCEPT_FIELDS,
+            ),
+            write(
+                "/directives/confirm",
+                feedback.confirm_directive,
+                CONFIRM_FIELDS,
+                CONFIRM_FIELDS,
             ),
         ],
         middleware=[Middleware(BaseHTTPMiddleware, dispatch=_own_host)],
