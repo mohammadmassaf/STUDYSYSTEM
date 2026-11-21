@@ -1,12 +1,23 @@
 [project]
 name = "studysystem"
-version = "0.2.0"
+version = "1.0.0"
 description = "An MCP server that plans and tracks a student's semester: courses, past exams, topics, a ranked study plan, logged hours."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
-    { name = "mohammadmassaf", email = "mahdiassaf998@gmail.com" }
+    { name = "mohammadmassaf", email = "mohammadmassaf1@gmail.com" }
 ]
 requires-python = ">=3.13"
+keywords = ["mcp", "study-planner", "exam-prep", "spaced-repetition", "claude"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Education",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Education",
+]
 dependencies = [
     "alembic>=1.20.0",
     "click>=8.5.0",
@@ -23,6 +34,11 @@ dependencies = [
     "starlette>=1.6.0",
     "uvicorn>=0.52.4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/mohammadmassaf/STUDYSYSTEM"
+Source = "https://github.com/mohammadmassaf/STUDYSYSTEM"
+Issues = "https://github.com/mohammadmassaf/STUDYSYSTEM/issues"
 
 [project.scripts]
 study = "studysystem.cli:study"
