@@ -191,6 +191,7 @@ h2{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.15;marg
 .hon-rows b{font-weight:600;font-variant-numeric:tabular-nums}
 .hon-rows.plain li{display:flex;justify-content:space-between;gap:12px}
 .hon-rows.plain li small{display:inline;margin-left:6px}
+.hon .more{padding:10px 0 0;border-top:1px solid var(--hair);width:100%;text-align:left}
 .hon .meta{font-size:.8125rem;color:var(--text-3);margin-top:8px}
 .hon-sub{margin-top:14px}
 
@@ -556,11 +557,15 @@ function tasks(){
 // ---- Today: the honesty panel - four numbers, never blended (D-12, D-304)
 const hrs=h=>(Math.round(h*10)/10)+' h';
 const honCard=(label,sub,body,title)=>`<div class="card hon"${title?` title="${esc(title)}"`:''}><div class="label">${label}</div><p class="muted">${sub}</p>${body}</div>`;
+// folded, the card lists the first COVER_SHOWN courses, so it stands level with Adherence beside it
+const COVER_SHOWN=4;
 function coverageCard(){
-  const rows=pickList().map(c=>{const r=c.coverage;
+  const all=pickList(),more=all.length>COVER_SHOWN,open=!!store.coverageOpen;
+  const toggle=more?`<button class="quiet more" type="button" data-act="fold-coverage" aria-expanded="${open}" aria-controls="coverrows">${open?'Show fewer':`Show all ${all.length}`}</button>`:'';
+  const rows=(open||!more?all:all.slice(0,COVER_SHOWN)).map(c=>{const r=c.coverage;
     return r?`<li title="${esc(r.tier_note)}"><span class="code" style="--h:${hue(c)}"><i></i>${esc(c.code)}</span><b class="num">${(r.value*100).toFixed(0)}%</b><em>${esc(r.denominator_tier)}</em><small>${esc(r.tier_note)} · plan of ${fmt(r.computed_at.slice(0,10))}</small></li>`
       :`<li><span class="code" style="--h:${hue(c)}"><i></i>${esc(c.code)}</span><b class="num">—</b><em>${esc(c.coverage_tier||'unknown')}</em><small>unknown - no reading yet</small></li>`}).join('');
-  return honCard('Coverage at exam','How much of each course the plan reaches by its exam, one figure per course.',rows?`<ul class="hon-rows">${rows}</ul>`:'<p class="muted">No courses yet.</p>');
+  return honCard('Coverage at exam','How much of each course the plan reaches by its exam, one figure per course.',rows?`<ul class="hon-rows" id="coverrows">${rows}</ul>${toggle}`:'<p class="muted">No courses yet.</p>');
 }
 function adherenceCard(){
   const a=raw.metrics?.adherence;
@@ -722,6 +727,7 @@ document.addEventListener('click',e=>{
   if(act==='goal'){goalEdit={...GOAL_CLOSED,open:true};draw();$('#goal input')?.select();return}
   if(act==='goal-cancel'){goalEdit={...GOAL_CLOSED};draw();return}
   if(act==='fold-tasks'){store.tasksFolded=!store.tasksFolded;saveStore();draw();$('[data-act="fold-tasks"]')?.focus();return}
+  if(act==='fold-coverage'){store.coverageOpen=!store.coverageOpen;saveStore();draw();$('[data-act="fold-coverage"]')?.focus();return}
   if(act==='menu')return menu(id,openMenu()!==id);
   if(act==='wtab'){store.watchTab=id;saveStore();draw();$('[data-act="wtab"][aria-selected="true"]')?.focus();return}
   if(act==='pick'){const which=b.dataset.menu;if(which==='logCourse')logDraft.code=id;else{store[which]=id;saveStore()}if(which==='course'||which==='mode')note=null;draw();$('#'+which+'Btn')?.focus();return}
