@@ -1,6 +1,8 @@
-"""Migrations behind one command (D-22): `study migrate` is the only writer; the server only
-checks it is at head and refuses to start otherwise."""
+"""Migrations behind one command (D-22): only `study migrate` changes an existing schema. A
+server or dashboard builds a brand-new database (D-324, D-335, D-337), and otherwise only checks
+it is at head and refuses to start."""
 
+import warnings
 from pathlib import Path
 
 from alembic import command
@@ -8,7 +10,8 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from alembic.util import CommandError
-from sqlalchemy import Engine
+from sqlalchemy import Engine, inspect
+from sqlalchemy.exc import SAWarning
 
 from studysystem.db.engine import READ_ONLY
 from studysystem.errors import StudyError
@@ -66,6 +69,14 @@ def current_revision(engine: Engine) -> str | None:
     return rev
 
 
+def has_tables(engine: Engine) -> bool:
+    """False for a file just created, one a killed first start left behind before its tables were
+    saved, or one emptied since. A read, so it takes no write lock."""
+    with engine.connect() as conn:
+        conn.execution_options(**{READ_ONLY: True})
+        return bool(inspect(conn).get_table_names())
+
+
 def _known(revision: str) -> bool:
     try:
         return ScriptDirectory.from_config(alembic_config()).get_revision(revision) is not None
@@ -85,7 +96,15 @@ def check_schema(engine: Engine) -> None:
 
 
 def upgrade(engine: Engine) -> None:
-    command.upgrade(alembic_config(engine), "head")
+    # SQLAlchemy cannot reflect an expression index and says so at each table rebuild. The
+    # migrations recreate them, and a test lists every index the result must hold, so the lines
+    # would only worry a new user reading the host's log. Not silenced in env.py, where
+    # autogenerate runs too and a developer needs them (D-27).
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", "Skipped unsupported reflection of expression-based index", SAWarning
+        )
+        command.upgrade(alembic_config(engine), "head")
 
 
 def downgrade(engine: Engine, target: str) -> None:

@@ -49,8 +49,9 @@ answer: turn them on only if you want to judge the generator.
 ## Setup
 
 1. Install [uv](https://docs.astral.sh/uv/), then from the repo: `uv sync`
-2. `uv run study migrate` - builds the database and its one user. Run it again after every
-   upgrade: the server refuses to start while the schema is behind.
+2. The first start of the server or the dashboard builds the database and its one user. After
+   every upgrade run `uv run study migrate`: the server refuses to start while the schema is
+   behind.
 3. Set `STUDYSYSTEM_VAULT_DIR` to the notes folder (e.g. an Obsidian vault's study folder).
    Each course's `vault_folder` sits under it, and its notes and summaries are written there as
    markdown and PDF. Without it notes are still saved in the database, but every export reports
@@ -89,7 +90,9 @@ Rebuild and reinstall after every change under `plugin/`.
   of cloud-synced folders.
 - `snapshots/` next to it holds restore points: one copy per day at server start, plus one
   before every `study migrate` (`-premigrate-`) and `study downgrade` (`-predowngrade-`).
-  To restore one, stop every server and copy it over `studysystem.db`.
+  To restore one, stop every server and copy it over `studysystem.db`. If the database goes
+  missing while a copy is here, the server refuses to start instead of building an empty one;
+  to start over with an empty one, run `uv run study migrate`.
 - `papers/` holds the server's own copy of every past paper and material, named by its hash.
 
 ## Commands

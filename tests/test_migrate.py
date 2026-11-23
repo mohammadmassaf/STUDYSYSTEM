@@ -138,6 +138,10 @@ def test_check_schema_passes_at_head():
 
 
 def test_server_refuses_to_start_behind_head():
+    engine = make_engine(db_path())
+    command.upgrade(migrate.alembic_config(engine), "0025")
+    engine.dispose()
+
     proc = subprocess.run(
         [sys.executable, "-m", "studysystem.server"],
         stdin=subprocess.DEVNULL,
@@ -146,7 +150,7 @@ def test_server_refuses_to_start_behind_head():
     )
     assert proc.returncode == 1
     assert "study migrate" in proc.stderr
-    assert stamp() is None  # it did not migrate on its own
+    assert stamp() == "0025"  # it did not migrate on its own
     assert not (data_dir() / "snapshots").exists()  # and stopped before snapshotting
 
 
@@ -704,15 +708,6 @@ def test_migrate_twice_leaves_exactly_one_user():
 
 def serve() -> subprocess.CompletedProcess:
     return run_study("serve")
-
-
-def test_study_serve_refuses_an_empty_database():
-    proc = serve()
-
-    assert proc.returncode == 1
-    assert f"database has no schema yet, head is {HEAD}" in proc.stderr
-    assert "run: study migrate" in proc.stderr
-    assert not db_path().exists()  # refused before opening it: no empty file left behind
 
 
 def test_study_serve_refuses_a_locked_database_in_one_line():
