@@ -1,0 +1,71 @@
+name: publish
+
+# A version tag builds the package once and uploads that same build: to TestPyPI, then - for a
+# final version, after Mohammad approves - to PyPI (D-323, D-334). Trusted publishing: each index
+# trusts this file in this repo, so no password or token is stored anywhere.
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      # The tag is the release truth (D-334): v1.0.0rc1 builds 1.0.0rc1. The change stays in this
+      # runner; pyproject.toml in the repo keeps its own number. uv refuses a tag that is not a
+      # valid version, which stops the run here.
+      - name: version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          uv version --frozen "$version"
+          if [[ "$version" =~ (a|b|rc|dev)[0-9]+$ ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+      - run: uv build
+      # An upload can never be replaced, so the wheel must start before it leaves the runner.
+      - name: the wheel starts
+        run: uv run --isolated --no-project --with dist/*.whl study --help
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    needs: build
+    runs-on: ubuntu-latest
+    # The environment name is part of what TestPyPI's trusted publisher checks.
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: astral-sh/setup-uv@v7
+      - run: uv publish --trusted-publishing always --publish-url https://test.pypi.org/legacy/
+
+  pypi:
+    needs: [build, testpypi]
+    if: needs.build.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    # The pypi environment requires Mohammad's approval in GitHub's settings: this job waits for
+    # his click in the Actions tab (D-323's "waits for his go").
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: astral-sh/setup-uv@v7
+      - run: uv publish --trusted-publishing always
