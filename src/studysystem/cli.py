@@ -1,5 +1,5 @@
-"""The `study` command: migrate, downgrade, serve, dashboard. The only process allowed to alter the
-database schema (D-22)."""
+"""The `study` command: migrate, downgrade, serve, dashboard. Only migrate and downgrade alter an
+existing schema (D-22); serve and dashboard build a brand-new one (D-324, D-335)."""
 
 import datetime
 from pathlib import Path

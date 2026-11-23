@@ -1,6 +1,7 @@
-"""Who is asking (D-31). v1 has exactly one user, created by `study migrate`. The front door (a
-tool, later the HTTP route) calls `current_user()` and passes `user_id` into services; in v2 only
-`current_user()` changes, to read the identity off the request."""
+"""Who is asking (D-31). v1 has exactly one user, created by `study migrate` or by the first start
+on a brand-new database (D-324). The front door (a tool, later the HTTP route) calls
+`current_user()` and passes `user_id` into services; in v2 only `current_user()` changes, to read
+the identity off the request."""
 
 from collections.abc import Sequence
 
@@ -18,8 +19,8 @@ def _user_ids(conn: Connection) -> Sequence[str]:
 
 
 def ensure_user(engine: Engine) -> str:
-    """The one v1 user's id, creating the row on the first `study migrate`. Read and insert share
-    one unit, so two migrates racing on a new file cannot both find it empty."""
+    """The one v1 user's id, creating the row on the first `study migrate` or first start. Read and
+    insert share one unit, so two of them racing on a new file cannot both find it empty."""
     with write_unit(engine) as conn:
         ids = _user_ids(conn)
         if not ids:
@@ -32,7 +33,7 @@ def ensure_user(engine: Engine) -> str:
 
 def current_user(engine: Engine) -> str:
     """The id every front door passes into services. Read only: creating the user is migrate's
-    job, and a read that could write would race the other process (D-31)."""
+    and startup's job, and a read that could write would race the other process (D-31)."""
     with read_unit(engine) as conn:
         ids = _user_ids(conn)
         if len(ids) == 0:

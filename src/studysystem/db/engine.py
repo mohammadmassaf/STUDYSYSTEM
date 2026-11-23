@@ -100,6 +100,18 @@ def make_engine(path: Path) -> Engine:
     return engine
 
 
+def has_snapshot() -> bool:
+    """Whether this data folder holds a finished copy: it had a database before (D-337). A folder
+    that cannot be read counts as holding one: unknown is not empty. `Path.glob` would hide that
+    error and answer no."""
+    try:
+        return any(name.endswith(".db") for name in os.listdir(data_dir() / "snapshots"))
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+
+
 def snapshot(
     engine: Engine, today: datetime.date, suffix: str = "", unique: bool = False
 ) -> Path | None:
