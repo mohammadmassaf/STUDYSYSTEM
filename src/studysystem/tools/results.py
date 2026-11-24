@@ -9,6 +9,9 @@ exception: SQLite giving up on its lock wait is not a crash but a busy database,
 
 A generation task goes out the same way, with a picture block after the JSON for each page that
 has one (D-17, D-49).
+
+`refusal` is the one exit before a tool runs: the database is not the one this build expects
+(D-338).
 """
 
 import json
@@ -31,6 +34,17 @@ def _result(body: dict, *, is_error: bool) -> CallToolResult:
 
 def error_result(err: StudyError) -> CallToolResult:
     return _result(err.to_dict(), is_error=True)
+
+
+def refusal(check: Callable[[], None]) -> CallToolResult | None:
+    """The error result when `check` raises, in the shape `run` gives it; None when it passes."""
+    try:
+        check()
+    except StudyError as err:
+        return error_result(err)
+    except OperationalError as err:
+        return error_result(busy(err))
+    return None
 
 
 def run(call: Callable[[], dict]) -> CallToolResult:

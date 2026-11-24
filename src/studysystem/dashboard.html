@@ -760,9 +760,10 @@ document.addEventListener('submit',e=>{if(e.target.id==='logform'){e.preventDefa
 addEventListener('hashchange',()=>{draw();scrollTo({top:0})});
 addEventListener('resize',nav);
 
-async function load(){const r=await fetch("/state",{headers:{Accept:'application/json'}});if(!r.ok)throw Error('The state request failed');adapt(await r.json());draw()}
+async function load(){const r=await fetch("/state",{headers:{Accept:'application/json'}});if(!r.ok)throw await r.json().catch(()=>Error('The state request failed'));adapt(await r.json());draw()}
 nav();
-load().catch(e=>{$('#app').innerHTML=`<p class="empty">${esc(e instanceof TypeError?'The dashboard server is not running':e.message)}. Start it, then reload this page.</p>`});
+// An error the server named (D-330: behind head, run study migrate) is shown in its own words.
+load().catch(e=>{$('#app').innerHTML=`<p class="empty">${esc(e.code?`${e.message}. ${e.fix}`:(e instanceof TypeError?'The dashboard server is not running':e.message)+'. Start it')}, then reload this page.</p>`});
 </script>
 </body>
 </html>

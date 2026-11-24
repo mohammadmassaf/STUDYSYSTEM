@@ -176,16 +176,17 @@ def set_autostart(on: bool) -> dict:
 
     Returns {"autostart", "command"} - the command Windows runs, or null when off.
 
-    Refused: autostart_unsupported off Windows; autostart_custom_data_dir on, while
-    STUDYSYSTEM_DATA_DIR points elsewhere - Windows would start a dashboard on the default folder.
+    Refused: autostart_unsupported off Windows; autostart_custom_data_dir while STUDYSYSTEM_DATA_DIR
+    points elsewhere - the one Windows start on this machine is for the default folder, so a server
+    on another one must not set it, nor remove it (D-340).
     """
     if sys.platform != "win32":
         raise _unsupported()
-    if on and os.environ.get("STUDYSYSTEM_DATA_DIR"):
+    if os.environ.get("STUDYSYSTEM_DATA_DIR"):
         raise StudyError(
             code="autostart_custom_data_dir",
-            message="this server uses a custom data folder; a Windows start would use the default",
-            fix="turn the Windows start on from a server that uses the default data folder",
+            message="this server uses a custom data folder; the Windows start uses the default one",
+            fix="turn the Windows start on or off from a server that uses the default data folder",
         )
     _set_autostart(on)
     _mark_asked()

@@ -68,7 +68,8 @@ def test_the_first_open_asks_about_the_windows_start(machine):
     assert launcher.dashboard("open")["ask_user"] == launcher.ASK
 
 
-def test_an_answer_of_no_stops_the_question(machine):
+def test_an_answer_of_no_stops_the_question(machine, monkeypatch):
+    monkeypatch.delenv("STUDYSYSTEM_DATA_DIR")  # the default folder, as a real install has
     machine["up"] = True
 
     off = launcher.dashboard("autostart_off")
@@ -91,21 +92,28 @@ def test_an_answer_of_yes_writes_the_windows_start(machine, monkeypatch):
     assert (sent["autostart"], sent["ask_user"]) == (True, None)
 
 
-def test_the_answer_is_kept_in_the_data_folder(machine, isolated_data_dir):
+def test_the_answer_is_kept_in_the_data_folder(machine, monkeypatch, tmp_path):
+    monkeypatch.delenv("STUDYSYSTEM_DATA_DIR")
+
     launcher.dashboard("autostart_off")
 
-    kept = json.loads((isolated_data_dir / "dashboard.json").read_text(encoding="utf-8"))
+    # the suite's stand-in for the platform folder, so no test writes the real one
+    kept = tmp_path / "default" / "studysystem" / "dashboard.json"
+    assert json.loads(kept.read_text(encoding="utf-8")) == {"autostart_asked": True}
 
-    assert kept == {"autostart_asked": True}
 
+@pytest.mark.parametrize("action", ["autostart_on", "autostart_off"])
+def test_a_custom_data_folder_changes_no_windows_start(machine, isolated_data_dir, action):
+    """STUDYSYSTEM_DATA_DIR is set by the autouse fixture. Windows starts the dashboard on the
+    default folder, so the start belongs to the server of that folder, on and off (D-340)."""
+    machine["run"] = "his own start"
 
-def test_a_custom_data_folder_refuses_the_windows_start(machine):
-    # STUDYSYSTEM_DATA_DIR is set by the autouse fixture: Windows would start on the default one
     with pytest.raises(launcher.StudyError) as err:
-        launcher.dashboard("autostart_on")
+        launcher.dashboard(action)
 
     assert err.value.code == "autostart_custom_data_dir"
-    assert machine["run"] is None
+    assert machine["run"] == "his own start"
+    assert not (isolated_data_dir / "dashboard.json").exists()
 
 
 def test_off_windows_the_start_is_refused_and_never_asked(machine, monkeypatch):

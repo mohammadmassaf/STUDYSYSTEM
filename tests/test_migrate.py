@@ -1,7 +1,6 @@
 import datetime
 import sqlite3
 import subprocess
-import sys
 from types import SimpleNamespace
 
 import pytest
@@ -132,26 +131,6 @@ def test_check_schema_passes_at_head():
     engine = make_engine(db_path())
     migrate.upgrade(engine)
     migrate.check_schema(engine)  # no raise
-
-
-# --- the server refuses to start ------------------------------------------
-
-
-def test_server_refuses_to_start_behind_head():
-    engine = make_engine(db_path())
-    command.upgrade(migrate.alembic_config(engine), "0025")
-    engine.dispose()
-
-    proc = subprocess.run(
-        [sys.executable, "-m", "studysystem.server"],
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-    )
-    assert proc.returncode == 1
-    assert "study migrate" in proc.stderr
-    assert stamp() == "0025"  # it did not migrate on its own
-    assert not (data_dir() / "snapshots").exists()  # and stopped before snapshotting
 
 
 # --- the migration builds the schema the code believes in -----------------
@@ -532,7 +511,7 @@ def test_a_failed_daily_snapshot_does_not_stop_the_server(monkeypatch, caplog):
             started.append(True)
 
     monkeypatch.setattr(startup, "snapshot", disk_full)
-    monkeypatch.setattr(server, "create_server", lambda engine: Server())
+    monkeypatch.setattr(server, "create_server", lambda engine, check: Server())
 
     server.main()
 
@@ -757,37 +736,6 @@ def test_a_failed_wal_switch_refuses_the_server_in_one_line(monkeypatch, capsys)
     err = capsys.readouterr().err
     assert err.startswith("database_unavailable: cannot open")
     assert "WAL mode" in err
-
-
-def test_study_serve_refuses_a_database_behind_head_and_leaves_its_rows():
-    """I3302 at 0008, one migration behind: refused, not migrated, not snapshotted."""
-    engine = make_engine(db_path())
-    command.upgrade(migrate.alembic_config(engine), "0008")
-    with engine.begin() as conn:
-        conn.execute(insert(user).values(id=UID, created_at=AT))
-        conn.execute(
-            insert(course).values(
-                id=COURSE,
-                user_id=UID,
-                code="I3302",
-                name="Server-Side Web Development",
-                semester_name="Semester 1",
-                instructor_tier="unknown",
-                credits_tier="unknown",
-                created_at=AT,
-            )
-        )
-    engine.dispose()
-
-    proc = serve()
-
-    assert proc.returncode == 1
-    assert f"database is at 0008, head is {HEAD}" in proc.stderr
-    assert "run: study migrate" in proc.stderr
-    assert stamp() == "0008"
-    with sqlite3.connect(db_path()) as db:
-        assert db.execute("SELECT code FROM course").fetchall() == [("I3302",)]
-    assert not (data_dir() / "snapshots").exists()
 
 
 def test_study_serve_refuses_a_database_ahead_of_head():

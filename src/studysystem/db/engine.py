@@ -21,6 +21,15 @@ _WAL_BACKOFF = 0.05
 READ_ONLY = "studysystem_read_only"
 
 
+# How to put a copy back, for every fix that says to. A -wal file left by a crash holds pages of the
+# old file: SQLite writes them over the restored one, which is then changed or damaged (D-340).
+# Moved, not deleted: if the file turns out healthy, its -wal can hold hours that are nowhere else.
+HOW_TO_RESTORE = (
+    "stop every study program, move studysystem.db, studysystem.db-wal and studysystem.db-shm "
+    "(those that are there) to another folder, then copy the snapshot back as studysystem.db"
+)
+
+
 class WalUnavailable(RuntimeError):
     """The file could not be switched to WAL: another process kept it locked throughout."""
 
@@ -33,8 +42,8 @@ def unavailable(path: Path, e: BaseException) -> StudyError:
         code="database_unavailable",
         message=f"cannot open {path}: {getattr(e, 'orig', None) or e}",
         fix="if another program holds it (study migrate, the dashboard), close it and start "
-        "again; if it cannot be read or written, check its folder's permissions; if it is "
-        "damaged, restore a copy from the snapshots folder beside it",
+        "again; if it cannot be read or written, check its folder's permissions; only if it is "
+        f"damaged, restore a copy from the snapshots folder beside it: {HOW_TO_RESTORE}",
     )
 
 

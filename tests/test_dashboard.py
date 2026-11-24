@@ -6,19 +6,15 @@ import importlib.metadata
 import sqlite3
 
 import pytest
-from alembic import command
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from starlette.testclient import TestClient
 
 from studysystem.dashboard import create_app
-from studysystem.db.engine import db_path, make_engine
-from studysystem.db.migrate import alembic_config, head_revision
 from studysystem.db.tables import capacity, hours_entry, study_session
 from studysystem.services import study_loop
 from studysystem.services.courses import add_course
 from studysystem.services.units import write_unit
-from tests._study import run_study
 from tests.test_plan import _chapter
 
 SEM = "Semester 1 2026-2027"
@@ -332,22 +328,6 @@ def test_post_capacity_checks_its_fields(client, service_engine, user_id, body, 
     assert response.status_code == 400
     assert response.json()["field_errors"][0]["field"] == field
     assert capacity_rows(service_engine) == []
-
-
-# --- `study dashboard`, started the way he starts it ------------------------------------------
-
-
-def test_study_dashboard_refuses_a_database_behind_head_as_serve_does():
-    """The startup refusals are serve's own (startup.open_database); one case proves they run."""
-    engine = make_engine(db_path())
-    command.upgrade(alembic_config(engine), "0025")
-    engine.dispose()
-
-    proc = run_study("dashboard")
-
-    assert proc.returncode == 1
-    assert f"database is at 0025, head is {head_revision()}" in proc.stderr
-    assert "run: study migrate" in proc.stderr
 
 
 # --- started_at on POST /hours (D-307) --------------------------------------------------------
