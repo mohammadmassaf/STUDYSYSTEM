@@ -1,19 +1,19 @@
 """Migrations behind one command (D-22): only `study migrate` changes an existing schema. A
 server or dashboard builds a brand-new database (D-324, D-335, D-337), and otherwise only checks
-it is at head and refuses to start."""
+it: behind head it starts and every call refuses (D-325, D-338), ahead of head it does not start."""
 
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from alembic.util import CommandError
 from sqlalchemy import Engine, inspect
 from sqlalchemy.exc import SAWarning
 
-from studysystem.db.engine import READ_ONLY
+from studysystem.db.engine import HOW_TO_RESTORE, READ_ONLY
 from studysystem.errors import StudyError
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
@@ -34,15 +34,19 @@ class SchemaBehindHead(StudyError):
 
 class SchemaAheadOfHead(StudyError):
     """A database a newer build migrated: this build's migrations do not know its revision, so
-    `study migrate` cannot help - an older build must not touch it."""
+    `study migrate` cannot help - an older build must not touch it. `running`: the newer build came
+    while this one ran, so a restart runs it, and a restored snapshot would lose data (D-338)."""
 
-    def __init__(self, current, head):
+    def __init__(self, current, head, running=False):
         self.current, self.head = current, head
         super().__init__(
             code="schema_ahead_of_head",
             message=f"database is at {current}, unknown to this build (its head is {head})",
-            fix="run the newer build that migrated it, or restore a snapshot taken before that "
-            "migrate from the snapshots folder in the data directory",
+            fix="restart the app that runs this server, so it runs the newer build; for the "
+            "dashboard, sign out of the computer and in again"
+            if running
+            else "run the newer build that migrated it, or restore a snapshot taken before that "
+            f"migrate from the snapshots folder in the data directory: {HOW_TO_RESTORE}",
         )
 
 
@@ -77,22 +81,29 @@ def has_tables(engine: Engine) -> bool:
         return bool(inspect(conn).get_table_names())
 
 
-def _known(revision: str) -> bool:
-    try:
-        return ScriptDirectory.from_config(alembic_config()).get_revision(revision) is not None
-    except CommandError:
-        return False
+def schema_check(engine: Engine, running: bool = True) -> Callable[[], None]:
+    """The check a server runs before every call (D-338). Head and the migrations this build knows
+    are read here, once: while it runs, an upgrade can replace the files on disk, and its database
+    must be compared with the build in memory. Each call of the check reads only the database's
+    revision, and raises unless it is head: behind (or empty) and ahead are different fixes."""
+    script = ScriptDirectory.from_config(alembic_config())
+    head = script.get_current_head()
+    known = {migration.revision for migration in script.walk_revisions()}
+
+    def check() -> None:
+        current = current_revision(engine)
+        if current == head:
+            return
+        if current is not None and current not in known:
+            raise SchemaAheadOfHead(current, head, running)
+        raise SchemaBehindHead(current, head)
+
+    return check
 
 
 def check_schema(engine: Engine) -> None:
-    """Raise unless the database is at head: behind (or empty) and ahead are different fixes."""
-    current = current_revision(engine)
-    head = head_revision()
-    if current == head:
-        return
-    if current is not None and not _known(current):
-        raise SchemaAheadOfHead(current, head)
-    raise SchemaBehindHead(current, head)
+    """The same check, once, at the start."""
+    schema_check(engine, running=False)()
 
 
 def upgrade(engine: Engine) -> None:

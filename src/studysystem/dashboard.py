@@ -30,7 +30,7 @@ from studysystem.db.migrate import current_revision
 from studysystem.errors import StudyError, busy
 from studysystem.services import capacity, feedback, state, study_loop, trials, values
 from studysystem.services.users import current_user
-from studysystem.startup import open_database
+from studysystem.startup import call_check, open_database
 
 HOST = "127.0.0.1"
 PAGE = Path(__file__).with_name("dashboard.html")
@@ -44,9 +44,17 @@ STATUS = {
     "no_user": 500,
     "too_many_users": 500,
     "database_busy": 503,
+    "database_missing": 503,
+    "database_unavailable": 503,
+    "schema_behind_head": 503,
+    "schema_ahead_of_head": 503,
     "session_ended": 409,
     "session_expired": 409,
 }
+
+# These two answer on any schema (D-338): the page shows why the data routes refuse, and
+# `launcher.answering` reads /health to know the dashboard is up.
+UNCHECKED_PATHS = {"/", "/health"}
 
 # Each write's service arguments, by the same names: study_log_hours's, study_start_session's,
 # and the timer's stop (D-198).
@@ -145,19 +153,41 @@ def _args(body: dict, route: str, fields: tuple[str, ...], needed: tuple[str, ..
     return body
 
 
-def create_app(engine: Engine) -> Starlette:
-    """The app on `engine`. Called by main() and by tests, which pass their own engine."""
+def create_app(engine: Engine, check: Callable[[], None] | None = None) -> Starlette:
+    """The app on `engine`. Called by main(), which passes `call_check`, and by tests, which
+    pass their own engine."""
     version = importlib.metadata.version("studysystem")
+
+    async def at_head(request: Request, call_next: RequestResponseEndpoint) -> Response:
+        """`check` before every data route, in one place for the reason `_own_host` gives."""
+        if check is not None and request.url.path not in UNCHECKED_PATHS:
+            try:
+                await run_in_threadpool(check)
+            except StudyError as err:
+                return _error(err)
+            except OperationalError as err:
+                return _error(busy(err))
+        return await call_next(request)
 
     async def page(request: Request) -> HTMLResponse:
         # The page is served here, same origin as /state and /hours, because D-162 blocks writes
         # from a file:// page (D-186).
         return HTMLResponse(await run_in_threadpool(PAGE.read_text, encoding="utf-8"))
 
+    def revision() -> str | None:
+        """What /health names. None when the file is lost or cannot be read: connecting would make
+        an empty one, or fail, and the launcher must still see a dashboard here (D-340)."""
+        try:
+            if check is not None:
+                check()
+        except StudyError as err:
+            if err.code in ("database_missing", "database_unavailable"):
+                return None
+        return current_revision(engine)
+
     async def health(request: Request) -> JSONResponse:
         return await run_in_threadpool(
-            _answer,
-            lambda: {"server_version": version, "schema_revision": current_revision(engine)},
+            _answer, lambda: {"server_version": version, "schema_revision": revision()}
         )
 
     async def get_state(request: Request) -> JSONResponse:
@@ -214,11 +244,15 @@ def create_app(engine: Engine) -> Starlette:
             ),
             write("/trials", trials.set_trials, TRIALS_FIELDS, TRIALS_FIELDS),
         ],
-        middleware=[Middleware(BaseHTTPMiddleware, dispatch=_own_host)],
+        middleware=[  # in order: another site is refused before it can ask about the database
+            Middleware(BaseHTTPMiddleware, dispatch=_own_host),
+            Middleware(BaseHTTPMiddleware, dispatch=at_head),
+        ],
     )
 
 
 def main(port: int) -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="%(asctime)s %(message)s")
     logging.getLogger("studysystem").setLevel(logging.INFO)
-    uvicorn.run(create_app(open_database()), host=HOST, port=port)
+    engine = open_database()
+    uvicorn.run(create_app(engine, call_check(engine)), host=HOST, port=port)

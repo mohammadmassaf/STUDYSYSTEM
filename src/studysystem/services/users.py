@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from sqlalchemy import Connection, Engine, insert, select
 
+from studysystem.db.engine import HOW_TO_RESTORE
 from studysystem.db.tables import user
 from studysystem.errors import StudyError
 from studysystem.services.ids import new_id, now
@@ -47,6 +48,6 @@ def current_user(engine: Engine) -> str:
                 code="too_many_users",
                 message=f"this database has {len(ids)} users; v1 has exactly one",
                 fix="the file was changed outside `study migrate`; restore the latest copy "
-                "from the snapshots folder in the data directory",
+                f"from the snapshots folder in the data directory: {HOW_TO_RESTORE}",
             )
         return ids[0]

@@ -104,7 +104,8 @@ def test_a_start_killed_before_its_user_was_made_is_finished_by_the_next():
 
 
 def test_a_database_taken_down_to_base_is_not_rebuilt():
-    """It still holds Alembic's own table, so it is an existing database: refused, as before."""
+    """It still holds Alembic's own table, so it is an existing database: behind head. The server
+    starts, and its tools refuse (D-338)."""
     engine = make_engine(db_path())
     migrate.upgrade(engine)
     command.downgrade(migrate.alembic_config(engine), "base")
@@ -112,7 +113,7 @@ def test_a_database_taken_down_to_base_is_not_rebuilt():
 
     proc = run_study("serve")
 
-    assert proc.returncode == 1
+    assert proc.returncode == 0  # stdin closed: served, then ended
     assert "run: study migrate" in proc.stderr
     with sqlite3.connect(db_path()) as db:
         tables = db.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
