@@ -1,18 +1,28 @@
 """The dashboard route (3.1; D-17, D-161, D-162): the same services the tools call, behind HTTP.
 Each write is his 40 minutes on I3302, sent as the dashboard would send it."""
 
+import concurrent.futures
 import datetime
+import http.client
 import importlib.metadata
+import os
+import socket
 import sqlite3
+import subprocess
+import sys
+import time
+import urllib.request
 
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from starlette.testclient import TestClient
 
+from studysystem import dashboard
 from studysystem.dashboard import create_app
+from studysystem.db import migrate
 from studysystem.db.tables import capacity, hours_entry, study_session
-from studysystem.services import study_loop
+from studysystem.services import launcher, study_loop
 from studysystem.services.courses import add_course
 from studysystem.services.units import write_unit
 from tests.test_plan import _chapter
@@ -365,3 +375,141 @@ def test_post_hours_refuses_a_non_text_started_at(client, service_engine, web):
     assert response.status_code == 400
     assert response.json()["field_errors"][0]["field"] == "started_at"
     assert entries(service_engine) == 0
+
+
+# --- POST /shutdown: how `study stop` stops it (D-342) ------------------------------------------
+
+
+@pytest.fixture
+def stoppable(service_engine, user_id):
+    """A client, and how often the app was told to stop."""
+    stops = []
+    app = create_app(service_engine, stop=lambda: stops.append(1))
+    return TestClient(app, base_url=OWN), stops
+
+
+def test_shutdown_stops_the_dashboard(stoppable):
+    client, stops = stoppable
+
+    response = client.post("/shutdown", json={})
+
+    assert response.status_code == 200
+    assert response.json() == {"stopping": True, "pid": os.getpid()}
+    assert stops == [1]
+
+
+def test_another_site_cannot_stop_the_dashboard(stoppable):
+    client, stops = stoppable
+    evil = TestClient(client.app, base_url="http://evil.example:8765")
+
+    assert client.post("/shutdown", content="{}").json()["code"] == "not_json"
+    assert client.get("/shutdown").status_code == 405
+    assert evil.post("/shutdown", json={}).json()["code"] == "wrong_host"
+    assert stops == []
+
+
+def test_shutdown_answers_on_a_refused_schema(service_engine, user_id):
+    """The upgrade it is for can leave the database behind head."""
+    stops = []
+
+    def refuse():
+        raise migrate.SchemaBehindHead("0025", "0026")
+
+    app = create_app(service_engine, refuse, lambda: stops.append(1))
+
+    assert TestClient(app, base_url=OWN).post("/shutdown", json={}).status_code == 200
+    assert stops == [1]
+
+
+def test_a_stop_is_limited_to_eight_seconds(monkeypatch):
+    """Longer than a write waits for a locked database, shorter than `study stop` waits (D-343)."""
+    settings = {}
+    monkeypatch.setattr(dashboard, "open_database", lambda: None)
+    monkeypatch.setattr(dashboard.uvicorn, "run", lambda app, **kw: settings.update(kw))
+
+    dashboard.main(8765)
+
+    assert settings["timeout_graceful_shutdown"] == 8
+    assert 5 < settings["timeout_graceful_shutdown"] < launcher.WAIT_SECONDS
+
+
+@pytest.fixture
+def real(tmp_path):
+    """A dashboard process of its own, on a free port and the test's data folder. Yields its port
+    and `stop`: `study stop`'s own code, then the process must have ended with code 0."""
+    with socket.socket() as free:
+        free.bind(("127.0.0.1", 0))
+        port = free.getsockname()[1]
+    argv = [sys.executable, "-m", "studysystem.cli", "dashboard", "--port", str(port)]
+    log = tmp_path / "dashboard.log"
+    with log.open("wb") as out:
+        process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=out)
+
+    def stop():
+        try:
+            assert launcher.stop_dashboard(port) == {"stopped": True}
+            # on Windows the dashboard has ended, and the virtual environment's python, which
+            # waits for it, ends just after; elsewhere only the port is sure to be free
+            code = process.wait(timeout=2 if sys.platform == "win32" else 15)
+        except (launcher.StudyError, subprocess.TimeoutExpired) as e:
+            pytest.fail(f"{e!r}: {log.read_text()}")
+        assert code == 0, log.read_text()
+
+    try:
+        deadline = time.monotonic() + 60
+        while not launcher.answering(port):
+            if time.monotonic() > deadline or process.poll() is not None:
+                pytest.fail(f"no answer, exit {process.poll()}: {log.read_text()}")
+            time.sleep(0.2)
+        yield port, stop
+    finally:
+        process.kill()
+        process.wait()
+
+
+def test_a_real_dashboard_process_has_ended_when_stop_returns(real):
+    """Clients that close without reading the reply could keep the process alive on Windows, not
+    on every run (D-343)."""
+    port, stop = real
+    for _ in range(60):
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5).close()
+
+    stop()
+
+
+def test_a_client_that_never_finishes_cannot_keep_the_process_alive(real):
+    """On every run, unlike the closes above: without the limit, the stop waits for it forever."""
+    port, stop = real
+    client = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+    client.putrequest("POST", "/capacity")
+    client.putheader("Content-Type", "application/json")
+    client.putheader("Content-Length", "100")
+    client.endheaders(b"{")  # 1 of its 100 bytes
+
+    stop()
+
+    client.close()
+
+
+def test_a_save_that_waits_for_the_database_outlives_the_stop(real, isolated_data_dir):
+    port, stop = real
+    other = sqlite3.connect(isolated_data_dir / "studysystem.db", isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")  # another program writes, so the save has to wait
+    client = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+    body = '{"hours_per_week": 11, "from_date": "2026-11-24"}'
+    client.request("POST", "/capacity", body, {"Content-Type": "application/json"})
+
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        stopping = pool.submit(stop)
+        while launcher._listening(port) and not stopping.done():
+            time.sleep(0.1)
+        assert not stopping.done()  # the stop has begun, and it waits for the save
+        other.execute("ROLLBACK")
+        reply = client.getresponse()
+        saved = (reply.status, reply.read())
+        stopping.result()
+
+    assert saved[0] == 200, saved[1]
+    stored = other.execute("SELECT COUNT(*) FROM capacity WHERE hours_per_week = 11").fetchone()
+    other.close()
+    assert stored == (1,)

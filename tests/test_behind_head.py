@@ -194,6 +194,7 @@ def test_a_database_a_newer_build_migrated_refuses_the_old_running_server(
     assert tool["code"] == "schema_ahead_of_head"
     assert tool["message"] == f"database is at 9999, unknown to this build (its head is {HEAD})"
     assert "restart" in tool["fix"]
+    assert tool["fix"].endswith("run: study stop, then: study start")  # the dashboard (D-342)
     assert "snapshot" not in tool["fix"]  # restoring one would lose the newer data
     assert "study migrate" not in tool["fix"]
     assert (route.status_code, route.json()) == (503, tool)
@@ -557,7 +558,7 @@ def test_both_front_doors_run_the_lost_file_check(monkeypatch):
     checks = []
     served = []
     monkeypatch.setattr(mcp_server, "create_server", lambda engine, check: served.append(check))
-    monkeypatch.setattr(dashboard, "create_app", lambda engine, check: served.append(check))
+    monkeypatch.setattr(dashboard, "create_app", lambda engine, check, _stop: served.append(check))
     monkeypatch.setattr(dashboard.uvicorn, "run", lambda app, **_kw: None)
     monkeypatch.setattr(mcp_server, "call_check", lambda engine: checks.append("server") or "s")
     monkeypatch.setattr(dashboard, "call_check", lambda engine: checks.append("page") or "p")

@@ -11,6 +11,8 @@ never given it; and every request must name our own host, so a site that re-poin
 import datetime
 import importlib.metadata
 import logging
+import os
+import signal
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -52,9 +54,14 @@ STATUS = {
     "session_expired": 409,
 }
 
-# These two answer on any schema (D-338): the page shows why the data routes refuse, and
-# `launcher.answering` reads /health to know the dashboard is up.
-UNCHECKED_PATHS = {"/", "/health"}
+# These three answer on any schema (D-338): the page shows why the data routes refuse,
+# `launcher.answering` reads /health to know the dashboard is up, and an upgrade must be able to
+# stop it (D-342).
+UNCHECKED_PATHS = {"/", "/health", "/shutdown"}
+
+# How long a stop waits before it ends the process anyway (D-343). A write waits 5 s for a locked
+# database, and `study stop` waits 15 s (launcher.WAIT_SECONDS).
+STOP_SECONDS = 8
 
 # Each write's service arguments, by the same names: study_log_hours's, study_start_session's,
 # and the timer's stop (D-198).
@@ -153,9 +160,19 @@ def _args(body: dict, route: str, fields: tuple[str, ...], needed: tuple[str, ..
     return body
 
 
-def create_app(engine: Engine, check: Callable[[], None] | None = None) -> Starlette:
-    """The app on `engine`. Called by main(), which passes `call_check`, and by tests, which
-    pass their own engine."""
+def _interrupt() -> None:
+    """Stop this process as Ctrl+C does: uvicorn lets the running requests finish, for STOP_SECONDS
+    at most, then exits."""
+    signal.raise_signal(signal.SIGINT)
+
+
+def create_app(
+    engine: Engine,
+    check: Callable[[], None] | None = None,
+    stop: Callable[[], None] | None = None,
+) -> Starlette:
+    """The app on `engine`. Called by main(), which passes `call_check` and `_interrupt`, and by
+    tests, which pass their own engine. Without `stop` there is no /shutdown."""
     version = importlib.metadata.version("studysystem")
 
     async def at_head(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -198,6 +215,16 @@ def create_app(engine: Engine, check: Callable[[], None] | None = None) -> Starl
                 engine, current_user(engine), datetime.datetime.now().astimezone().date(), version
             ),
         )
+
+    async def shutdown(request: Request) -> JSONResponse:
+        """`study stop` (D-342), which waits for the process that the reply names (D-343). A JSON
+        body, as every write, so another site cannot send it."""
+        try:
+            await _json_body(request)
+        except StudyError as err:
+            return _error(err)
+        stop()
+        return JSONResponse({"stopping": True, "pid": os.getpid()})
 
     def write(
         route: str, service: Callable[..., dict], fields: tuple[str, ...], needed: tuple[str, ...]
@@ -243,6 +270,7 @@ def create_app(engine: Engine, check: Callable[[], None] | None = None) -> Starl
                 CONFIRM_FIELDS,
             ),
             write("/trials", trials.set_trials, TRIALS_FIELDS, TRIALS_FIELDS),
+            *([Route("/shutdown", shutdown, methods=["POST"])] if stop else []),
         ],
         middleware=[  # in order: another site is refused before it can ask about the database
             Middleware(BaseHTTPMiddleware, dispatch=_own_host),
@@ -255,4 +283,9 @@ def main(port: int) -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="%(asctime)s %(message)s")
     logging.getLogger("studysystem").setLevel(logging.INFO)
     engine = open_database()
-    uvicorn.run(create_app(engine, call_check(engine)), host=HOST, port=port)
+    uvicorn.run(
+        create_app(engine, call_check(engine), _interrupt),
+        host=HOST,
+        port=port,
+        timeout_graceful_shutdown=STOP_SECONDS,
+    )
