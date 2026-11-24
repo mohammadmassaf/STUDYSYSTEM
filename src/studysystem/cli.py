@@ -1,5 +1,6 @@
-"""The `study` command: migrate, downgrade, serve, dashboard. Only migrate and downgrade alter an
-existing schema (D-22); serve and dashboard build a brand-new one (D-324, D-335)."""
+"""The `study` command: migrate, downgrade, serve, dashboard, start, stop, demo. Only migrate and
+downgrade alter an existing schema (D-22); serve and dashboard build a brand-new one (D-324,
+D-335)."""
 
 import datetime
 from pathlib import Path
@@ -123,6 +124,32 @@ def dashboard(port: int) -> None:
     from studysystem.dashboard import main  # imported here for the reason serve gives
 
     main(port)
+
+
+@study.command()
+@click.option("--port", default=8765, show_default=True, help="The port on 127.0.0.1.")
+def start(port: int) -> None:
+    """Start the dashboard in the background, with no window. After an upgrade (D-342)."""
+    from studysystem.services import launcher  # imported here for the reason serve gives
+
+    try:
+        sent = launcher.start_dashboard(port)
+    except StudyError as e:
+        raise _line(e) from None
+    click.echo(f"dashboard {'started' if sent['started'] else 'already running'}: {sent['url']}")
+
+
+@study.command()
+@click.option("--port", default=8765, show_default=True, help="The port on 127.0.0.1.")
+def stop(port: int) -> None:
+    """Stop the dashboard that runs in the background. Before an upgrade (D-342)."""
+    from studysystem.services import launcher  # imported here for the reason serve gives
+
+    try:
+        sent = launcher.stop_dashboard(port)
+    except StudyError as e:
+        raise _line(e) from None
+    click.echo("dashboard stopped" if sent["stopped"] else "no dashboard was running")
 
 
 @study.command()

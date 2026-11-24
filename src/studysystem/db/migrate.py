@@ -43,7 +43,7 @@ class SchemaAheadOfHead(StudyError):
             code="schema_ahead_of_head",
             message=f"database is at {current}, unknown to this build (its head is {head})",
             fix="restart the app that runs this server, so it runs the newer build; for the "
-            "dashboard, sign out of the computer and in again"
+            "dashboard, run: study stop, then: study start"
             if running
             else "run the newer build that migrated it, or restore a snapshot taken before that "
             f"migrate from the snapshots folder in the data directory: {HOW_TO_RESTORE}",
