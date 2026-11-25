@@ -84,8 +84,11 @@ def test_a_code_line_ends_once_in_the_page_chrome_prints(monkeypatch):
     """pandoc on Windows ends its lines with CRLF. A text-mode write doubled the CR, and Chrome
     printed a blank line after every line of a code block."""
     written = {}
+    real = subprocess.run
 
     def fake_chrome(args, **kwargs):
+        if args[0] != "chrome":
+            return real(args, **kwargs)  # pandoc
         pdf = Path(next(a for a in args if a.startswith("--print-to-pdf=")).split("=", 1)[1])
         written["page"] = pdf.with_name("note.html").read_bytes()
         pdf.write_bytes(b"%PDF-")
@@ -119,3 +122,53 @@ def test_an_image_loads_nothing_and_prints_as_text(tmp_path):
     assert "SECRETMARKER" not in page
     assert "127.0.0.1" not in page
     assert "[image: local]" in page and "[image: remote]" in page
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "javascript:alert(1)",
+        "file://host/share/a",
+        "ms-msdt:/id",
+        "data:text/html,x",
+        "a.md",
+        "//h/s",
+    ],
+)
+def test_a_link_that_is_not_web_or_email_keeps_only_its_words(target):
+    page = note_page(f"[the words](<{target}>)", "x")
+
+    assert "the words" in page
+    assert "<a " not in page
+
+
+@pytest.mark.parametrize(
+    "target", ["https://example.org/a", "HTTP://example.org", "mailto:a@b.c", "#part"]
+)
+def test_a_web_email_or_own_link_stays(target):
+    assert f'href="{target}"' in note_page(f"[the words](<{target}>)", "x")
+
+
+def test_a_program_in_the_current_folder_never_prints(tmp_path, monkeypatch):
+    """A host can start the server in a folder that someone else filled."""
+    for name in ("chrome.exe", "chrome.bat", "chrome", "pandoc.exe", "pandoc"):
+        (tmp_path / name).write_text("planted")
+        (tmp_path / name).chmod(0o755)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("NoDefaultCurrentDirectoryInExePath", raising=False)
+    monkeypatch.delenv("STUDYSYSTEM_CHROME", raising=False)
+
+    found = find_chrome()
+
+    assert found is None or tmp_path not in found.absolute().parents
+    assert pdf_render._pandoc().is_absolute()
+    assert "Chapter" in note_page("# Chapter", "x")  # the bundled pandoc ran, not the planted one
+
+
+def test_a_pandoc_that_does_not_finish_is_a_runtime_error(monkeypatch):
+    def hang(args, timeout, **kwargs):
+        raise subprocess.TimeoutExpired(args, timeout)
+
+    monkeypatch.setattr(pdf_render.subprocess, "run", hang)
+    with pytest.raises(RuntimeError, match="did not finish"):
+        note_page("# Chapter", "x")

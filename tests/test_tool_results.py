@@ -1,6 +1,7 @@
 """How a service call leaves a tool (D-36), checked through a real client - what the host sees,
 not what the function returns."""
 
+import asyncio
 import json
 import sqlite3
 
@@ -10,6 +11,7 @@ from mcp.types import CallToolResult
 from sqlalchemy.exc import OperationalError
 
 from studysystem.errors import StudyError
+from studysystem.server import create_server
 from studysystem.tools.results import run, run_task
 from tests._client import call_tool
 
@@ -80,3 +82,30 @@ def test_a_locked_database_during_a_generation_task_is_database_busy_too():
     result = run_task(locked)
     assert result.is_error
     assert result.structured_content["code"] == "database_busy"
+
+
+def test_a_broken_character_is_a_structured_refusal(service_engine, user_id):
+    """Half of an emoji fits no database and no reply: the host must read why (D-36)."""
+    server = create_server(service_engine)
+
+    result = asyncio.run(
+        server.call_tool("study_add_course", {"code": "X\ud800", "name": "n", "semester_name": "s"})
+    )
+
+    assert result.is_error
+    assert result.structured_content["code"] == "invalid_value"
+
+
+def test_a_value_nested_too_deep_is_a_structured_refusal(service_engine, user_id):
+    deep = []
+    for _ in range(100_000):
+        deep = [deep]
+
+    result = asyncio.run(
+        create_server(service_engine).call_tool(
+            "study_submit_generation", {"task_id": "T", "payload": deep}
+        )
+    )
+
+    assert result.is_error
+    assert result.structured_content["code"] == "invalid_value"

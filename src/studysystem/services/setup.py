@@ -10,12 +10,13 @@ Nothing here reads or writes the database.
 import datetime
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
 
 from studysystem.errors import StudyError
-from studysystem.services import private_view
+from studysystem.services import private_view, programs
 from studysystem.services.settings import VAULT_ENV
 
 DATA_ENV = "STUDYSYSTEM_DATA_DIR"
@@ -90,23 +91,30 @@ def study_path() -> Path:
     """
     name = "study.exe" if sys.platform == "win32" else "study"
     started = Path(sys.argv[0])
-    beside = [started.with_name(name)] if started.stem == "study" else []
+    named = started.is_absolute() and started.stem == "study"
+    beside = [started.with_name(name)] if named else []
     for path in (*beside, Path(sys.executable).with_name(name)):
         if path.is_file():
             return path.absolute()
-    found = shutil.which("study")
+    found = programs.on_path("study")
     if found is None:
         raise StudyError(
             code="study_not_found",
             message="the installed `study` command was not found",
             fix="run `uv tool install studysystem`, then `study setup`",
         )
-    return Path(found).absolute()
+    return found
 
 
 def entry() -> dict:
-    """The server entry every host takes."""
+    """The server entry for every host that takes JSON."""
     return {"command": str(study_path()), "args": ["serve"]}
+
+
+def codex_command() -> str:
+    """The line that adds the server to Codex, whose config is TOML: the JSON entry pasted there
+    stops Codex from starting (D-364)."""
+    return f'codex mcp add {SERVER} -- "{study_path()}" serve'
 
 
 def how_to_quit() -> str:
@@ -212,4 +220,16 @@ def write_entry(path: Path, new: dict) -> Path:
             message=f"{path} could not be written: {e.strerror or e}; it was not changed",
             fix="quit Claude fully, then run `study setup` again",
         ) from None
+    _drop_older_copies(path, copy)
     return copy
+
+
+def _drop_older_copies(path: Path, keep: Path) -> None:
+    """One copy is enough: each holds the API keys of the other servers in the config."""
+    stamp = re.compile(re.escape(path.name) + r"\.bak-\d{4}-\d{2}-\d{2}-\d{6}")
+    try:
+        for old in path.parent.iterdir():
+            if old != keep and stamp.fullmatch(old.name):
+                old.unlink()
+    except OSError:
+        pass  # the config is written; a copy left behind is no failure

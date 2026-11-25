@@ -14,13 +14,14 @@ This only renders. Writing the bytes - create-only, never over a file (D-73) - i
 """
 
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import pypandoc
+
+from studysystem.services import programs
 
 ASSETS = Path(__file__).parent.parent / "assets"
 STYLESHEET = ASSETS / "note.css"
@@ -29,6 +30,7 @@ NO_HTML_FILTER = ASSETS / "note-no-html.lua"
 
 CHROME_ENV = "STUDYSYSTEM_CHROME"
 PRINT_TIMEOUT = 60  # seconds - a hung Chrome must not hang the submit with it
+PANDOC_TIMEOUT = 60  # seconds - nor a pandoc on a hostile note
 
 _ON_PATH = ("chrome", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
 _WINDOWS = (
@@ -47,9 +49,9 @@ def find_chrome() -> Path | None:
     if override:
         return Path(override) if Path(override).is_file() else None
     for name in _ON_PATH:
-        found = shutil.which(name)
+        found = programs.on_path(name)
         if found:
-            return Path(found)
+            return found
     if sys.platform == "win32":
         roots = [os.environ.get(v) for v in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")]
         for root in filter(None, roots):
@@ -62,16 +64,41 @@ def find_chrome() -> Path | None:
     return None
 
 
+def _pandoc() -> Path:
+    """The pandoc inside the `pypandoc-binary` wheel. pypandoc's own search runs a `pandoc` from the
+    current folder or PATH first."""
+    name = "pandoc.exe" if sys.platform == "win32" else "pandoc"
+    return Path(pypandoc.__file__).parent / "files" / name
+
+
+def run_pandoc(args: list[str], text: str, seconds: int = PANDOC_TIMEOUT) -> str:
+    """The bundled pandoc on this text. RuntimeError when it fails or does not finish."""
+    try:
+        done = subprocess.run(
+            [str(_pandoc()), *args],
+            input=text.encode("utf-8"),
+            # Windows: no console window opens over what the student does
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            capture_output=True,
+            timeout=seconds,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"pandoc did not finish in {seconds}s") from e
+    if done.returncode != 0:
+        said = done.stderr.decode(errors="replace").strip()[-300:]
+        raise RuntimeError(f"pandoc failed (exit {done.returncode}): {said}")
+    return done.stdout.decode("utf-8")
+
+
 def note_page(stamped_markdown: str, title: str) -> str:
     """The note as the one self-contained web page Chrome prints: the stylesheet inside it, the
     callout boxes marked, the stamp kept out of the body. Raw HTML in the note becomes text
     (`note-no-html.lua`) - a note body is model-written, and a `<script>` in it must never run
-    in the printing Chrome."""
-    return pypandoc.convert_text(
-        stamped_markdown,
-        "html5",
-        format="gfm+yaml_metadata_block",
-        extra_args=[
+    in the printing Chrome. RuntimeError when pandoc fails or does not finish."""
+    return run_pandoc(
+        [
+            "--from=gfm+yaml_metadata_block",
+            "--to=html5",
             "--standalone",
             "--embed-resources",  # the css goes inside the page: Chrome loads nothing else
             f"--css={STYLESHEET}",
@@ -80,6 +107,7 @@ def note_page(stamped_markdown: str, title: str) -> str:
             "--syntax-highlighting=none",
             f"--metadata=pagetitle:{title}",
         ],
+        stamped_markdown,
     )
 
 

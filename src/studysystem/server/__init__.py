@@ -9,6 +9,7 @@ from mcp.server import MCPServer
 from sqlalchemy import Engine
 from starlette.concurrency import run_in_threadpool
 
+from studysystem.services import values
 from studysystem.startup import call_check, open_database
 from studysystem.tools import (
     course_setup,
@@ -41,6 +42,9 @@ class CheckedServer(MCPServer):
         self._check = check
 
     async def call_tool(self, name: str, arguments: dict[str, Any], context=None):
+        refused = refusal(lambda: values.storable("arguments", arguments))
+        if refused is not None:
+            return refused
         if self._check is not None and name not in UNCHECKED_TOOLS:
             # In a worker thread, as the SDK runs the tools: the check reads the database.
             refused = await run_in_threadpool(refusal, self._check)

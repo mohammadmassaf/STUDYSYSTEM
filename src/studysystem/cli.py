@@ -83,8 +83,10 @@ def setup() -> None:
         except StudyError as e:
             problems.append(e)
 
-    click.echo("\nFor another host (Claude Code, Codex, Gemini CLI), paste this entry:")
+    click.echo("\nFor another host (Claude Code, Gemini CLI), paste this entry:")
     click.echo(json.dumps({"mcpServers": {machine.SERVER: new}}, indent=2))
+    click.echo("\nFor Codex, run this line instead:")
+    click.echo(machine.codex_command())
     if problems:
         raise click.ClickException("; ".join(_line(e).message for e in problems))
     click.echo("\nSetup is done.")

@@ -7,6 +7,7 @@ value before calling one (D-37).
 """
 
 import datetime
+import json
 import math
 import re
 
@@ -21,6 +22,17 @@ def invalid(field: str, problem: str, fix: str) -> StudyError:
         fix=fix,
         field_errors=[{"field": field, "problem": problem}],
     )
+
+
+def storable(field: str, value: object) -> None:
+    """Refuse what no database or reply can carry: half of an emoji (a lone surrogate), or values
+    nested too deep to write."""
+    try:
+        json.dumps(value, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        raise invalid(field, "holds a broken character", "send plain text") from None
+    except RecursionError:
+        raise invalid(field, "is nested too deep", "send a flatter value") from None
 
 
 def number(
@@ -130,6 +142,11 @@ def clock(field: str, value: object) -> str:
     return value
 
 
+# What Windows refuses in a name. macOS and Linux refuse less, and a synced folder meets all three.
+WINDOWS_REFUSED = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+WINDOWS_RESERVED = re.compile(r"(con|prn|aux|nul|com\d|lpt\d)(\..*)?", re.IGNORECASE)
+
+
 def folder(field: str, value: object) -> str:
     """A folder path relative to a root the server owns, stored with `/` separators. The server
     writes files under it, so a path that could leave the root - absolute, or through `..` - is
@@ -141,4 +158,11 @@ def folder(field: str, value: object) -> str:
     value = value.rstrip("/")
     if any(part in ("", ".", "..") for part in value.split("/")):
         raise invalid(field, f"{value!r} has an empty, '.' or '..' part", shape)
+    for part in value.split("/"):
+        if (
+            WINDOWS_REFUSED.search(part)
+            or WINDOWS_RESERVED.fullmatch(part)
+            or part.endswith((" ", "."))
+        ):
+            raise invalid(field, f"{part!r} cannot be a folder's name on Windows", shape)
     return value
