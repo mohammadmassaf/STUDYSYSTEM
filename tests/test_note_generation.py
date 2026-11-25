@@ -12,6 +12,7 @@ from studysystem.db.tables import generation_task, past_exam, practice_item
 from studysystem.errors import StudyError
 from studysystem.services.courses import add_course
 from studysystem.services.generation import (
+    DATA_STEP,
     NOTE_STEPS,
     confirm_transcription,
     measure,
@@ -93,7 +94,7 @@ def test_chapter_6_leaves_as_its_pages_with_the_schema_and_steps(service_engine,
     good = {"notes": [{"section": 1, "body": "# PHP and MySQL - mysqli_connect opens..."}]}
     assert host.is_valid(good)
     assert not host.is_valid({"notes": [{"section": 0, "body": "# PHP and MySQL"}]})
-    assert payload["rules"]["steps"] == NOTE_STEPS
+    assert payload["rules"]["steps"] == [*NOTE_STEPS, DATA_STEP]
     steps = " ".join(NOTE_STEPS)
     # the settled rules (D-148, D-248), so an edit to the steps cannot pass silently
     rules = ("follow the order of the pages", "never the order", "in the pages' order")

@@ -33,6 +33,7 @@ from studysystem.db.tables import (
 from studysystem.errors import StudyError
 from studysystem.services import course_folder, notes, values
 from studysystem.services.generation import (
+    DATA_STEP,
     Task,
     _find_material,
     _pages,
@@ -103,7 +104,7 @@ def summary_task(engine: Engine, user_id: str, material_id: str | None, part: ob
         "material": found.filename,
         "content": content,
         "exam": exam,
-        "rules": {"steps": SUMMARY_STEPS},
+        "rules": {"steps": [*SUMMARY_STEPS, DATA_STEP]},
     }
     # Paged like a task (D-145), pages only: the exam evidence is small and rides in part 1.
     # No row, so nothing checks the order - the tool text asks for every part.

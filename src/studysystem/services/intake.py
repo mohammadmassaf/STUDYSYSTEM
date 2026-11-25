@@ -13,18 +13,28 @@ The way back out is `read_pages`: generation hands the host the paper's text and
 a path.
 """
 
+import base64
 import hashlib
-import io
+import json
+import logging
 import os
 import shutil
+import subprocess
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
-import pypdfium2 as pdfium
 from pypdf import PdfReader
 
 from studysystem.db.engine import data_dir
+from studysystem.errors import StudyError
+from studysystem.services import pdf_worker
 from studysystem.services.values import invalid
+
+log = logging.getLogger(__name__)
 
 IMAGE_TYPES = {".jpg", ".jpeg", ".png"}
 
@@ -32,6 +42,11 @@ IMAGE_TYPES = {".jpg", ".jpeg", ".png"}
 MAGIC = {".jpg": b"\xff\xd8\xff", ".jpeg": b"\xff\xd8\xff", ".png": b"\x89PNG\r\n\x1a\n"}
 
 SHAPES = "send one PDF, or the paper's page images (.jpg, .png) in page order"
+
+# D-366: a file past these is refused before it is read. The largest of his 103 PDFs was 2.9 MB.
+MAX_FILE = 50_000_000  # bytes
+MAX_FILES = pdf_worker.MAX_PAGES
+SMALLER = "open the file, print only the pages you need to a new PDF, and send that one"
 
 
 @dataclass(frozen=True)
@@ -65,6 +80,10 @@ def read(paths: object, field: str = "paths") -> Paper:
     for f in files:
         if not f.is_file():
             raise invalid(field, f"{f} is not a file", "check the path; " + SHAPES)
+        if f.stat().st_size > MAX_FILE:
+            raise invalid(field, f"{f.name} is over {MAX_FILE // 1_000_000} MB", SMALLER)
+    if len(files) > MAX_FILES:
+        raise invalid(field, f"{len(files)} files are over the limit of {MAX_FILES}", SHAPES)
     kinds = [f.suffix.lower() for f in files]
 
     if kinds == [".pdf"]:
@@ -92,13 +111,12 @@ def _refuse_network_path(path: str, field: str) -> None:
 def _read_pdf(path: Path, field: str) -> Paper:
     data = path.read_bytes()
     try:
-        reader = PdfReader(io.BytesIO(data))
-        # One page with real text is enough: a scan has none, a typed paper has it on every page.
-        has_text = any((page.extract_text() or "").strip() for page in reader.pages)
-    except Exception:
-        # Not only PyPdfError: a damaged file reaches pypdf's internals too (KeyError, TypeError,
-        # zlib.error...). Still a bad file, not a server bug - it gets the same answer.
-        raise invalid(field, f"{path.name} is not a readable PDF", SHAPES) from None
+        pages = _pdf_pages(data)
+    except _NotRead as e:
+        fix = SHAPES if e.problem == pdf_worker.UNREADABLE else SMALLER
+        raise invalid(field, f"{path.name} {e.problem}", fix) from None
+    # One page with real text is enough: a scan has none, a typed paper has it on every page.
+    has_text = any((page.text or "").strip() for page in pages)
     sha = hashlib.sha256(data).hexdigest()
     return Paper(sha, f"{sha}.pdf", has_text, (path,), (data,))
 
@@ -158,11 +176,6 @@ class Page:
 
 MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
 
-# A PDF page is drawn at 1.5x (108 dpi) and saved as JPEG quality 70: paper 1's figures read
-# cleanly at ~150 KB of base64 a page, where 2x costs half as much again (D-49).
-RENDER_SCALE = 1.5
-JPEG_QUALITY = 70
-
 
 def read_pages(file_ref: str) -> list[Page]:
     """The kept paper, page by page in page order - how it leaves the server as content, never
@@ -174,18 +187,14 @@ def read_pages(file_ref: str) -> list[Page]:
             Page(None, f.read_bytes(), MIME[f.suffix.lower()]) for f in sorted(folder.iterdir())
         ]
 
-    path = papers_dir() / file_ref
-    reader = PdfReader(path)
-    pictured = {i for i, page in enumerate(reader.pages) if _has_image(page)}
-    pictures = _render(path, pictured) if pictured else {}
-    return [
-        Page(
-            page.extract_text() or "",
-            pictures.get(i),
-            "image/jpeg" if i in pictured else None,
-        )
-        for i, page in enumerate(reader.pages)
-    ]
+    try:
+        return _pdf_pages((papers_dir() / file_ref).read_bytes())
+    except _NotRead as e:  # kept before D-366, or on a computer that was faster
+        raise StudyError(
+            code="pdf_not_read",
+            message=f"the kept PDF {e.problem}",
+            fix=SHAPES if e.problem == pdf_worker.UNREADABLE else SMALLER,
+        ) from None
 
 
 def page_count(file_ref: str) -> int:
@@ -195,26 +204,75 @@ def page_count(file_ref: str) -> int:
     return len(PdfReader(papers_dir() / file_ref).pages)
 
 
-def _has_image(page) -> bool:
-    """Whether an image is placed on the page itself. A figure drawn with the PDF's own lines is
-    not an image and is missed - D-49's accepted cost."""
-    resources = page.get("/Resources")
-    xobjects = resources.get_object().get("/XObject") if resources is not None else None
-    if xobjects is None:
-        return False
-    return any(x.get_object().get("/Subtype") == "/Image" for x in xobjects.get_object().values())
+_HELPER: ContextVar[bool] = ContextVar("_HELPER", default=True)
 
 
-def _render(path: Path, indexes: set[int]) -> dict[int, bytes]:
-    """JPEG pictures of the pages at `indexes` (from 0)."""
-    pdf = pdfium.PdfDocument(path)
+@contextmanager
+def in_this_process() -> Iterator[None]:
+    """Read PDFs with no helper process, which takes about 0.8 s to start. Only for PDFs we made
+    ourselves: `study demo` reads over a hundred."""
+    token = _HELPER.set(False)
     try:
-        pictures = {}
-        for i in sorted(indexes):
-            image = pdf[i].render(scale=RENDER_SCALE).to_pil().convert("RGB")
-            buffer = io.BytesIO()
-            image.save(buffer, "JPEG", quality=JPEG_QUALITY)
-            pictures[i] = buffer.getvalue()
-        return pictures
+        yield
     finally:
-        pdf.close()
+        _HELPER.reset(token)
+
+
+class _NotRead(Exception):
+    """A PDF the helper did not read: `problem` ends a sentence that starts with the file's name."""
+
+    def __init__(self, problem: str):
+        super().__init__(problem)
+        self.problem = problem
+
+
+def _pdf_pages(data: bytes) -> list[Page]:
+    """The PDF's pages, read by the helper process (`pdf_worker`, D-366). Raises _NotRead."""
+    reply = _ask_worker(data)
+    if "refused" in reply:
+        raise _NotRead(reply["refused"])
+    return [
+        Page(
+            page["text"],
+            None if page["image"] is None else base64.b64decode(page["image"]),
+            None if page["image"] is None else "image/jpeg",
+        )
+        for page in reply["pages"]
+    ]
+
+
+def _ask_worker(data: bytes) -> dict:
+    """One PDF to the helper process and its reply back. The tests call the helper's `read` here in
+    their own process, except its own tests."""
+    if not _HELPER.get():
+        return pdf_worker.read(data)
+    too_heavy = _NotRead(
+        f"took over {pdf_worker.MAX_SECONDS} s or "
+        f"{pdf_worker.MAX_MEMORY // 1_000_000_000} GB of memory to read, or broke the reader"
+    )
+    try:
+        done = subprocess.run(
+            [sys.executable, "-P", "-m", "studysystem.services.pdf_worker"],
+            input=data,  # and so never the MCP messages on the server's own stdin
+            capture_output=True,
+            timeout=pdf_worker.MAX_SECONDS + 5,  # the helper ends itself first
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        raise too_heavy from None
+    out = done.stdout.decode(errors="replace")
+    if not out.startswith(pdf_worker.STARTED.strip()):
+        # Ours, not the PDF's: an install with a package missing, a computer that refuses it.
+        log.error("the PDF helper: %s", done.stderr.decode(errors="replace")[-2000:])
+        raise StudyError(
+            code="pdf_helper_failed",
+            message="the program that reads PDFs did not start",
+            fix="run `uv tool install --reinstall studysystem`, then try again; the log says "
+            "why it did not start",
+        )
+    if done.returncode != 0:
+        raise too_heavy
+    try:
+        return json.loads(out.split("\n", 1)[1])
+    except (ValueError, IndexError):
+        raise too_heavy from None
