@@ -12,7 +12,7 @@ from sqlalchemy import select, update
 
 from studysystem.db.tables import course, note
 from studysystem.errors import StudyError
-from studysystem.services import course_folder, settings
+from studysystem.services import course_folder, notes, settings
 from studysystem.services.courses import set_course_input
 from studysystem.services.generation import submit_generation
 from studysystem.services.notes import (
@@ -114,6 +114,24 @@ def test_chapter_6_s_note_lands_in_md_and_pdf_with_its_stamp(
     text = (vault / relative).read_text(encoding="utf-8")
     assert text == _stamp(1, task_id, "PHP_Chapter6_Eng_DataBase.pdf", 1) + BODY
     assert (vault / pdf).read_bytes() == FAKE_PDF
+
+
+def test_the_files_load_and_run_nothing_and_the_database_keeps_the_text(
+    service_engine, user_id, vault, declared, task_id, monkeypatch
+):
+    """A PDF can hide words that make the model write an image (D-370)."""
+    printed = []
+    monkeypatch.setattr(notes, "render_pdf", lambda text, title: printed.append(text) or FAKE_PDF)
+    body = "# T\n\n![x](http://203.0.113.9/leak) <img src=y>\n\n```html\n<img src=z>\n```\n"
+
+    submit_note(service_engine, user_id, task_id, body)
+
+    text = (vault / FOLDER / "notes" / "md" / NOTE_FILE).read_text(encoding="utf-8")
+    assert "[image: x] &lt;img src=y>" in text and "```html\n<img src=z>\n```" in text
+    assert "203.0.113.9" not in text
+    assert printed == [text]
+    with service_engine.connect() as conn:
+        assert conn.execute(select(note.c.body)).scalar_one() == body
 
 
 def test_the_file_is_utf_8_so_the_markers_survive(
@@ -533,3 +551,9 @@ def test_export_through_the_tool(call, service_engine, user_id, vault, declared,
     assert not result.is_error
     body = json.loads(result.content[0].text)
     assert body["exports"][0]["pdf_path"] == f"{FOLDER}/notes/pdf/{PDF_FILE}"
+
+
+def test_an_emoji_in_a_material_s_name_stays_itself_in_the_stamp():
+    assert 'material: "Ch 6 \U0001f3af.pdf"' in _stamp(
+        1, "01M3TASK0000000000000000AA", "Ch 6 \U0001f3af.pdf", 1
+    )

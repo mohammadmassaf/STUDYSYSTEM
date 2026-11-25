@@ -41,6 +41,7 @@ from studysystem.services.generation import (
     layout,
     part_number,
 )
+from studysystem.services.note_markdown import harmless
 from studysystem.services.pdf_render import render_pdf
 from studysystem.services.units import read_unit
 
@@ -291,7 +292,7 @@ def save_summary(engine: Engine, user_id: str, material_id: str, markdown: str) 
             field_errors=[{"field": "material_id", "problem": "no such material"}],
         )
 
-    text = _stamp(found.filename) + markdown.rstrip("\n") + "\n"
+    text = _stamp(found.filename) + harmless(markdown.rstrip("\n")) + "\n"  # D-370
     name = f"{Path(found.filename).stem}_summary"
     try:
         # the note export's guards, raised instead of reported (module docstring)
