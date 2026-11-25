@@ -13,6 +13,9 @@ which keeps what passes the schema.
 You need Windows or macOS, and [Claude Desktop](https://claude.com/download) (Cowork is part of it).
 You do not need this repo, and you do not need Python: uv brings its own.
 
+On Windows, Cowork also needs Windows' Virtual Machine Platform, and a Claude that was installed with
+administrator rights ([Claude's requirements](https://support.claude.com/en/articles/12622703)).
+
 1. **Open a terminal outside Claude.** On Windows: Start menu, Windows PowerShell. On a Mac: Terminal.
    Do every step there. Windows keeps what is made inside Claude private to it: uv's Python download
    fails there, and step 4 refuses.
@@ -86,16 +89,26 @@ MCP config (Claude Code, Gemini CLI). It holds the full path of `study`:
 }
 ```
 
+For Codex, whose config is not JSON, `study setup` prints a line to run instead:
+
+```sh
+codex mcp add studysystem -- "/full/path/to/study" serve
+```
+
 ### What setup decides
 
 - **The output folder.** Notes and summaries are written under it as markdown and PDF, in each
   course's `vault_folder`; a course with none gets `<semester>/<code> - <name>`. With no output
-  folder, notes are still saved in the database, but every export reports it.
+  folder, notes are still saved in the database, but every export reports it. Outside code, the
+  files hold no image, HTML or live block: a picture becomes `[image: its text]`.
   `STUDYSYSTEM_VAULT_DIR` is used only while no folder is saved. To change the folder, run
   `study setup` again.
 - **The start at sign-in.** On Windows and macOS (not yet tested on a Mac). Your computer's startup
   settings turn it off.
   Without it, `study start` starts the dashboard in the background.
+- **The dashboard's lock.** The dashboard answers only a browser that the study system opened:
+  ask your AI to open the dashboard, or open the link that `study start` prints (each link works
+  once). A bookmark of http://127.0.0.1:8765 works in that browser after that.
 - **PDFs** are printed with a local Chrome, Chromium or Edge. If none is found on the usual paths,
   set `STUDYSYSTEM_CHROME` to the browser's executable.
 
@@ -134,15 +147,20 @@ never opens, reads or changes your own database.
 
 All tools start with `study_`. A failure comes back as `{code, message, field_errors[], fix}`.
 
-- **Setup:** `study_add_course`, `study_set_course_input`, `study_add_assessment`,
-  `study_set_assessment_input`, `study_set_capacity`
-- **Evidence:** `study_add_past_exam`, `study_add_material`
+- **Setup:** `study_add_course`, `study_drop_course`, `study_set_course_input`,
+  `study_add_assessment`, `study_set_assessment_input`, `study_set_capacity`,
+  `study_accept_capacity_suggestion`
+- **Evidence:** `study_add_past_exam`, `study_add_material`, `study_add_instructor_statement`
 - **Generation:** `study_start_generation`, `study_submit_generation` (transcription, notes,
-  tagging), `study_confirm_transcription`, `study_export_notes`, `study_get_summary_task`, `study_save_summary`
+  tagging), `study_confirm_transcription`, `study_rescope_generation`, `study_export_notes`,
+  `study_get_summary_task`, `study_save_summary`
+- **Feedback:** `study_submit_feedback` (a rule it proposes counts only after you confirm it on the
+  dashboard's Plan page)
 - **Topics and profiles:** `study_get_topics`, `study_confirm_topic_proposal`,
-  `study_derive_profile`
-- **Plan and study loop:** `study_get_plan`, `study_start_session`, `study_submit_attempt`,
-  `study_log_hours` (the only way minutes are recorded), `study_get_gate`
+  `study_add_syllabus_topics`, `study_merge_topics`, `study_split_topic`, `study_derive_profile`
+- **Plan and study loop:** `study_get_plan`, `study_respond_to_offer`, `study_start_session`,
+  `study_submit_attempt`, `study_log_hours` (the only way minutes are recorded), `study_get_gate`
+- **Dashboard:** `study_dashboard`
 - **Generator trials:** `study_set_trials` (off by default; see below)
 - **Smoke test:** `study_ping`
 
@@ -173,7 +191,8 @@ answer: turn them on only if you want to judge the generator.
 ## Commands
 
 - `study setup` - set up this computer: the output folder, Claude, the start at sign-in.
-- `study start`, `study stop` - start and stop the dashboard in the background.
+- `study start`, `study stop` - start and stop the dashboard in the background. `study start` prints
+  the link that opens it.
 - `study dashboard` - serve the dashboard in this terminal.
 - `study demo` - the dashboard on invented data.
 - `study migrate` - snapshot, then bring the database up to date. Run it after every upgrade.
