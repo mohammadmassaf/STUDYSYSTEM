@@ -10,6 +10,7 @@ never given it; and every request must name our own host, so a site that re-poin
 
 import datetime
 import importlib.metadata
+import json
 import logging
 import os
 import signal
@@ -30,7 +31,16 @@ from starlette.routing import Route
 
 from studysystem.db.migrate import current_revision
 from studysystem.errors import StudyError, busy
-from studysystem.services import capacity, feedback, state, study_loop, trials, values
+from studysystem.services import (
+    capacity,
+    dashboard_key,
+    feedback,
+    launcher,
+    state,
+    study_loop,
+    trials,
+    values,
+)
 from studysystem.services.users import current_user
 from studysystem.startup import call_check, open_database
 
@@ -50,6 +60,7 @@ STATUS = {
     "database_unavailable": 503,
     "schema_behind_head": 503,
     "schema_ahead_of_head": 503,
+    "dashboard_locked": 401,
     "session_ended": 409,
     "session_expired": 409,
 }
@@ -57,7 +68,25 @@ STATUS = {
 # These three answer on any schema (D-338): the page shows why the data routes refuse,
 # `launcher.answering` reads /health to know the dashboard is up, and an upgrade must be able to
 # stop it (D-342).
-UNCHECKED_PATHS = {"/", "/health", "/shutdown"}
+UNCHECKED_PATHS = {"/", "/health", "/shutdown", "/open"}
+
+# No key needed (D-369): the page holds no data, /health names two versions, and /open takes a
+# one-time code in place of the key.
+KEYLESS_PATHS = {"/", "/health", "/open"}
+
+# On every reply. No other page may show the dashboard inside itself, where a click meant for that
+# page would land here. The page loads nothing from another address, so nothing else is allowed.
+HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; "
+    "style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
+    "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+}
+
+MAX_BODY = 100_000  # bytes; the longest write is a reason the student types
 
 # How long a stop waits before it ends the process anyway (D-343). A write waits 5 s for a locked
 # database, and `study stop` waits 15 s (launcher.WAIT_SECONDS).
@@ -81,7 +110,7 @@ START_FIELDS = ("code", "mode", "subject_type", "subject_id", "semester_name")
 STOP_FIELDS = ("code", "session_id", "minutes", "setup_key", "semester_name", "deviation_reason")
 ACCEPT_FIELDS = ("suggestion_id", "from_date")
 CAPACITY_FIELDS = ("hours_per_week", "from_date")  # study_set_capacity's (D-290)
-CONFIRM_FIELDS = ("directive_id",)  # study_confirm_directive's, from the Plan page (D-311)
+CONFIRM_FIELDS = ("directive_id",)  # from the Plan page only: no tool does it (D-311, D-368)
 TRIALS_FIELDS = ("on",)  # study_set_trials's (D-317)
 # Fields the service reads as a number or a true/false; every other field must be text.
 NUMBER_FIELDS = ("minutes", "hours_per_week")
@@ -101,6 +130,22 @@ def _answer(call: Callable[[], dict]) -> JSONResponse:
         return _error(err)
     except OperationalError as err:
         return _error(busy(err))
+
+
+def _locked() -> StudyError:
+    return StudyError(
+        code="dashboard_locked",
+        message="this browser was not opened by the study system, or the link was used already",
+        fix="ask your AI to open your dashboard, or run `study start` in a terminal and open the "
+        "link it prints",
+    )
+
+
+async def _headers(request: Request, call_next: RequestResponseEndpoint) -> Response:
+    """HEADERS on every reply, refusals too: it is the outermost."""
+    reply = await call_next(request)
+    reply.headers.update(HEADERS)
+    return reply
 
 
 async def _own_host(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -128,12 +173,18 @@ async def _json_body(request: Request) -> dict:
             message=f"a write takes a JSON body, got {media or 'no content type'!r}",
             fix="send the body as JSON with Content-Type: application/json",
         )
+    raw = b""
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > MAX_BODY:
+            raise values.invalid("body", f"is over {MAX_BODY:,} bytes", "send a shorter body")
     try:
-        body = await request.json()
-    except ValueError:
+        body = json.loads(raw)
+    except (ValueError, RecursionError):  # RecursionError: nested too deep to read
         raise values.invalid("body", "is not valid JSON", "send one JSON object") from None
     if not isinstance(body, dict):
         raise values.invalid("body", "is not a JSON object", "send one JSON object")
+    values.storable("body", body)
     return body
 
 
@@ -170,9 +221,12 @@ def create_app(
     engine: Engine,
     check: Callable[[], None] | None = None,
     stop: Callable[[], None] | None = None,
+    secret: bytes | None = None,
 ) -> Starlette:
-    """The app on `engine`. Called by main(), which passes `call_check` and `_interrupt`, and by
-    tests, which pass their own engine. Without `stop` there is no /shutdown."""
+    """The app on `engine`. Called by main(), which passes `call_check`, `_interrupt` and the data
+    folder's secret (D-369), and by tests, which pass their own engine. Without `stop` there is no
+    /shutdown; without `secret`, as for `study demo`, no key is asked."""
+    codes = None if secret is None else dashboard_key.Codes(secret)
     version = importlib.metadata.version("studysystem")
 
     async def at_head(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -185,6 +239,26 @@ def create_app(
             except OperationalError as err:
                 return _error(busy(err))
         return await call_next(request)
+
+    async def keyed(request: Request, call_next: RequestResponseEndpoint) -> Response:
+        """The key, before every other route, in one place for the reason `_own_host` gives."""
+        path = request.url.path
+        if secret is not None and path not in KEYLESS_PATHS:
+            purpose = "stop" if path == "/shutdown" else "browser"
+            sent = request.headers.get(dashboard_key.HEADER)
+            if not dashboard_key.same(sent, dashboard_key.token(purpose, secret)):
+                return _error(_locked())
+        return await call_next(request)
+
+    async def open_browser(request: Request) -> JSONResponse:
+        """A browser's key, for the one-time code of a link that the study system opened."""
+        try:
+            body = await _json_body(request)
+        except StudyError as err:
+            return _error(err)
+        if not codes.take(body.get("code")):
+            return _error(_locked())
+        return JSONResponse({"key": dashboard_key.token("browser", secret)})
 
     async def page(request: Request) -> HTMLResponse:
         # The page is served here, same origin as /state and /hours, because D-162 blocks writes
@@ -203,8 +277,12 @@ def create_app(
         return current_revision(engine)
 
     async def health(request: Request) -> JSONResponse:
+        nonce = request.query_params.get("nonce", "")
+        mine = {}
+        if secret is not None and 0 < len(nonce) <= dashboard_key.MAX_NONCE:
+            mine["proof"] = dashboard_key.proof(nonce, secret)  # for the launcher
         return await run_in_threadpool(
-            _answer, lambda: {"server_version": version, "schema_revision": revision()}
+            _answer, lambda: {"server_version": version, "schema_revision": revision()} | mine
         )
 
     async def get_state(request: Request) -> JSONResponse:
@@ -271,20 +349,28 @@ def create_app(
             ),
             write("/trials", trials.set_trials, TRIALS_FIELDS, TRIALS_FIELDS),
             *([Route("/shutdown", shutdown, methods=["POST"])] if stop else []),
+            *([Route("/open", open_browser, methods=["POST"])] if codes else []),
         ],
         middleware=[  # in order: another site is refused before it can ask about the database
+            Middleware(BaseHTTPMiddleware, dispatch=_headers),
             Middleware(BaseHTTPMiddleware, dispatch=_own_host),
+            Middleware(BaseHTTPMiddleware, dispatch=keyed),
             Middleware(BaseHTTPMiddleware, dispatch=at_head),
         ],
     )
 
 
-def main(port: int) -> None:
+def main(port: int, *, locked: bool = True) -> None:
+    """Serve it. `study demo` is not locked: its data is invented."""
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="%(asctime)s %(message)s")
     logging.getLogger("studysystem").setLevel(logging.INFO)
     engine = open_database()
+    secret = dashboard_key.key() if locked else None
+    if locked and sys.stdout is not None and sys.stdout.isatty():  # never into a log
+        print(launcher.invitation(port), flush=True)
     uvicorn.run(
-        create_app(engine, call_check(engine), _interrupt),
+        # with no key there is no /shutdown either: Ctrl+C stops `study demo`
+        create_app(engine, call_check(engine), _interrupt if locked else None, secret),
         host=HOST,
         port=port,
         timeout_graceful_shutdown=STOP_SECONDS,

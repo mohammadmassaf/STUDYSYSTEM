@@ -22,7 +22,7 @@ from studysystem import dashboard
 from studysystem.dashboard import create_app
 from studysystem.db import migrate
 from studysystem.db.tables import capacity, hours_entry, study_session
-from studysystem.services import launcher, study_loop
+from studysystem.services import dashboard_key, launcher, study_loop
 from studysystem.services.courses import add_course
 from studysystem.services.units import write_unit
 from tests.test_plan import _chapter
@@ -484,6 +484,7 @@ def test_a_client_that_never_finishes_cannot_keep_the_process_alive(real):
     client.putrequest("POST", "/capacity")
     client.putheader("Content-Type", "application/json")
     client.putheader("Content-Length", "100")
+    client.putheader(dashboard_key.HEADER, dashboard_key.token("browser"))
     client.endheaders(b"{")  # 1 of its 100 bytes
 
     stop()
@@ -497,7 +498,11 @@ def test_a_save_that_waits_for_the_database_outlives_the_stop(real, isolated_dat
     other.execute("BEGIN IMMEDIATE")  # another program writes, so the save has to wait
     client = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
     body = '{"hours_per_week": 11, "from_date": "2026-11-24"}'
-    client.request("POST", "/capacity", body, {"Content-Type": "application/json"})
+    headers = {
+        "Content-Type": "application/json",
+        dashboard_key.HEADER: dashboard_key.token("browser"),
+    }
+    client.request("POST", "/capacity", body, headers)
 
     with concurrent.futures.ThreadPoolExecutor() as pool:
         stopping = pool.submit(stop)
@@ -513,3 +518,42 @@ def test_a_save_that_waits_for_the_database_outlives_the_stop(real, isolated_dat
     stored = other.execute("SELECT COUNT(*) FROM capacity WHERE hours_per_week = 11").fetchone()
     other.close()
     assert stored == (1,)
+
+
+@pytest.mark.parametrize(
+    ("method", "path"), [("GET", "/"), ("GET", "/health"), ("GET", "/nowhere"), ("POST", "/hours")]
+)
+def test_every_reply_forbids_other_pages_to_show_it(client, method, path):
+    headers = client.request(method, path).headers
+
+    assert headers["x-frame-options"] == "DENY"
+    assert "frame-ancestors 'none'" in headers["content-security-policy"]
+    assert headers["x-content-type-options"] == "nosniff"
+    assert headers["cache-control"] == "no-store"
+
+
+def test_a_refused_host_gets_the_headers_too(service_engine):
+    other = TestClient(create_app(service_engine), base_url="http://evil.example")
+
+    reply = other.get("/health")
+
+    assert reply.json()["code"] == "wrong_host"
+    assert reply.headers["x-frame-options"] == "DENY"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "[" * 50_000,
+        '{"code": ' + "[" * 20_000,
+        '{"code": "\\ud800", "minutes": 5}',
+        '{"code": "I3302", "minutes": 5}' + " " * 100_001,
+    ],
+    ids=["deep", "deep in a field", "half an emoji", "too long"],
+)
+def test_a_hostile_body_is_refused_not_a_crash(client, service_engine, web, content):
+    reply = client.post("/hours", content=content, headers={"Content-Type": "application/json"})
+
+    assert reply.status_code == 400
+    assert reply.json()["code"] == "invalid_value"
+    assert entries(service_engine) == 0

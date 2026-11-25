@@ -220,7 +220,11 @@ def with_a_timetable(state: dict) -> dict | None:
 
 def main() -> int:
     server = subprocess.Popen(
-        [sys.executable, "-c", f"from studysystem.dashboard import main; main({PORT})"]
+        [
+            sys.executable,
+            "-c",
+            f"from studysystem.dashboard import main; main({PORT}, locked=False)",
+        ]
     )
     try:
         wait_for_health()

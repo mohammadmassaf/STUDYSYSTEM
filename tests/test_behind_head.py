@@ -34,7 +34,7 @@ from studysystem.db.engine import (
 from studysystem.db.tables import course, hours_entry, user
 from studysystem.errors import StudyError
 from studysystem.server import create_server
-from studysystem.services import launcher
+from studysystem.services import dashboard_key, launcher
 from studysystem.services.ids import new_id
 from studysystem.services.users import current_user
 from studysystem.startup import call_check, open_database
@@ -315,7 +315,7 @@ def test_the_page_keeps_the_servers_reason_for_a_failed_state_request():
     failed = load[load.index("if(!r.ok)") : load.index("adapt(")]
     assert "r.json()" in failed
     assert "The state request failed" in failed  # a body that is not our JSON
-    first = page[page.index("\nload().catch") :]
+    first = page[page.index(".then(load).catch") :]
     assert "e.code" in first and "e.message" in first and "e.fix" in first
 
 
@@ -558,7 +558,9 @@ def test_both_front_doors_run_the_lost_file_check(monkeypatch):
     checks = []
     served = []
     monkeypatch.setattr(mcp_server, "create_server", lambda engine, check: served.append(check))
-    monkeypatch.setattr(dashboard, "create_app", lambda engine, check, _stop: served.append(check))
+    monkeypatch.setattr(
+        dashboard, "create_app", lambda engine, check, _stop, _secret: served.append(check)
+    )
     monkeypatch.setattr(dashboard.uvicorn, "run", lambda app, **_kw: None)
     monkeypatch.setattr(mcp_server, "call_check", lambda engine: checks.append("server") or "s")
     monkeypatch.setattr(dashboard, "call_check", lambda engine: checks.append("page") or "p")
@@ -659,5 +661,7 @@ def test_study_dashboard_behind_head_serves_a_checked_app(monkeypatch):
 
     dashboard.main(8765)
 
-    reply = TestClient(served[0], base_url=OWN).get("/state")
+    headers = {dashboard_key.HEADER: dashboard_key.token("browser")}
+    reply = TestClient(served[0], base_url=OWN, headers=headers).get("/state")
     assert (reply.status_code, reply.json()) == (503, REFUSED)
+    assert TestClient(served[0], base_url=OWN).get("/state").status_code == 401  # it is locked

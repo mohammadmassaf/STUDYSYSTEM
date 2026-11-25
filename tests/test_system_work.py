@@ -100,13 +100,17 @@ def PAPER(course_id) -> dict:  # noqa: N802 - reads as the constant it stands fo
     }
 
 
-# --- the gate (D-310): room means gap above 0 ----------------------------------------------------
+# --- the gate (D-310): papers need room, a gap above 0; a directive always shows (D-368) ---------
 
 
-def test_short_of_capacity_lists_nothing_though_both_rows_exist(service_engine, user_id, i3304):
-    directive(service_engine, user_id, MCQ, status="proposed")
+def test_short_of_capacity_lists_the_directive_and_no_paper(service_engine, user_id, i3304):
+    """The page is the only place to confirm one, so a busy student sees it too."""
+    made = directive(service_engine, user_id, MCQ, status="proposed")
 
-    assert work(service_engine, user_id, SHORT) == EMPTY
+    listed = work(service_engine, user_id, SHORT)
+
+    assert listed["papers"] == []
+    assert [d["id"] for d in listed["directives"]] == [made]
 
 
 def test_a_surplus_lists_the_zero_paper_and_the_proposed_directive(service_engine, user_id, i3304):
@@ -128,14 +132,10 @@ def test_a_surplus_lists_the_zero_paper_and_the_proposed_directive(service_engin
 
 
 def test_a_gap_of_exactly_zero_is_no_room(service_engine, user_id, i3304):
-    directive(service_engine, user_id, MCQ, status="proposed")
-
     assert work(service_engine, user_id, {"gap": 0.0}) == EMPTY
 
 
-def test_no_exam_ahead_is_unknown_room_and_lists_nothing(service_engine, user_id, i3304):
-    directive(service_engine, user_id, MCQ, status="proposed")
-
+def test_no_exam_ahead_is_unknown_room_and_lists_no_paper(service_engine, user_id, i3304):
     assert work(service_engine, user_id, {"gap": None}) == EMPTY
 
 
@@ -243,25 +243,19 @@ def _row(engine, directive_id):
         ).one()
 
 
-def test_confirming_from_the_page_writes_the_row_the_tool_writes(
-    client, call, service_engine, user_id
-):
-    by_page = directive(service_engine, user_id, MCQ, status="proposed")
-    by_tool = directive(service_engine, user_id, "Another rule.", status="proposed")
+def test_confirming_from_the_page_makes_it_active(client, service_engine, user_id):
+    made = directive(service_engine, user_id, MCQ, status="proposed")
 
-    response = client.post("/directives/confirm", json={"directive_id": by_page})
-    tool = call("study_confirm_directive", {"directive_id": by_tool})
+    response = client.post("/directives/confirm", json={"directive_id": made})
 
     assert response.status_code == 200
-    assert response.json().keys() == tool.structured_content.keys()
-    page_row, tool_row = _row(service_engine, by_page), _row(service_engine, by_tool)
-    assert page_row.status == tool_row.status == "active"
-    assert page_row.confirmed_at is not None and tool_row.confirmed_at is not None
+    assert response.json()["status"] == "active"
+    row = _row(service_engine, made)
+    assert row.status == "active" and row.confirmed_at is not None
 
-    again = client.post("/directives/confirm", json={"directive_id": by_page})
-    tool_again = call("study_confirm_directive", {"directive_id": by_tool})
+    again = client.post("/directives/confirm", json={"directive_id": made})
     assert again.status_code == 404
-    assert again.json() == tool_again.structured_content  # not_found, the tool's shape
+    assert again.json()["code"] == "not_found"
 
 
 @pytest.mark.parametrize(
@@ -285,10 +279,13 @@ def test_the_confirm_route_checks_its_fields(client, service_engine, user_id, bo
 # --- /state carries the section ------------------------------------------------------------------
 
 
-def test_state_sends_the_section_and_with_no_exam_ahead_it_is_empty(service_engine, user_id, i3304):
+def test_state_sends_the_section_and_with_no_exam_ahead_it_lists_no_paper(
+    service_engine, user_id, i3304
+):
     """add_course's final has no date, so no exam is ahead: room is unknown (D-310)."""
-    directive(service_engine, user_id, MCQ, status="proposed")
+    made = directive(service_engine, user_id, MCQ, status="proposed")
 
     blob = state.get_state(service_engine, user_id, datetime.date(2026, 11, 19), "t")
 
-    assert blob["system_work"] == EMPTY
+    assert blob["system_work"]["papers"] == []
+    assert [d["id"] for d in blob["system_work"]["directives"]] == [made]

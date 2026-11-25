@@ -15,7 +15,7 @@ import pytest
 from click.testing import CliRunner
 
 from studysystem.cli import study
-from studysystem.services import launcher, private_view
+from studysystem.services import dashboard_key, launcher, private_view
 
 VERSION = importlib.metadata.version("studysystem")
 
@@ -26,6 +26,7 @@ def machine(monkeypatch):
     opened, the Run key."""
     state = {
         "up": False,
+        "whose": "ours",  # (D-369)
         "version": VERSION,
         "listening": None,  # None: the same as "up"
         "looks_until_gone": 0,  # how many looks the asked process still runs for
@@ -61,6 +62,7 @@ def machine(monkeypatch):
         "running_version",
         lambda port=launcher.PORT: state["version"] if state["up"] else None,
     )
+    monkeypatch.setattr(launcher, "_whose", lambda port: state["whose"])
     monkeypatch.setattr(launcher, "_listening", listening)
     monkeypatch.setattr(launcher, "_ask_to_stop", ask_to_stop)
     monkeypatch.setattr(launcher, "_runs", runs)
@@ -79,7 +81,8 @@ def test_a_running_dashboard_is_only_opened(machine):
     sent = launcher.dashboard("open")
 
     assert machine["spawned"] == []
-    assert machine["opened"] == ["http://127.0.0.1:8765/"]
+    (opened,) = machine["opened"]
+    assert opened.startswith("http://127.0.0.1:8765/#open=")
     assert sent["started"] is False and sent["url"] == "http://127.0.0.1:8765/"
 
 
@@ -87,7 +90,8 @@ def test_a_stopped_dashboard_is_started_then_opened(machine):
     sent = launcher.dashboard()  # open is the default
 
     assert machine["spawned"] == [8765]
-    assert machine["opened"] == ["http://127.0.0.1:8765/"]
+    (opened,) = machine["opened"]
+    assert opened.startswith("http://127.0.0.1:8765/#open=")
     assert sent["started"] is True and sent["browser_opened"] is True
 
 
@@ -146,7 +150,8 @@ def test_inside_claude_open_works_and_does_not_ask(machine, monkeypatch, seen):
 
     sent = launcher.dashboard("open")
 
-    assert machine["opened"] == ["http://127.0.0.1:8765/"]
+    (opened,) = machine["opened"]
+    assert opened.startswith("http://127.0.0.1:8765/#open=")
     assert (sent["autostart"], sent["ask_user"]) == (None, None)
 
 
@@ -211,7 +216,7 @@ def test_an_unknown_action_names_the_three(machine):
 def test_the_dashboard_runs_with_this_servers_own_python():
     cmd = launcher.command(9000)
 
-    assert cmd[1:] == ["-m", "studysystem.cli", "dashboard", "--port", "9000"]
+    assert cmd[1:] == ["-P", "-m", "studysystem.cli", "dashboard", "--port", "9000"]
     assert cmd[0].lower().startswith(str(launcher.Path(sys.executable).parent).lower())
 
 
@@ -415,11 +420,14 @@ def fake_dashboard():
             self.wfile.write(json.dumps(body).encode())
 
         def do_GET(self):
-            self._send(200, {"server_version": "0.0.1", "schema_revision": None})
+            nonce = self.path.partition("nonce=")[2]
+            proof = {"proof": dashboard_key.proof(nonce)} if nonce else {}
+            self._send(200, {"server_version": "0.0.1", "schema_revision": None} | proof)
 
         def do_POST(self):
             body = self.rfile.read(int(self.headers["Content-Length"]))
             seen["posts"].append((self.path, self.headers["Content-Type"], body))
+            seen["key"] = self.headers[dashboard_key.HEADER]
             self._send(seen["shutdown"], seen["reply"])
             if seen["shutdown"] == 200:
                 threading.Thread(target=down).start()
@@ -449,6 +457,7 @@ def test_stop_posts_json_to_the_dashboards_shutdown(fake_dashboard, monkeypatch)
 
     assert looked == [4321]  # the process that the reply named
     assert fake_dashboard["posts"] == [("/shutdown", "application/json", b"{}")]
+    assert fake_dashboard["key"] == dashboard_key.token("stop")
     assert launcher.answering(port) is False
 
 
@@ -470,15 +479,15 @@ def test_stop_names_the_way_out_for_an_older_dashboard(fake_dashboard):
     assert "sign out" in err.value.fix
 
 
-def test_the_two_commands_print_one_line(machine):
+def test_the_two_commands_say_what_they_did(machine):
     started = CliRunner().invoke(study, ["start"])
     again = CliRunner().invoke(study, ["start"])
     stopped = CliRunner().invoke(study, ["stop"])
     nothing = CliRunner().invoke(study, ["stop"])
 
     assert [r.exit_code for r in (started, again, stopped, nothing)] == [0, 0, 0, 0]
-    assert started.output == "dashboard started: http://127.0.0.1:8765/\n"
-    assert again.output == "dashboard already running: http://127.0.0.1:8765/\n"
+    assert started.output.startswith("dashboard started: http://127.0.0.1:8765/\n")
+    assert again.output.startswith("dashboard already running: http://127.0.0.1:8765/\n")
     assert stopped.output == "dashboard stopped\n"
     assert nothing.output == "no dashboard was running\n"
 
@@ -490,3 +499,87 @@ def test_a_refused_stop_is_one_line_and_exit_1(machine):
 
     assert refused.exit_code == 1
     assert refused.output.startswith("Error: dashboard_not_stopped: ")
+
+
+def test_a_proxy_is_never_asked_for_this_computer(monkeypatch):
+    class Proxy(http.server.BaseHTTPRequestHandler):
+        asked = []
+
+        def do_GET(self):
+            self.asked.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"server_version": "9.9.9"}')
+
+        def log_message(self, *args):
+            pass
+
+    proxy = http.server.HTTPServer(("127.0.0.1", 0), Proxy)
+    threading.Thread(target=proxy.serve_forever, daemon=True).start()
+    address = f"http://127.0.0.1:{proxy.server_port}"
+    for name in ("HTTP_PROXY", "http_proxy"):
+        monkeypatch.setenv(name, address)
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    # urlopen keeps its first opener, which an earlier test made with no proxy
+    monkeypatch.setattr(launcher.urllib.request, "_opener", None)
+    try:
+        assert launcher.running_version(1) is None  # nothing listens on port 1
+    finally:
+        proxy.shutdown()
+        proxy.server_close()
+
+    assert Proxy.asked == []
+
+
+# --- whose dashboard it is (D-369) ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("whose", "code", "fix"),
+    [
+        ("another", "dashboard_of_another", "switch user"),
+        ("unlocked", "dashboard_unlocked", "sign out"),
+        ("silent", "dashboard_busy", "wait"),
+    ],
+)
+@pytest.mark.parametrize("act", ["dashboard", "start_dashboard", "stop_dashboard"])
+def test_a_dashboard_not_proven_ours_is_never_opened_started_over_or_stopped(
+    machine, act, whose, code, fix
+):
+    machine["up"], machine["whose"] = True, whose
+
+    with pytest.raises(launcher.StudyError) as err:
+        getattr(launcher, act)()
+
+    assert err.value.code == code
+    assert fix in err.value.fix
+    assert (machine["opened"], machine["spawned"], machine["stopped"]) == ([], [], [])
+
+
+def test_a_dashboard_that_takes_the_port_meanwhile_is_not_opened(machine, monkeypatch):
+    def another(port):
+        machine["spawned"].append(port)
+        machine["up"], machine["whose"] = True, "another"
+
+    monkeypatch.setattr(launcher, "_spawn", another)
+
+    with pytest.raises(launcher.StudyError) as err:
+        launcher.dashboard()
+
+    assert err.value.code == "dashboard_of_another"
+    assert machine["opened"] == []
+
+
+def test_the_host_never_gets_the_link(machine):
+    """Whoever holds it can press Confirm (D-368)."""
+    sent = launcher.dashboard()
+
+    assert "open=" not in json.dumps(sent)
+
+
+def test_study_start_prints_the_link(machine):
+    out = CliRunner().invoke(study, ["start"])
+
+    assert out.exit_code == 0, out.output
+    assert "http://127.0.0.1:8765/#open=" in out.output

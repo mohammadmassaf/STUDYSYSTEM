@@ -4,6 +4,7 @@ Each test follows one of his I3302 Final items: Q7, a generated question he file
 
 # ruff: noqa: F811 - the fixtures are imported, then named as test parameters
 
+import asyncio
 import json
 
 import pytest
@@ -20,6 +21,7 @@ from studysystem.db.tables import (
     topic,
 )
 from studysystem.errors import StudyError
+from studysystem.server import create_server
 from studysystem.services import feedback
 from studysystem.services.courses import add_course
 from studysystem.services.feedback import confirm_directive, submit_feedback
@@ -203,9 +205,8 @@ def test_generator_correction_about_difficulty_writes_no_observation(service_eng
     assert _count(service_engine, generation_directive) == 1
 
 
-def test_feedback_through_the_tools(call, q7):
-    """Both tools are wired: a rejection drafts a directive, the confirm makes it active, and a
-    refusal comes back structured."""
+def test_feedback_through_the_tools(call, service_engine, q7):
+    """The tool is wired: a rejection drafts a directive, and no tool makes it active."""
     item_id, topic_id = q7
     drafted = call(
         "study_submit_feedback",
@@ -220,13 +221,20 @@ def test_feedback_through_the_tools(call, q7):
     directive_id = json.loads(drafted.content[0].text)["directive"]["id"]
     assert json.loads(drafted.content[0].text)["queued"]["topic_id"] == topic_id
 
-    confirmed = call("study_confirm_directive", {"directive_id": directive_id})
-    assert not confirmed.is_error
-    assert json.loads(confirmed.content[0].text)["status"] == "active"
+    assert json.loads(drafted.content[0].text)["directive"]["status"] == "proposed"
+    with service_engine.connect() as conn:
+        assert conn.execute(
+            select(generation_directive.c.id, generation_directive.c.status)
+        ).all() == [(directive_id, "proposed")]
 
-    again = call("study_confirm_directive", {"directive_id": directive_id})
-    assert again.is_error
-    assert json.loads(again.content[0].text)["code"] == "not_found"
+
+def test_no_tool_confirms_a_directive(service_engine):
+    """Text hidden in a PDF made the host file one and confirm it alone (D-368)."""
+    tools = {t.name: t for t in asyncio.run(create_server(service_engine).list_tools())}
+
+    assert "study_confirm_directive" not in tools
+    assert len(tools) == 33
+    assert "dashboard" in tools["study_submit_feedback"].description
 
 
 def test_a_failed_directive_rolls_back_the_rejection(service_engine, user_id, q7, monkeypatch):

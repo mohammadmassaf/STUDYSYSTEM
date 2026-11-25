@@ -19,7 +19,8 @@ def register(mcp: MCPServer) -> None:
             "stops that. Inside Claude on Windows both refuse: tell the student the fix. When the "
             "reply's ask_user is not null, put that question to the student in your own words, "
             "then call this tool again with 'autostart_on' for yes or 'autostart_off' for no. "
-            "Share the url in case the browser did not open."
+            "If browser_opened is false, tell the student to run `study start` in a terminal and "
+            "open the link it prints: a browser needs that link once."
         ),
     )
     def study_dashboard(action: str = "open") -> CallToolResult:
