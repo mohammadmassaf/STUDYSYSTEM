@@ -1,6 +1,7 @@
 """The note export (D-10, D-72, D-73, D-78, D-79, D-81, D-237): the database holds a note's body;
 the vault gets two one-way copies - the stamped markdown in `notes/md/`, and a PDF printed from the
-same text in `notes/pdf/`, the copy he studies from - never the source of truth.
+same text in `notes/pdf/`, the copy he studies from - never the source of truth. Neither runs or
+loads anything (D-370, `note_markdown`).
 
 The export runs after the submission's write unit commits, so a failed file write never rolls
 back a note: the note stays in the database with `exported_path` or `pdf_path` NULL, and the
@@ -10,9 +11,10 @@ A file is never overwritten - a name already taken gets the first free `(2)`, `(
 version of a chapter never lands on the old note and its annotations. The md and the PDF take
 that name as a pair: one file alone, in either folder, takes it for both.
 
-A redo retires the old note (D-250). Its files are deleted before the new note's files are named,
-so the new note takes the plain name; the old text stays in the database. A delete that fails
-holds that chapter's new files back until the next export, and never loses the note.
+A redo retires the old note (D-250). Its files move to the course's `notes/old/` before the new
+note's files are named, so the new note takes the plain name and what the student wrote in the
+old files is kept (D-367). A move that fails holds that chapter's new files back until the next
+export, and never loses the note.
 
 The export never raises. The note is already committed when it runs, so an error here would tell
 the host its note failed when it did not; every problem comes back as an entry with its fix.
@@ -34,6 +36,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from studysystem.db.tables import course, exam_profile, material, note
 from studysystem.services import course_folder, settings
 from studysystem.services.lookups import find_course
+from studysystem.services.note_markdown import harmless
 from studysystem.services.pdf_render import render_pdf
 from studysystem.services.units import read_unit, write_unit
 
@@ -71,12 +74,12 @@ def export_course_notes(
 def _export_where(
     engine: Engine, user_id: str, scope: ColumnElement[bool], replaced: ColumnElement[bool]
 ) -> list[dict]:
-    """Delete the files of the retired notes in `replaced`, then export the notes in `scope` (one
+    """Move away the files of the retired notes in `replaced`, then export the notes in `scope` (one
     task, or one course) that miss a file. Never raises: even the first read failing comes back
     as an entry, the notes being saved already."""
     blocked: dict[str, dict] = {}
     try:
-        blocked = _delete_retired(engine, user_id, replaced)
+        blocked = _move_retired(engine, user_id, replaced)
         rows = _unexported_notes(engine, user_id, scope)
     except SQLAlchemyError:
         return [
@@ -93,10 +96,10 @@ def _export_where(
     return [*blocked.values(), *(_export(engine, rows) if rows else [])]
 
 
-def _delete_retired(engine: Engine, user_id: str, scope: ColumnElement[bool]) -> dict[str, dict]:
-    """Delete the files of the retired notes in `scope`, and clear their paths (D-250). Returns
-    one problem entry per material whose delete failed, by its id. With no output folder or
-    course folder nothing is deleted: the export reports those itself."""
+def _move_retired(engine: Engine, user_id: str, scope: ColumnElement[bool]) -> dict[str, dict]:
+    """Move the files of the retired notes in `scope` to `notes/old/`, and clear their paths
+    (D-250, D-367). Returns one problem entry per material whose move failed, by its id. With no
+    output folder or course folder nothing moves: the export reports those itself."""
     root = settings.output_dir()
     if root is None:
         return {}
@@ -146,17 +149,32 @@ def _delete_retired(engine: Engine, user_id: str, scope: ColumnElement[bool]) ->
             try:
                 # A live note may hold this name by now: only the retired row's path clears.
                 if relative.casefold() not in live_paths:
-                    (root / relative).unlink(missing_ok=True)
+                    _keep_old(root / relative, root / r.vault_folder)
                 _record(engine, r.id, **{column: None})
                 continue
             except OSError as e:
-                problem = f"{name} could not be deleted: {e.strerror or e}"
+                problem = f"{name} could not be moved to notes/old: {e.strerror or e}"
                 fix = "close the file if another program has it open, " + RETRY
             except SQLAlchemyError:
                 problem = f"the old note's path to {name} could not be saved as cleared"
                 fix = "check the database is not busy, " + RETRY
             blocked[r.material_id] = _unexported(r.section_ordinal, r.filename, problem, fix)
     return blocked
+
+
+def _keep_old(file: Path, folder: Path) -> None:
+    """Move a retired note's file to `folder`'s `notes/old/`, under the first free name: an old file
+    there may hold the student's own words too. A file already gone is fine."""
+    if not file.is_file():
+        return
+    old = folder / "notes" / "old"
+    old.mkdir(parents=True, exist_ok=True)
+    target = old / file.name
+    n = 2
+    while target.exists():
+        target = old / f"{file.stem} ({n}){file.suffix}"
+        n += 1
+    file.rename(target)
 
 
 def _unexported_notes(engine: Engine, user_id: str, scope: ColumnElement[bool]) -> list:
@@ -216,7 +234,8 @@ def _export(engine: Engine, rows: list) -> list[dict]:
     for r in rows:
         # the md and the PDF carry the same text: the database's body, never the md on disk,
         # which may hold his annotations (D-10)
-        text = _stamp(r.version, r.task_id, r.filename, r.section_ordinal) + r.body
+        stamp = _stamp(r.version, r.task_id, r.filename, r.section_ordinal)
+        text = stamp + harmless(r.body)  # a file runs and loads nothing (D-370)
         md_relative = r.exported_path
         renamed = False
         if md_relative is None:
@@ -360,6 +379,7 @@ def _stamp(profile_version: int | None, task_id: str, material: str, section: in
     key style - `tags`, `type` and hyphenated keys, so `profile-version` is the key the vault's
     staleness check already reads (SYSTEM.md Pipeline B). Strings are written as JSON strings,
     which YAML reads as double-quoted text - so a filename with a `:` or a `#` stays one value.
+    An emoji stays itself: YAML does not read JSON's two-part escape for it.
     A course with no profile stamps `profile-version: null` (D-71)."""
     lines = [
         "---",
@@ -368,7 +388,7 @@ def _stamp(profile_version: int | None, task_id: str, material: str, section: in
         "generated: true",
         f"profile-version: {'null' if profile_version is None else profile_version}",
         f"source-task: {json.dumps(task_id)}",
-        f"material: {json.dumps(material)}",
+        f"material: {json.dumps(material, ensure_ascii=False)}",
         f"section: {section}",
         "---",
         "",

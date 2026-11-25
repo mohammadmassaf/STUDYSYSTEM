@@ -1,6 +1,6 @@
 """Redoing a chapter's note (D-250): `redo` starts a new note task on a chapter that has one. The
 old note stays live until the new one is accepted, then retires with its row kept, and its files
-are deleted so the new note takes the plain name.
+move to `notes/old/`, so the new note takes the plain name (D-367).
 
 Every test writes to a vault under tmp_path; conftest unsets the real one."""
 
@@ -266,7 +266,26 @@ def test_the_old_files_go_and_the_new_note_takes_the_plain_name(
     assert OLD_BODY not in text
     old, _ = rows(service_engine)
     assert (old.exported_path, old.pdf_path) == (None, None)
-    assert old.body == OLD_BODY  # the database can write the old md again
+    assert old.body == OLD_BODY
+
+
+def test_what_the_student_wrote_in_the_old_files_is_kept(
+    service_engine,
+    user_id,
+    vault,  # noqa: F811
+    ch6,  # noqa: F811
+    exported,
+):
+    (vault / MD).write_text("two weeks of my own words", encoding="utf-8")
+    (vault / PDF).write_bytes(b"my highlights")
+    new_task = redo(service_engine, user_id, ch6).payload["task_id"]
+
+    submit_note(service_engine, user_id, new_task, NEW_BODY)
+
+    old = (vault / MD).parent.parent / "old"
+    assert (old / Path(MD).name).read_text(encoding="utf-8") == "two weeks of my own words"
+    assert (old / Path(PDF).name).read_bytes() == b"my highlights"
+    assert NEW_BODY in (vault / MD).read_text(encoding="utf-8")
 
 
 def test_a_second_redo_also_lands_on_the_plain_name(
@@ -282,10 +301,16 @@ def test_a_second_redo_also_lands_on_the_plain_name(
         assert (export["exported_path"], export["renamed"]) == (MD, False)
 
     assert "# Third" in (vault / MD).read_text(encoding="utf-8")
+    # the second old note never lands on the first one
+    old = (vault / MD).parent.parent / "old"
+    stem = Path(MD).stem
+    assert OLD_BODY in (old / f"{stem}.md").read_text(encoding="utf-8")
+    assert NEW_BODY in (old / f"{stem} (2).md").read_text(encoding="utf-8")
+    assert (old / f"{stem} (2).pdf").is_file()
     assert [r.body for r in rows(service_engine) if r.retired_at is None] == ["# Third\n"]
 
 
-def test_a_blocked_delete_holds_the_new_files_until_the_retry(
+def test_a_blocked_move_holds_the_new_files_until_the_retry(
     service_engine,
     user_id,
     vault,  # noqa: F811
@@ -293,20 +318,20 @@ def test_a_blocked_delete_holds_the_new_files_until_the_retry(
     exported,
     monkeypatch,
 ):
-    """A PDF open in another program can block the delete on Windows. The new note is safe, and
+    """A PDF open in another program can block the move on Windows. The new note is safe, and
     its files wait, so the retry still gives it the plain name (D-250)."""
     new_task = redo(service_engine, user_id, ch6).payload["task_id"]
 
-    def in_use(self, missing_ok=False):
+    def in_use(self, target):
         raise PermissionError(13, "the file is in use")
 
     with monkeypatch.context() as blocked:
-        blocked.setattr(Path, "unlink", in_use)
+        blocked.setattr(Path, "rename", in_use)
         reply = submit_note(service_engine, user_id, new_task, NEW_BODY)
 
     (export,) = reply["exports"]
     assert export["exported_path"] is None
-    assert "could not be deleted" in export["problem"]
+    assert "could not be moved" in export["problem"]
     assert "study_export_notes" in export["fix"]
     assert reply["status"] == "closed"  # a failed file step never rolls back a note (D-72)
     old, new = rows(service_engine)
@@ -320,7 +345,7 @@ def test_a_blocked_delete_holds_the_new_files_until_the_retry(
     assert NEW_BODY in (vault / MD).read_text(encoding="utf-8")
 
 
-def test_a_delete_blocked_on_the_pdf_alone_keeps_each_path_apart(
+def test_a_move_blocked_on_the_pdf_alone_keeps_each_path_apart(
     service_engine,
     user_id,
     vault,  # noqa: F811
@@ -328,18 +353,18 @@ def test_a_delete_blocked_on_the_pdf_alone_keeps_each_path_apart(
     exported,
     monkeypatch,
 ):
-    """The md goes and its path clears; the PDF stays recorded. The retry deletes only the PDF,
+    """The md goes and its path clears; the PDF stays recorded. The retry moves only the PDF,
     and a later export touches nothing."""
     new_task = redo(service_engine, user_id, ch6).payload["task_id"]
-    real_unlink = Path.unlink
+    real_rename = Path.rename
 
-    def pdf_in_use(self, missing_ok=False):
+    def pdf_in_use(self, target):
         if self.suffix == ".pdf":
             raise PermissionError(13, "the file is in use")
-        real_unlink(self, missing_ok=missing_ok)
+        return real_rename(self, target)
 
     with monkeypatch.context() as blocked:
-        blocked.setattr(Path, "unlink", pdf_in_use)
+        blocked.setattr(Path, "rename", pdf_in_use)
         submit_note(service_engine, user_id, new_task, NEW_BODY)
 
     old, new = rows(service_engine)
@@ -356,7 +381,7 @@ def test_a_delete_blocked_on_the_pdf_alone_keeps_each_path_apart(
     assert (vault / PDF).exists()
 
 
-def test_a_retired_path_a_live_note_now_holds_is_never_deleted(
+def test_a_retired_path_a_live_note_now_holds_is_never_moved(
     service_engine,
     user_id,
     vault,  # noqa: F811
@@ -397,7 +422,7 @@ def test_a_retired_path_differing_only_by_case_is_the_same_file(
     assert NEW_BODY in (vault / MD).read_text(encoding="utf-8")
 
 
-def test_a_wrong_vault_path_deletes_nothing_and_loses_no_path(
+def test_a_wrong_vault_path_moves_nothing_and_loses_no_path(
     service_engine,
     user_id,
     vault,  # noqa: F811
@@ -424,7 +449,7 @@ def test_a_wrong_vault_path_deletes_nothing_and_loses_no_path(
     assert (export["exported_path"], export["renamed"]) == (MD, False)
 
 
-def test_a_failed_save_after_a_delete_says_so_and_heals_on_retry(
+def test_a_failed_save_after_a_move_says_so_and_heals_on_retry(
     service_engine,
     user_id,
     vault,  # noqa: F811
@@ -481,3 +506,43 @@ def test_a_retired_note_is_never_exported_again(
     assert export_course_notes(service_engine, user_id, "I3302")["exports"] == []
     old, _ = rows(service_engine)
     assert (old.exported_path, old.pdf_path) == (None, None)
+
+
+def test_a_file_in_the_older_place_moves_too(
+    service_engine,
+    user_id,
+    vault,  # noqa: F811
+    ch6,  # noqa: F811
+    exported,
+):
+    """Before D-237 the md lay directly under notes/."""
+    older = (vault / MD).parent.parent / "older.md"
+    (vault / MD).rename(older)
+    relative = older.relative_to(vault).as_posix()
+    with write_unit(service_engine) as conn:
+        conn.execute(update(note).values(exported_path=relative))
+    new_task = redo(service_engine, user_id, ch6).payload["task_id"]
+
+    (export,) = submit_note(service_engine, user_id, new_task, NEW_BODY)["exports"]
+
+    assert export["exported_path"] == MD
+    assert OLD_BODY in (older.parent / "old" / "older.md").read_text(encoding="utf-8")
+    assert not older.exists()
+
+
+def test_a_file_named_old_blocks_the_move_and_loses_nothing(
+    service_engine,
+    user_id,
+    vault,  # noqa: F811
+    ch6,  # noqa: F811
+    exported,
+):
+    in_the_way = (vault / MD).parent.parent / "old"
+    in_the_way.write_text("the student's own file")
+    new_task = redo(service_engine, user_id, ch6).payload["task_id"]
+
+    (export,) = submit_note(service_engine, user_id, new_task, NEW_BODY)["exports"]
+
+    assert "could not be moved" in export["problem"]
+    assert in_the_way.read_text() == "the student's own file"
+    assert OLD_BODY in (vault / MD).read_text(encoding="utf-8")

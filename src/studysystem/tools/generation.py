@@ -34,7 +34,7 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "pass material_id, the id study_add_material returned; a material that already has "
             "its note is refused, unless the task that wrote it is still open. Pass redo=true "
             "only when the student asks to redo a note: the new note replaces the old one when "
-            "it is accepted, and the old note's files are deleted from the vault. kind: 'tagging' "
+            "it is accepted, and the old note's files move to notes/old. kind: 'tagging' "
             "links one course material to the course's "
             "topics it teaches - pass material_id; it can be run again on the same material, "
             "and a course with no active topic yet is refused. kind: 'observation' records "

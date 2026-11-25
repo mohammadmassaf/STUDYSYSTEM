@@ -121,6 +121,13 @@ def test_another_users_material_is_not_found(service_engine, other_user_id, ch6)
 # --- the save ------------------------------------------------------------------------------
 
 
+def test_a_summary_s_file_loads_nothing(service_engine, user_id, ch6, vault, declared):
+    out = save_summary(service_engine, user_id, ch6, "# S\n\n![x](http://203.0.113.9/leak)\n")
+
+    text = (vault / out["md_path"]).read_text(encoding="utf-8")
+    assert "[image: x]" in text and "203.0.113.9" not in text
+
+
 def test_the_summary_lands_as_md_and_pdf_with_its_stamp(
     service_engine, user_id, ch6, vault, declared
 ):
