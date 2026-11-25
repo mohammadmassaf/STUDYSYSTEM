@@ -171,3 +171,18 @@ def test_flag_rejects_anything_else(raw):
     with pytest.raises(StudyError) as excinfo:
         values.flag("session_delayed", raw)
     assert [e["field"] for e in excinfo.value.field_errors] == ["session_delayed"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["uni/con", "uni/NUL.txt", "uni/COM1", "uni/a:b", "uni/a?", "uni/a\x00b", "uni/a /b", "uni/a."],
+)
+def test_a_folder_that_windows_cannot_name_is_refused(value):
+    with pytest.raises(StudyError) as caught:
+        values.folder("vault_folder", value)
+    assert caught.value.code == "invalid_value"
+
+
+def test_an_ordinary_folder_passes():
+    value = "uni/Semester 1 2026-2027/I3302 - Console & Control (été)"
+    assert values.folder("vault_folder", value) == value

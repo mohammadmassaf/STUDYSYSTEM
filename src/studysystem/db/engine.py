@@ -54,7 +54,8 @@ def data_dir() -> Path:
         path = Path(out)
     else:
         path = Path(platformdirs.user_data_dir("studysystem", appauthor=False))
-    path.mkdir(parents=True, exist_ok=True)
+    # 0o700: on Linux and macOS, another account cannot read it. Windows ignores it.
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
     return path
 
 

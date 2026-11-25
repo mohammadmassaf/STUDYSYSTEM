@@ -5,18 +5,13 @@ folder beside the real one. A course with none gets `<semester>/<code> - <name>`
 first export and saved in `vault_folder`.
 """
 
-import re
 from pathlib import Path
 
 from sqlalchemy import Engine, select, update
 
 from studysystem.db.tables import course
-from studysystem.services import settings
+from studysystem.services import settings, values
 from studysystem.services.units import read_unit, write_unit
-
-# What Windows refuses in a name. macOS and Linux refuse less, and a synced folder meets all three.
-_REFUSED = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-_RESERVED = re.compile(r"(con|prn|aux|nul|com\d|lpt\d)(\..*)?", re.IGNORECASE)
 
 
 class NotReady(Exception):
@@ -30,8 +25,8 @@ class NotReady(Exception):
 
 def _part(text: str) -> str:
     """The text as one folder name."""
-    out = _REFUSED.sub("-", text).rstrip(" .").lstrip()
-    return f"_{out}" if not out or _RESERVED.fullmatch(out) else out
+    out = values.WINDOWS_REFUSED.sub("-", text).rstrip(" .").lstrip()
+    return f"_{out}" if not out or values.WINDOWS_RESERVED.fullmatch(out) else out
 
 
 def own_name(code: str, name: str, semester_name: str) -> str:

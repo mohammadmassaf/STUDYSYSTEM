@@ -221,3 +221,23 @@ def test_keep_writes_the_bytes_that_were_hashed_even_if_the_file_changed_since(d
     stored = (intake.papers_dir() / paper.file_ref).read_bytes()
     assert hashlib.sha256(stored).hexdigest() == paper.sha256
     assert list(intake.papers_dir().glob("*.partial")) == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        r"\\203.0.113.9\share\x.pdf",
+        "//203.0.113.9/share/x.pdf",
+        r"\\203.0.113.9@8080\DavWWWRoot\x.pdf",
+        r"\\?\UNC\203.0.113.9\share\x.pdf",
+        r"\??\UNC\203.0.113.9\share\x.pdf",
+        r"\\.\PIPE\x.pdf",
+    ],
+)
+def test_a_network_path_is_refused_before_anything_looks_at_it(path, monkeypatch):
+    def looked(self):
+        raise AssertionError(f"looked at {self}")
+
+    monkeypatch.setattr(Path, "is_file", looked)
+
+    assert "network" in refusal([path]).message

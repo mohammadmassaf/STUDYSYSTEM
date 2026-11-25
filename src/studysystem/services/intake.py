@@ -59,6 +59,8 @@ def read(paths: object, field: str = "paths") -> Paper:
     if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
         raise invalid(field, f"{paths!r} is not a list of file paths", SHAPES)
 
+    for p in paths:
+        _refuse_network_path(p, field)
     files = [Path(p) for p in paths]
     for f in files:
         if not f.is_file():
@@ -74,6 +76,17 @@ def read(paths: object, field: str = "paths") -> Paper:
     else:
         problem = f"{', '.join(sorted(set(kinds) - IMAGE_TYPES))} is not a PDF or an image"
     raise invalid(field, problem, SHAPES)
+
+
+def _refuse_network_path(path: str, field: str) -> None:
+    """Before anything touches it: on Windows, looking at `\\\\host\\x.pdf` already sends that host
+    the student's login (scrambled), and a path can come from text the host read in a PDF."""
+    if path.replace("/", "\\").startswith(("\\\\", "\\??\\")):
+        raise invalid(
+            field,
+            f"{path} is a network or device path",
+            "copy the file to this computer, then send its path here",
+        )
 
 
 def _read_pdf(path: Path, field: str) -> Paper:

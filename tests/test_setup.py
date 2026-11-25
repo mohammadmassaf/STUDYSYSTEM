@@ -457,7 +457,7 @@ def test_the_entry_names_the_command_that_runs_setup(tmp_path, monkeypatch, plat
 def test_no_installed_command_is_refused(tmp_path, monkeypatch):
     monkeypatch.setattr(machine.sys, "argv", ["pytest"])
     monkeypatch.setattr(machine.sys, "executable", str(tmp_path / "python"))
-    monkeypatch.setattr(machine.shutil, "which", lambda name: None)
+    monkeypatch.setattr(machine.programs, "on_path", lambda name: None)
 
     with pytest.raises(StudyError) as caught:
         machine.study_path()
@@ -513,3 +513,41 @@ def test_a_dashboard_that_does_not_start_still_prints_the_entry(pc, monkeypatch)
     assert out.exit_code == 1
     assert "dashboard_not_started" in out.output
     assert '"mcpServers"' in out.output
+
+
+def test_codex_gets_a_command_and_not_the_json_entry(pc, monkeypatch):
+    """JSON in Codex's TOML config stops Codex from starting (D-364)."""
+    monkeypatch.setattr(machine, "study_path", lambda: r"C:\Users\A B\study.exe")
+
+    out = run(pc["folder"], "n")
+
+    line = r'codex mcp add studysystem -- "C:\Users\A B\study.exe" serve'
+    assert line in out.output.splitlines()
+    paste = next(line for line in out.output.splitlines() if "paste this entry" in line)
+    assert "Claude Code" in paste and "Codex" not in paste
+
+
+def test_only_the_newest_copy_of_the_config_is_kept(pc, tmp_path):
+    """Each copy holds the API keys of the other servers in the config."""
+    path = claude(tmp_path, {"mcpServers": {}})
+    old = path.with_name(f"{path.name}.bak-2026-01-01-000000")
+    old.write_text("old keys")
+    his = path.with_name(f"{path.name}.bak-mine")
+    his.write_text("the student's own copy")
+
+    copy = machine.write_entry(path, NEW)
+
+    assert copy.is_file() and not old.exists()
+    assert his.is_file()
+
+
+def test_study_is_not_taken_from_the_current_folder(tmp_path, monkeypatch):
+    (tmp_path / "study.exe").write_text("planted")
+    (tmp_path / "study").write_text("planted")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(machine.sys, "argv", ["study"])
+    monkeypatch.setattr(machine.sys, "executable", str(tmp_path / "other" / "python"))
+    monkeypatch.setattr(machine.programs, "on_path", lambda name: None)
+
+    with pytest.raises(StudyError):
+        machine.study_path()
