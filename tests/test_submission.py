@@ -78,7 +78,7 @@ def web(service_engine, user_id):
 def paper1(service_engine, user_id, web, tmp_path):
     path = write(tmp_path / "in", "I3302_First.pdf", pdf_pages(["Problem I", "Problem II"]))
     return add_past_exam(
-        service_engine, user_id, "I3302", "Final exam", "first", "2020-02-17", path, "Dr. Hamze"
+        service_engine, user_id, "I3302", "Final exam", "first", "2020-02-17", path, "Dr. Varen"
     )["past_exam_id"]
 
 

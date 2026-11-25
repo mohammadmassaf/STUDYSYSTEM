@@ -108,7 +108,7 @@ def _surnames(text: str) -> list[str]:
     lowercased with dots as spaces and TITLES dropped, then its last word. A name that was only
     a title has none and is left out.
 
-    "Dr. Mohamad Hamze, Dr. Abed EL Safadi" -> ["hamze", "safadi"]; "M.Dbouk" -> ["dbouk"];
+    "Dr. Marek Varen, Dr. Tove EL Lindem" -> ["varen", "lindem"]; "M.Stonn" -> ["stonn"];
     "Dr." -> [].
     """
     surnames = []
@@ -129,10 +129,10 @@ def same_person(paper_instructor: str | None, course_instructor: str | None) -> 
     missing name on either side never matches - unknown counts as not the same (D-150); derive
     first gives a paper naming no one its nearest named paper's (`assume_instructors`, D-174).
 
-    "Dr. Ali Ghorayeb" vs "A. Ghrayeb" -> True (ghorayeb / ghrayeb 0.93)
-    "Dr. Mohamad Hamze" vs "A. Ghrayeb" -> False (0.50)
-    "Dr. Mohamad Hamze, Dr. Abed EL Safadi" vs "A. Safadi" -> True (I3305, the second name)
-    None vs "A. Ghrayeb" -> False
+    "Dr. Ilya Karavelo" vs "I. Karvelo" -> True (karavelo / karvelo 0.93)
+    "Dr. Marek Varen" vs "I. Karvelo" -> False (0.50)
+    "Dr. Marek Varen, Dr. Tove EL Lindem" vs "T. Lindem" -> True (I3305, the second name)
+    None vs "I. Karvelo" -> False
     """
     if paper_instructor is None or course_instructor is None:
         return False
@@ -156,9 +156,9 @@ def assume_instructors(
     the list, `course_instructor` - each (name, True); with no course instructor either, it stays
     unknown: (None, False).
 
-    I3302 Final: [Ghorayeb, Hamze x5, None, None] -> both Nones ("Dr. Mohamad Hamze", True).
-    I3305 Final: [None x3, "Dr. Abed El Safadi, Dr. Mohamad Hamze", ...] -> the three Nones take
-    that text. I3301 Final: [None x5], "K. Beydoun" -> ("K. Beydoun", True) each.
+    I3302 Final: [Karavelo, Varen x5, None, None] -> both Nones ("Dr. Marek Varen", True).
+    I3305 Final: [None x3, "Dr. Tove El Lindem, Dr. Marek Varen", ...] -> the three Nones take
+    that text. I3301 Final: [None x5], "P. Wexford" -> ("P. Wexford", True) each.
     """
     assumed = []
 
@@ -199,8 +199,8 @@ def route_claims(
     - syllabus-driven: never routed here - weights derive from items (D-151).
 
     I3302 Final, after the 2021-09 observation task:
-    [("Dr. Ali Ghorayeb", 3 format + 13 instructor), ("Dr. Mohamad Hamze", its claims), ...]
-    with "A. Ghrayeb" and format_at 0 -> the 16 ids of 2023-09; none of 2021-09's.
+    [("Dr. Ilya Karavelo", 3 format + 13 instructor), ("Dr. Marek Varen", its claims), ...]
+    with "I. Karvelo" and format_at 0 -> the 16 ids of 2023-09; none of 2021-09's.
     """
     kept = []
     for pos, (instructor, claims) in enumerate(papers):
@@ -229,8 +229,8 @@ def instructor_provisional(
 
     Returns {"provisional": bool, "why": str}.
 
-    I3302 Final: 1 Ghorayeb paper of 8, its 2018 papers assumed Hamze's, course "A. Ghrayeb" ->
-    {"provisional": True, "why": "1 of 8 papers by A. Ghrayeb; 2 needed - 2018-07-21, 2018-01-23
+    I3302 Final: 1 Karavelo paper of 8, its 2018 papers assumed Varen's, course "I. Karvelo" ->
+    {"provisional": True, "why": "1 of 8 papers by I. Karvelo; 2 needed - 2018-07-21, 2018-01-23
     name no instructor, assumed by their nearest named paper's"}
     """
     count = 0

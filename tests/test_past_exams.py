@@ -15,7 +15,7 @@ from studysystem.services.past_exams import add_past_exam
 from tests._papers import JPEG, pdf_bytes, write
 
 SEM = "Semester 1 2026-2027"
-HAMZE = "Dr. Mohamad Hamze"
+VAREN = "Dr. Marek Varen"
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def add(engine, user_id, paths, **overrides):
         "assessment_name": "Final exam",
         "session_type": "first",
         "session_date": "2020-02-17",
-        "instructor": HAMZE,
+        "instructor": VAREN,
     } | overrides
     return add_past_exam(engine, user_id, paths=paths, **args)
 
@@ -89,7 +89,7 @@ def test_the_first_session_paper_is_registered_under_the_final(
         0,
     )
     assert row["session_date_approx"] == 0 and result["session_date_approx"] is False
-    assert (row["instructor"], row["instructor_tier"]) == (HAMZE, "declared")
+    assert (row["instructor"], row["instructor_tier"]) == (VAREN, "declared")
     assert row["has_text_layer"] == 1 and result["has_text_layer"] is True
     assert len(row["content_sha256"]) == 64
     assert row["file_ref"] == result["file_ref"] == f"{row['content_sha256']}.pdf"

@@ -137,7 +137,7 @@ def test_a_paper_goes_in_through_the_tool(call, tmp_path):
             "session_type": "first",
             "session_date": "2020-02-17",
             "paths": [path],
-            "instructor": "Dr. Mohamad Hamze",
+            "instructor": "Dr. Marek Varen",
         },
     )
 

@@ -131,7 +131,7 @@ def course_need(
     None when credits or target_grade is unknown: the course is left out and named, never
     counted at a guess (unknown stays unknown).
 
-    Examples, his data on 2026-11-15:
+    Examples:
     - I3302: 4 credits, H 6, target 75, 70 min logged      -> 18 - 1.17 = 16.83
     - I3351: 5 credits, H 6, target 75, 0 logged            -> 22.5
     - I3351 with no target grade                            -> None
@@ -228,7 +228,7 @@ def shortfall_of(gathered: dict, today: datetime.date) -> dict:
     With no upcoming exam (`last_exam` None) there is no window: need and the list still read,
     capacity, gap and short are None with tier unknown, and no offer is made.
 
-    Examples, his data 2026-11-15, H 6 (DHR300 at its own 2.7), I3351 not yet given a target:
+    Examples, H 6 (DHR300 at its own 2.7), I3351 not yet given a target:
     - need 93.22 (I3351 not counted: no target grade), capacity 131.95, gap +38.73, short false;
       offers: catch-up for the furthest behind (I3301, 3.8 - 0.67 = 3.13), nothing more.
     - the Done-when copy: I3351 at 5 credits / 75, a capacity row ("2026-11-15", 8) -> need

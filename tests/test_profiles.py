@@ -655,19 +655,19 @@ def kept_by(engine, profile_id) -> set[str]:
 @pytest.fixture
 def claims(service_engine, user_id, i3302):
     """The three papers with an instructor and claims each - names stand-ins, his live 2021-09
-    is Hamze's: 2021-09 Ghorayeb (90 min, a trap), 2020-09 Hamze (120 min, a trap), 2020-02
-    unnamed (5 questions). The course: "A. Ghrayeb"."""
+    is Varen's: 2021-09 Karavelo (90 min, a trap), 2020-09 Varen (120 min, a trap), 2020-02
+    unnamed (5 questions). The course: "I. Karvelo"."""
     newest, resit, first = (
         paper_on(service_engine, d) for d in ("2021-09-20", "2020-09-14", "2020-02-17")
     )
-    name_instructor(service_engine, newest, "Dr. Ali Ghorayeb")
-    name_instructor(service_engine, resit, "Dr. Mohamad Hamze")
-    set_course_input(service_engine, user_id, "I3302", "instructor", "A. Ghrayeb")
+    name_instructor(service_engine, newest, "Dr. Ilya Karavelo")
+    name_instructor(service_engine, resit, "Dr. Marek Varen")
+    set_course_input(service_engine, user_id, "I3302", "instructor", "I. Karvelo")
     return {
         "dur_90": observe(service_engine, user_id, newest, DUR, {"minutes": 90}),
-        "ghorayeb_trap": observe(service_engine, user_id, newest, TRAP, {"text": "== vs ==="}),
+        "karavelo_trap": observe(service_engine, user_id, newest, TRAP, {"text": "== vs ==="}),
         "dur_120": observe(service_engine, user_id, resit, DUR, {"minutes": 120}),
-        "hamze_trap": observe(service_engine, user_id, resit, TRAP, {"text": "$_GET in a query"}),
+        "varen_trap": observe(service_engine, user_id, resit, TRAP, {"text": "$_GET in a query"}),
         "count_5": observe(service_engine, user_id, first, COUNT, {"count": 5}),
     }
 
@@ -679,26 +679,26 @@ def test_a_profile_keeps_each_class_by_its_own_rule(service_engine, user_id, cla
 
     with service_engine.connect() as conn:
         profile = conn.execute(select(exam_profile)).one()
-    assert kept_by(service_engine, profile.id) == {claims["dur_90"], claims["ghorayeb_trap"]}
+    assert kept_by(service_engine, profile.id) == {claims["dur_90"], claims["karavelo_trap"]}
     assert (profile.evidence_count_instructor, profile.evidence_count_format) == (1, 1)
     assert (profile.provisional_instructor, profile.provisional_format) == (1, 1)  # 2.2
     assert result["claims"] == {"format": 1, "instructor-driven": 1}
 
 
 def test_an_instructor_change_excludes_the_old_instructors_claims(service_engine, user_id, claims):
-    """2.1's Done when, on the database: Hamze declared as teaching now, the next version keeps
-    his trap and drops Ghorayeb's; format does not move, and v1 still says what it kept."""
+    """2.1's Done when, on the database: Varen declared as teaching now, the next version keeps
+    his trap and drops Karavelo's; format does not move, and v1 still says what it kept."""
     v1 = derive_profile(service_engine, user_id, "I3302", FINAL)
-    set_course_input(service_engine, user_id, "I3302", "instructor", "M. Hamze")
+    set_course_input(service_engine, user_id, "I3302", "instructor", "M. Varen")
     v2 = derive_profile(service_engine, user_id, "I3302", FINAL)
 
     assert kept_by(service_engine, v2["exam_profile_id"]) == {
         claims["dur_90"],
-        claims["hamze_trap"],
+        claims["varen_trap"],
     }
     assert kept_by(service_engine, v1["exam_profile_id"]) == {
         claims["dur_90"],
-        claims["ghorayeb_trap"],
+        claims["karavelo_trap"],
     }
 
 
@@ -706,14 +706,14 @@ def test_a_paper_outside_the_weights_set_lends_no_claim(service_engine, user_id,
     """A newer paper with observations but no transcription sits out until transcribed (D-159):
     its 75 minutes do not displace the newest transcribed paper's 90."""
     untranscribed = register(service_engine, user_id, tmp_path, "2023-09-13", "second")
-    name_instructor(service_engine, untranscribed, "Dr. Ali Ghorayeb")
+    name_instructor(service_engine, untranscribed, "Dr. Ilya Karavelo")
     observe(service_engine, user_id, untranscribed, DUR, {"minutes": 75})
 
     result = derive_profile(service_engine, user_id, "I3302", FINAL)
 
     assert kept_by(service_engine, result["exam_profile_id"]) == {
         claims["dur_90"],
-        claims["ghorayeb_trap"],
+        claims["karavelo_trap"],
     }
     assert result["papers"] == 3
 
@@ -721,7 +721,7 @@ def test_a_paper_outside_the_weights_set_lends_no_claim(service_engine, user_id,
 def test_a_course_with_no_instructor_keeps_format_only(service_engine, user_id, i3302):
     """No one declared as teaching now: no paper is by them (D-150)."""
     paper = paper_on(service_engine, "2021-09-20")
-    name_instructor(service_engine, paper, "Dr. Ali Ghorayeb")
+    name_instructor(service_engine, paper, "Dr. Ilya Karavelo")
     dur = observe(service_engine, user_id, paper, DUR, {"minutes": 90})
     observe(service_engine, user_id, paper, TRAP, {"text": "== vs ==="})
 
@@ -757,7 +757,7 @@ def test_a_profile_links_only_its_owners_observations_of_its_own_slot(
     result = derive_profile(service_engine, user_id, "I3302", FINAL)
 
     kept = kept_by(service_engine, result["exam_profile_id"])
-    assert kept == {claims["dur_90"], claims["ghorayeb_trap"]}
+    assert kept == {claims["dur_90"], claims["karavelo_trap"]}
     assert not kept & {foreign, on_midterm, stray}
 
 
@@ -771,7 +771,7 @@ def flags(engine, profile_id) -> tuple[int, int, int]:
 
 
 def test_a_profile_states_each_class_provisional_and_why(service_engine, user_id, claims):
-    """(g) 2.2's Done when on the fixture: one Ghorayeb paper of three is below the instructor
+    """(g) 2.2's Done when on the fixture: one Karavelo paper of three is below the instructor
     bar; syllabus is cleared by the refusal (D-164); format comes from a resit, so it is
     provisional and says why (D-169, D-170)."""
     result = derive_profile(service_engine, user_id, "I3302", FINAL, this_year=2026)
@@ -781,7 +781,7 @@ def test_a_profile_states_each_class_provisional_and_why(service_engine, user_id
         "syllabus": {"provisional": False, "why": "3 papers; 3 needed"},
         "instructor-driven": {
             "provisional": True,
-            "why": "1 of 3 papers by A. Ghrayeb; 2 needed - 2020-02-17 names no instructor, "
+            "why": "1 of 3 papers by I. Karvelo; 2 needed - 2020-02-17 names no instructor, "
             "assumed by its nearest named paper's",
         },
         "format": {
@@ -793,11 +793,11 @@ def test_a_profile_states_each_class_provisional_and_why(service_engine, user_id
 
 
 def test_the_instructor_flag_follows_who_teaches_now(service_engine, user_id, claims):
-    """(h) Hamze declared as teaching now, and he set two of the three papers: the next version
-    clears the instructor flag; v1, derived under Ghrayeb, still reads provisional."""
-    name_instructor(service_engine, paper_on(service_engine, "2020-02-17"), "Dr. Mohamad Hamze")
+    """(h) Varen declared as teaching now, and he set two of the three papers: the next version
+    clears the instructor flag; v1, derived under Karvelo, still reads provisional."""
+    name_instructor(service_engine, paper_on(service_engine, "2020-02-17"), "Dr. Marek Varen")
     v1 = derive_profile(service_engine, user_id, "I3302", FINAL)
-    set_course_input(service_engine, user_id, "I3302", "instructor", "M. Hamze")
+    set_course_input(service_engine, user_id, "I3302", "instructor", "M. Varen")
 
     v2 = derive_profile(service_engine, user_id, "I3302", FINAL)
 
@@ -805,7 +805,7 @@ def test_the_instructor_flag_follows_who_teaches_now(service_engine, user_id, cl
     assert flags(service_engine, v2["exam_profile_id"])[1] == 0
     assert v2["provisional"]["instructor-driven"] == {
         "provisional": False,
-        "why": "2 of 3 papers by M. Hamze; 2 needed",
+        "why": "2 of 3 papers by M. Varen; 2 needed",
     }
 
 
@@ -820,7 +820,7 @@ def assumed_count(engine, profile_id) -> int:
 
 
 def test_a_profile_stores_how_many_papers_it_assumed(service_engine, user_id, claims):
-    """2020-02 names no one: it is assumed Hamze's (the newer 2020-09), and the row says 1
+    """2020-02 names no one: it is assumed Varen's (the newer 2020-09), and the row says 1
     (D-176) - so the dashboard sees the assumption without the reply."""
     result = derive_profile(service_engine, user_id, "I3302", FINAL)
 
@@ -828,27 +828,27 @@ def test_a_profile_stores_how_many_papers_it_assumed(service_engine, user_id, cl
 
 
 def test_an_unnamed_papers_traps_count_as_its_neighbours(service_engine, user_id, claims):
-    """Hamze declared as teaching now: 2020-02 names no one but sits after his 2020-09, so its
-    trap is kept as his, and it counts toward his bar (D-174, D-175); Ghorayeb's is not."""
+    """Varen declared as teaching now: 2020-02 names no one but sits after his 2020-09, so its
+    trap is kept as his, and it counts toward his bar (D-174, D-175); Karavelo's is not."""
     first_trap = observe(
         service_engine, user_id, paper_on(service_engine, "2020-02-17"), TRAP, {"text": "isset"}
     )
-    set_course_input(service_engine, user_id, "I3302", "instructor", "M. Hamze")
+    set_course_input(service_engine, user_id, "I3302", "instructor", "M. Varen")
 
     result = derive_profile(service_engine, user_id, "I3302", FINAL)
 
     kept = kept_by(service_engine, result["exam_profile_id"])
-    assert {claims["hamze_trap"], first_trap} <= kept
-    assert claims["ghorayeb_trap"] not in kept
+    assert {claims["varen_trap"], first_trap} <= kept
+    assert claims["karavelo_trap"] not in kept
     assert result["provisional"]["instructor-driven"] == {
         "provisional": False,
-        "why": "2 of 3 papers by M. Hamze; 2 needed - 2020-02-17 names no instructor, assumed "
+        "why": "2 of 3 papers by M. Varen; 2 needed - 2020-02-17 names no instructor, assumed "
         "by its nearest named paper's",
     }
 
 
 def test_a_profile_derived_with_every_paper_named_assumes_none(service_engine, user_id, claims):
-    name_instructor(service_engine, paper_on(service_engine, "2020-02-17"), "Dr. Mohamad Hamze")
+    name_instructor(service_engine, paper_on(service_engine, "2020-02-17"), "Dr. Marek Varen")
 
     result = derive_profile(service_engine, user_id, "I3302", FINAL)
 
@@ -869,7 +869,7 @@ def test_a_month_only_paper_prints_its_month_in_both_reasons(service_engine, use
     result = derive_profile(service_engine, user_id, "I3302", FINAL, this_year=2026)
 
     assert result["provisional"]["instructor-driven"]["why"] == (
-        "1 of 3 papers by A. Ghrayeb; 2 needed - 2020-02 names no instructor, assumed by its "
+        "1 of 3 papers by I. Karvelo; 2 needed - 2020-02 names no instructor, assumed by its "
         "nearest named paper's"
     )
     assert result["provisional"]["format"]["why"] == (
@@ -898,7 +898,7 @@ def test_the_first_session_sets_format_over_a_newer_resit(service_engine, user_i
 
     assert kept_by(service_engine, result["exam_profile_id"]) == {
         claims["count_5"],
-        claims["ghorayeb_trap"],
+        claims["karavelo_trap"],
     }
     assert result["provisional"]["format"] == {
         "provisional": True,
@@ -914,7 +914,7 @@ def test_a_student_sitting_the_resit_matches_the_resits(service_engine, user_id,
 
     assert kept_by(service_engine, result["exam_profile_id"]) == {
         claims["dur_90"],
-        claims["ghorayeb_trap"],
+        claims["karavelo_trap"],
     }
     assert result["provisional"]["format"] == {
         "provisional": False,
