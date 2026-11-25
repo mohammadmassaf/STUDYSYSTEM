@@ -42,7 +42,8 @@ AGENT_LABEL = "studysystem.dashboard"
 WAIT_SECONDS = 15  # a cold start imports the web stack and opens the database
 ASK = (
     "Start the study dashboard every time you sign in to this computer? It then runs in the "
-    "background, so the stopwatch always works. You can change this anytime."
+    "background, so the stopwatch always works. Your computer's startup settings "
+    "can turn it off later."
 )
 
 
