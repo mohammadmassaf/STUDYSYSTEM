@@ -9,7 +9,8 @@ retires the item; his own format preference or a correction to the model's outpu
 `study_submit_feedback` is one write unit: the rejection, the item's state, the replacement it
 queues (D-259), the drafted directive and, for a wrong answer key, the voided attempts and the
 topic's replayed state (physical-schema.md, *Write units*). A directive is drafted `proposed`
-and enters a payload only after `study_confirm_directive` (D-24) - one row, no unit entry.
+and enters a payload only after the student confirms it on the dashboard (D-24, D-368) - one row,
+no unit entry.
 """
 
 from sqlalchemy import Connection, Engine, insert, or_, select, update
@@ -354,7 +355,7 @@ def confirm_directive(engine: Engine, user_id: str, directive_id: str) -> dict:
             raise _not_found(
                 "directive_id",
                 "no proposed directive of yours has this id - it may already be confirmed",
-                "use the id study_submit_feedback returned",
+                "reload the dashboard's Plan page: it lists the ones that wait",
             )
         conn.execute(
             update(generation_directive)

@@ -1,10 +1,11 @@
 """System work on the Plan page (4.12; D-25, D-310, D-311): work on the system itself, not study -
-past papers that move no marks, and directives waiting for his yes. It shows only on a measured
-surplus, so it never competes with study time the plan needs.
+past papers that move no marks, and directives waiting for his yes. The papers show only on a
+measured surplus, so they never compete with study time the plan needs. The directives always
+show: this page is the only place to confirm one (D-368).
 
 Who reads it: `GET /state` (its `system_work` section). This module writes nothing. The page's
 Confirm button writes through `POST /directives/confirm`, which calls
-`feedback.confirm_directive` - the same service `study_confirm_directive` calls.
+`feedback.confirm_directive`.
 """
 
 from sqlalchemy import Connection, select
@@ -15,11 +16,10 @@ ALL_COURSES = "all courses"  # applies_to for a directive with no course: never 
 
 
 def system_work(conn: Connection, user_id: str, alert: dict) -> dict:
-    """The rows of the Plan page's System work block, or two empty lists when there is no room.
+    """The rows of the Plan page's System work block.
 
     `alert` is `shortfall()`'s dict; only its "gap" is read. Room means a gap above 0 (D-310):
-    a gap of 0, below 0, or None (no exam ahead) returns {"papers": [], "directives": []} and
-    reads nothing else.
+    a gap of 0, below 0, or None (no exam ahead) lists no paper.
 
     Returns {
       "papers": one per `past-papers` item with marks_unlocked_estimate = 0 in the latest
@@ -33,18 +33,20 @@ def system_work(conn: Connection, user_id: str, alert: dict) -> dict:
                 ALL_COURSES, not None.
     }
 
-    Examples, his data:
-    - live, 2026-11-19: short by 8.83 h -> both lists empty, though the I3304 Partial item
-      (estimate 0, shown 0) is in the latest plan
+    Examples:
+    - short by 8.83 h -> no paper, though the I3304 Partial item (estimate 0, shown 0) is in the
+      latest plan; a proposed directive is listed
     - the same rows with a gap of +7.24 h -> papers: [I3304's Partial item]; I3301 Partial at
       120 and I3304 Final `more-papers` at 1.63 stay out
     - a proposed "Prefer short MCQ with four options." on I3302 -> scope "course", applies_to
       "I3302"; once confirmed it is `active` and leaves the list
     """
     gap = alert["gap"]
-    if gap is None or gap <= 0:
-        return {"papers": [], "directives": []}
-    return {"papers": _papers(conn, user_id), "directives": _directives(conn, user_id)}
+    room = gap is not None and gap > 0
+    return {
+        "papers": _papers(conn, user_id) if room else [],
+        "directives": _directives(conn, user_id),
+    }
 
 
 def _papers(conn: Connection, user_id: str) -> list[dict]:

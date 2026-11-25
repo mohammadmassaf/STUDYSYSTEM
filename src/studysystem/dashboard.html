@@ -356,7 +356,17 @@ const page=()=>{const p=location.hash.replace('#/','').split(/[/?]/)[0];return [
 const param=k=>new URLSearchParams(location.hash.split('?')[1]||'').get(k);
 // A request that never reaches the server (it is stopped) fails before any answer: say so plainly.
 const DOWN={code:'server_down',message:'The dashboard server is not running.'};
-async function post(path,body){let r;try{r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body)})}catch(x){throw DOWN}const v=await r.json();if(!r.ok)throw v;return v}
+// D-369: the port answers every program on this computer, so each request carries this browser's key.
+// The study system opens the page with a one-time code; the page trades it for the key and keeps it.
+const KEY='studysystem.key';let heldKey='';
+const myKey=()=>{try{return localStorage.getItem(KEY)||heldKey}catch(e){return heldKey}};
+async function enter(){
+  const m=location.hash.match(/^#open=([\w.]+)$/);if(!m)return;
+  history.replaceState(null,'','#/today');
+  let r;try{r=await fetch('/open',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({code:m[1]})})}catch(x){return}
+  if(!r.ok)return;heldKey=(await r.json()).key;try{localStorage.setItem(KEY,heldKey)}catch(e){}
+}
+async function post(path,body){let r;try{r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json','X-Study-Key':myKey()},body:JSON.stringify(body)})}catch(x){throw DOWN}const v=await r.json();if(!r.ok)throw v;return v}
 
 // ---- the stopwatch (D-284): Start opens a session on the picked course, Stop logs its minutes
 let session=read('semcon.session.v1',null),busy=false,note=null;
@@ -515,7 +525,7 @@ function weekCard(){
   </div>`;
 }
 function tiles(){
-  const t=raw.study_time,n=t.streak_days;
+  const t=raw.study_time,n=Number(t.streak_days);
   return `<div class="tiles">
     <div class="card tile"><div class="label">Today</div><div class="big num">${hm(t.today_minutes)}</div><div class="muted">studied</div></div>
     <div class="card tile"><div class="label">Streak</div><div class="big num">${n} ${n===1?'day':'days'}</div>${t.streak_at_risk?'<div class="risk">Study today to keep it</div>':`<div class="muted">${n?'in a row':'No streak yet'}</div>`}</div>
@@ -571,15 +581,15 @@ function adherenceCard(){
   const a=raw.metrics?.adherence;
   if(!a)return honCard('Adherence this week','Share of this week’s logged minutes that went to a shown plan item.','<div class="big num">—</div><div class="muted">no reading yet</div>');
   const off=Object.entries(a.deviations||{}).filter(([,m])=>m>0),mi=a.missing_input||0;
-  const list=off.map(([r,m])=>`<li><span>${esc(r)}</span><em>${m} min</em></li>`).concat(mi?[`<li><span>missing input</span><em>${mi} min</em></li>`]:[]).join('');
+  const list=off.map(([r,m])=>`<li><span>${esc(r)}</span><em>${esc(m)} min</em></li>`).concat(mi?[`<li><span>missing input</span><em>${esc(mi)} min</em></li>`]:[]).join('');
   return honCard('Adherence this week','Share of this week’s logged minutes that went to a shown plan item.',
-    `<div class="big num">${a.adherence==null?'—':Math.round(a.adherence*100)+'%'}</div><div class="muted">${a.adherence==null?'no minutes to score':`${a.in_plan} of ${a.minutes-mi} minutes went to a shown plan item`}</div>
+    `<div class="big num">${a.adherence==null?'—':Math.round(a.adherence*100)+'%'}</div><div class="muted">${a.adherence==null?'no minutes to score':`${esc(a.in_plan)} of ${esc(a.minutes-mi)} minutes went to a shown plan item`}</div>
     <p class="meta">${a.week_start?'Week of '+fmt(a.week_start):'This week'}</p>${list?`<ul class="hon-rows plain">${list}</ul>`:'<p class="meta">No off-plan minutes.</p>'}${mi?'<p class="meta">Missing input is a gap in what was logged, not a miss.</p>':''}`);
 }
 function sensitivityCard(){
   const g=raw.metrics?.guess_sensitivity;
   if(!g)return honCard('Guess sensitivity','How much the top of the plan leans on inferred exam edges.','<div class="big num">—</div><div class="muted">not measurable yet</div>');
-  return honCard('Guess sensitivity','How much the top of the plan leans on inferred exam edges.',`<div class="big num">${g.changed==null?'—':g.changed+' of '+g.shown}</div><div class="muted">${g.changed==null?'not measurable yet':'top topics changed by dropping inferred exam edges'}</div>`,'the latest plan ranked again with every inferred exam edge dropped (D-280)');
+  return honCard('Guess sensitivity','How much the top of the plan leans on inferred exam edges.',`<div class="big num">${g.changed==null?'—':esc(g.changed+' of '+g.shown)}</div><div class="muted">${g.changed==null?'not measurable yet':'top topics changed by dropping inferred exam edges'}</div>`,'the latest plan ranked again with every inferred exam edge dropped (D-280)');
 }
 function shortfallCard(){
   const f=raw.shortfall,sub='Study hours needed against hours declared free, up to the last exam.';
@@ -614,7 +624,7 @@ function courseCards(){
     return `<article class="card course"><div class="code" style="--h:${hue(c)}"><i></i>${esc(c.code)}</div><h3>${esc(c.name)}</h3>${meta?`<p class="meta">${esc(meta)}</p>`:''}
       <div class="stats"><div><b>${hm(c.minutes_logged)}</b><span>logged</span></div><div><b>${left==null?'—':left+(left===1?' day':' days')}</b><span>${next?esc(next.name)+' · '+fmt(next.date):'no dated exam'}</span></div></div>
       ${strat?`<p class="meta">Strategy · ${esc(strat)}</p>`:''}
-      ${exams.length?`<ul class="assess">${exams.map(a=>`<li><span>${esc(a.name)}<small>${fmt(a.date)} · ${a.weight!=null?a.weight+'%':'weight unknown'}</small></span><em>${a.mark==null?'ungraded':a.mark+'%'}</em></li>`).join('')}</ul>`:''}
+      ${exams.length?`<ul class="assess">${exams.map(a=>`<li><span>${esc(a.name)}<small>${fmt(a.date)} · ${a.weight!=null?esc(a.weight)+'%':'weight unknown'}</small></span><em>${a.mark==null?'ungraded':esc(a.mark)+'%'}</em></li>`).join('')}</ul>`:''}
       <div class="foot">${unconfirmed(c)}${papers(c)}${xs.length?`<a class="planlink" href="#/plan?course=${encodeURIComponent(c.course_id)}">View ${xs.length} ranked ${xs.length===1?'task':'tasks'}</a>`:''}</div></article>`}).join('')}</div>`;
 }
 function todayPage(){
@@ -635,8 +645,8 @@ function planPage(){
     ${withItems.length>1?`<div class="chips">${chip('all','All courses')}${withItems.map(c=>chip(c.course_id,c.code)).join('')}</div>`:''}
     <div class="lanes">${rankedLane('study',cf)}${personalLane(own,cf)}${rankedLane('review',cf)}${rankedLane('setup',cf)}</div>${systemWork()}${trialsSwitch()}`;
 }
-// D-311: System work under the lanes. The server sends rows only on a surplus (D-310), so an
-// empty section means no block. Confirm writes through POST /directives/confirm, as the tool does.
+// D-311: System work under the lanes. The server sends papers only on a surplus (D-310) and proposed
+// rules always (D-368): this page is the only place to confirm one. An empty list means no block.
 let workEdit={busy:null,err:null};
 async function confirmDirective(id){
   workEdit={busy:id,err:null};draw();
@@ -645,11 +655,12 @@ async function confirmDirective(id){
 }
 function systemWork(){
   const w=raw.system_work||{papers:[],directives:[]};
-  if(!w.papers.length&&!w.directives.length)return '';
+  const lane=(name,desc,rows)=>rows.length?`<section class="lane system"><h2>${name}<small>${desc}</small></h2><div class="card list">${rows.join('')}</div></section>`:'';
   const papers=w.papers.map(p=>`<div class="row"><span class="rank">–</span><div><div class="t">${esc(p.reason)}</div><div class="m">${esc(p.code)} · past papers · moves no marks</div></div><span></span></div>`);
   const rules=w.directives.map(d=>{const busy=workEdit.busy===d.id,err=workEdit.err?.id===d.id?workEdit.err.text:null;
     return `<div class="row"><span class="rank">–</span><div><div class="t">${esc(d.text)}</div><div class="m">Proposed rule for generated items · ${esc(d.applies_to)}</div>${err?`<p class="err">${esc(err)}</p>`:''}</div><button class="quiet" type="button" data-act="confirm" data-id="${esc(d.id)}" ${busy?'disabled':''}>${busy?'Confirming…':'Confirm'}</button></div>`});
-  return `<section class="lane system"><h2>System work<small>The plan has hours to spare, so these show. They improve the system, not your marks.</small></h2><div class="card list">${papers.concat(rules).join('')}</div></section>`;
+  return lane('Waiting for your yes','Rules your AI proposed for what it writes. Nothing uses one until you confirm it.',rules)
+    +lane('System work','The plan has hours to spare, so these show. They improve the system, not your marks.',papers);
 }
 // D-317: the trials switch, always on Plan - off by default (D-312). The same write as study_set_trials.
 let trialsEdit={busy:false,err:null};
@@ -665,8 +676,8 @@ function trialsSwitch(){
 // D-302: Study and Personal side by side, Review and Setup under them; each row's cards share one height
 function rankedLane(k,cf){
       const [name,desc]=LANES[k],xs=plan.filter(x=>x.lane===k&&(cf==='all'||x.course?.course_id===cf)),hidden=raw.plan?.current?.lanes?.[k]?.hidden||0;
-      return `<section class="lane"><h2>${name}<small>${desc}</small></h2><div class="card list"><div class="list-head"><span class="muted">${xs.length} shown${hidden?` · ${hidden} more not shown by the server`:''}</span></div>${xs.length?xs.map(it=>{const st=status(it);
-        return `<div class="row"><span class="rank">${it.rank??'–'}</span><div><div class="t">${esc(it.what)}</div><div class="m">${[it.course?it.course.code+' · '+it.course.name:null,it.chapter].filter(Boolean).map(esc).join(' · ')}</div>${it.why&&it.why!==it.what?`<details class="why"><summary>Why ranked</summary><p>${esc(it.why)}</p></details>`:''}</div>${st!=='upcoming'?`<span class="tag">${esc(st)}</span>`:k==='setup'?'':`<span class="tag">${it.mins==null?'time unknown':it.mins+' min'}</span>`}</div>`}).join(''):'<p class="empty">Nothing in this lane right now.</p>'}</div></section>`;
+      return `<section class="lane"><h2>${name}<small>${desc}</small></h2><div class="card list"><div class="list-head"><span class="muted">${xs.length} shown${hidden?` · ${esc(hidden)} more not shown by the server`:''}</span></div>${xs.length?xs.map(it=>{const st=status(it);
+        return `<div class="row"><span class="rank">${esc(it.rank??'–')}</span><div><div class="t">${esc(it.what)}</div><div class="m">${[it.course?it.course.code+' · '+it.course.name:null,it.chapter].filter(Boolean).map(esc).join(' · ')}</div>${it.why&&it.why!==it.what?`<details class="why"><summary>Why ranked</summary><p>${esc(it.why)}</p></details>`:''}</div>${st!=='upcoming'?`<span class="tag">${esc(st)}</span>`:k==='setup'?'':`<span class="tag">${it.mins==null?'time unknown':esc(it.mins)+' min'}</span>`}</div>`}).join(''):'<p class="empty">Nothing in this lane right now.</p>'}</div></section>`;
 }
 // D-302: his own tasks, filtered by the same chip, with no rank; ticking stays on Today
 function personalLane(own,cf){
@@ -757,13 +768,14 @@ document.addEventListener('input',e=>{if(e.target.closest('#logform')&&e.target.
 document.addEventListener('submit',e=>{if(e.target.id==='logform'){e.preventDefault();logHours(e.target);return}
   if(e.target.id==='goal'){e.preventDefault();if(!goalEdit.busy)saveGoal(Number(new FormData(e.target).get('hours')));return}
   if(e.target.id!=='add')return;e.preventDefault();const title=String(new FormData(e.target).get('title')||'').trim(),course=taskCourse()?.code||null;if(!title)return;taskDraft='';store.custom.unshift({id:Math.random().toString(36).slice(2),title,course,mins:null,done:false});saveStore();draw();$('#add input')?.focus()});
-addEventListener('hashchange',()=>{draw();scrollTo({top:0})});
+addEventListener('hashchange',()=>{if(location.hash.startsWith('#open=')){arrive();return}draw();scrollTo({top:0})});
 addEventListener('resize',nav);
 
-async function load(){const r=await fetch("/state",{headers:{Accept:'application/json'}});if(!r.ok)throw await r.json().catch(()=>Error('The state request failed'));adapt(await r.json());draw()}
+async function load(){const r=await fetch("/state",{headers:{Accept:'application/json','X-Study-Key':myKey()}});if(!r.ok)throw await r.json().catch(()=>Error('The state request failed'));adapt(await r.json());draw()}
 nav();
 // An error the server named (D-330: behind head, run study migrate) is shown in its own words.
-load().catch(e=>{$('#app').innerHTML=`<p class="empty">${esc(e.code?`${e.message}. ${e.fix}`:(e instanceof TypeError?'The dashboard server is not running':e.message)+'. Start it')}, then reload this page.</p>`});
+const arrive=()=>enter().then(load).catch(e=>{$('#app').innerHTML=`<p class="empty">${esc(e.code?`${e.message}. ${e.fix}`:(e instanceof TypeError?'The dashboard server is not running':e.message)+'. Start it')}, then reload this page.</p>`});
+arrive();
 </script>
 </body>
 </html>

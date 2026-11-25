@@ -1,5 +1,6 @@
-"""Feedback and directives (2.9; D-24, D-213): a rejection note on a bad item, the standing
-instruction it may draft, and the student's yes that makes the instruction durable."""
+"""Feedback and directives (2.9; D-24, D-213): a rejection note on a bad item, and the standing
+instruction it may draft. The student's yes has no tool: it is a button on the dashboard's Plan
+page, where no text in a PDF can press it (D-368)."""
 
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
@@ -29,8 +30,8 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "not needed with scope 'all'). directive_text is one sentence future generation "
             "should follow; with an item defect it is optional, and it is a 'generator-correction' "
             "unless directive_kind is 'format-preference' (the student's own taste, e.g. 'I "
-            "prefer short MCQ'). It is drafted as proposed and is used only after the student "
-            "confirms it - read it back and ask, then call study_confirm_directive. scope: "
+            "prefer short MCQ'). It is drafted as proposed, and only the student makes it active: "
+            "read it back, and tell them to press Confirm on their dashboard's Plan page. scope: "
             "'topic' (the item's topic, the default for an item defect), 'course' (the default "
             "otherwise) or 'all' courses. A claim about the instructor ('the instructor writes "
             "easy questions') is not feedback - use study_add_instructor_statement. "
@@ -63,14 +64,3 @@ def register(mcp: MCPServer, engine: Engine) -> None:
                 directive_kind=directive_kind,
             )
         )
-
-    @mcp.tool(
-        name="study_confirm_directive",
-        description=(
-            "Make a proposed directive active, on the student's explicit yes - never on your own "
-            "judgement. directive_id is the id study_submit_feedback returned. From then on the "
-            "directive travels with every note and practice task in its scope."
-        ),
-    )
-    def study_confirm_directive(directive_id: str) -> CallToolResult:
-        return run(lambda: feedback.confirm_directive(engine, current_user(engine), directive_id))

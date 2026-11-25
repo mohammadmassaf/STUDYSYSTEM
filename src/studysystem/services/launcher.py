@@ -18,6 +18,7 @@ import importlib.metadata
 import json
 import os
 import plistlib
+import secrets
 import shlex
 import socket
 import subprocess
@@ -31,7 +32,7 @@ from pathlib import Path
 
 from studysystem.db.engine import data_dir
 from studysystem.errors import StudyError
-from studysystem.services import private_view, values
+from studysystem.services import dashboard_key, private_view, values
 
 HOST = "127.0.0.1"
 PORT = 8765  # `study dashboard`'s default
@@ -51,15 +52,89 @@ def url(port: int = PORT) -> str:
     return f"http://{HOST}:{port}/"
 
 
+# Straight to this computer: urlopen would ask the proxy that HTTP_PROXY names, and believe its
+# answer.
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def running_version(port: int = PORT) -> str | None:
     """The version of the study dashboard that answers on the port, as its /health names it; None
     when none answers."""
     try:
-        with urllib.request.urlopen(url(port) + "health", timeout=1) as reply:
+        with _DIRECT.open(url(port) + "health", timeout=1) as reply:
             return json.load(reply)["server_version"] if reply.status == 200 else None
     # refused, timed out, not HTTP, or not our JSON
     except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError):
         return None
+
+
+def _whose(port: int) -> str:
+    """Whose dashboard answers there (D-369): "ours", when it has this data folder's secret - only
+    that answers the question of this moment; "another"; "unlocked", when it has no secret at all,
+    as one from before D-369 or `study demo`; "silent", when it gives no answer in time."""
+    nonce = secrets.token_hex(16)
+    try:
+        with _DIRECT.open(url(port) + "health?nonce=" + nonce, timeout=5) as reply:
+            body = json.load(reply)
+    except (OSError, http.client.HTTPException):
+        return "silent"
+    except ValueError:  # not our JSON
+        return "another"
+    if not isinstance(body, dict):
+        return "another"
+    if "proof" not in body:
+        return "unlocked"
+    sent = body["proof"]
+    mine = isinstance(sent, str) and dashboard_key.same(sent, dashboard_key.proof(nonce))
+    return "ours" if mine else "another"
+
+
+# code, what is there, the way out
+_NOT_OURS = {
+    "another": (
+        "dashboard_of_another",
+        "is the dashboard of another person, or of another data folder, on this computer",
+        'sign that person out of the computer ("switch user" keeps it running), or run '
+        "`study stop` where it was started; then try again",
+    ),
+    "unlocked": (
+        "dashboard_unlocked",
+        "is an older version of the dashboard, or `study demo`",
+        "stop it with Ctrl+C in its terminal, or sign out of the computer and in again; then "
+        "try again",
+    ),
+    "silent": (
+        "dashboard_busy",
+        "does not answer now",
+        "wait a few seconds, then try again",
+    ),
+}
+
+
+def _refuse_another(port: int) -> None:
+    """Refused: dashboard_of_another, dashboard_unlocked, dashboard_busy. One port, and every person
+    signed in to this computer shares it: nobody reads, writes or stops another one's dashboard."""
+    if not answering(port):
+        return
+    whose = _whose(port)
+    if whose != "ours":
+        code, what, fix = _NOT_OURS[whose]
+        raise StudyError(code=code, message=f"{url(port)} {what}", fix=fix)
+
+
+def invitation(port: int = PORT) -> str:
+    """The line for a terminal. Never in a tool's reply: whoever holds the link can press Confirm
+    (D-368)."""
+    minutes = dashboard_key.CODE_SECONDS // 60
+    return (
+        f"If your browser asks for it, open this link (it works once, for {minutes} minutes; run "
+        f"`study start` again for another browser):\n{link(port)}"
+    )
+
+
+def link(port: int = PORT) -> str:
+    """The address with a one-time code, which gives the browser its key."""
+    return f"{url(port)}#open={dashboard_key.code()}"
 
 
 def answering(port: int = PORT) -> bool:
@@ -93,8 +168,9 @@ def _pythonw() -> str:
 
 
 def command(port: int = PORT) -> list[str]:
-    """`study dashboard` with this server's own interpreter, so it runs the same code."""
-    return [_pythonw(), "-m", "studysystem.cli", "dashboard", "--port", str(port)]
+    """`study dashboard` with this server's own interpreter, so it runs the same code. `-P`: no
+    module is taken from the folder it starts in."""
+    return [_pythonw(), "-P", "-m", "studysystem.cli", "dashboard", "--port", str(port)]
 
 
 def _spawn(port: int) -> None:
@@ -129,9 +205,14 @@ def _ask_to_stop(port: int) -> int | None:
     """Ask the dashboard to stop. Returns its process id; None when the reply has no usable one
     (D-343): no reply of ours, no id, or an id that is not a whole number."""
     ask = urllib.request.Request(
-        url(port) + "shutdown", data=b"{}", headers={"Content-Type": "application/json"}
+        url(port) + "shutdown",
+        data=b"{}",
+        headers={
+            "Content-Type": "application/json",
+            dashboard_key.HEADER: dashboard_key.token("stop"),
+        },
     )
-    with urllib.request.urlopen(ask, timeout=5) as reply:
+    with _DIRECT.open(ask, timeout=5) as reply:
         try:
             pid = json.load(reply).get("pid")
         except (ValueError, AttributeError):  # not our JSON
@@ -261,17 +342,19 @@ def open_dashboard(port: int = PORT) -> dict:
     of another version counts as running: two installs on one machine must not keep replacing each
     other's (D-342).
 
-    Refused: dashboard_not_started, as `_start` says.
+    Refused: dashboard_not_started, as `_start` says; dashboard_of_another.
     """
+    _refuse_another(port)
     started = not answering(port)
     if started:
         _start(port)
+        _refuse_another(port)  # another one may have taken the port meanwhile
     enabled = None if private_view.active() else autostart_enabled()
     ask = enabled is False and not _asked()
     return {
         "url": url(port),
         "started": started,
-        "browser_opened": webbrowser.open(url(port)),
+        "browser_opened": webbrowser.open(link(port)),
         "autostart": enabled,
         "ask_user": ASK if ask else None,
     }
@@ -344,6 +427,7 @@ def stop_dashboard(port: int = PORT) -> dict:
                 "close that program, or wait if the dashboard is busy, then run the command again",
             )
         return {"stopped": False}
+    _refuse_another(port)
     pid = None
     try:
         pid = _ask_to_stop(port)
@@ -360,10 +444,12 @@ def start_dashboard(port: int = PORT) -> dict:
     """Start the dashboard with no window and no browser. One of another version is stopped first:
     it is the old code, left running through an upgrade. Returns {"url", "started"}.
 
-    Refused: dashboard_not_stopped and dashboard_not_started, as above.
+    Refused: dashboard_not_stopped, dashboard_not_started and dashboard_of_another, as above.
     """
+    _refuse_another(port)
     if running_version(port) == importlib.metadata.version("studysystem"):
         return {"url": url(port), "started": False}
     stop_dashboard(port)  # also refuses a port that is held but does not answer
     _start(port)
+    _refuse_another(port)
     return {"url": url(port), "started": True}

@@ -200,6 +200,7 @@ def _ask_sign_in() -> None:
         launcher.set_autostart(True)
         sent = launcher.start_dashboard()
         click.echo(f"The dashboard starts at every sign-in. It runs now: {sent['url']}")
+        click.echo(launcher.invitation())
         return
     launcher.keep_answer()
     if enabled:
@@ -280,7 +281,10 @@ def dashboard(port: int) -> None:
     """Serve the dashboard's HTTP route on 127.0.0.1, beside the MCP server."""
     from studysystem.dashboard import main  # imported here for the reason serve gives
 
-    main(port)
+    try:
+        main(port)
+    except StudyError as e:
+        raise _line(e) from None
 
 
 @study.command()
@@ -294,6 +298,7 @@ def start(port: int) -> None:
     except StudyError as e:
         raise _line(e) from None
     click.echo(f"dashboard {'started' if sent['started'] else 'already running'}: {sent['url']}")
+    click.echo(launcher.invitation(port))
 
 
 @study.command()
@@ -331,7 +336,7 @@ def demo(port: int) -> None:
         f"{summary['hours']} hours entries ({summary['minutes']} min), {summary['plans']} plans"
     )
     click.echo(f"dashboard: http://127.0.0.1:{port}  (invented data; Ctrl+C to stop)")
-    main(port)
+    main(port, locked=False)
 
 
 # `python -m studysystem.cli dashboard`: how study_dashboard starts it (D-289).

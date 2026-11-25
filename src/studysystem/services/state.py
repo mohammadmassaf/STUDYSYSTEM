@@ -710,8 +710,8 @@ def _shortfall(conn: Connection, user_id: str, today: datetime.date) -> dict:
 
 # --- system work --------------------------------------------------------------
 
-# D-310, D-311: what the Plan page's System work block reads. Both lists empty = no room, or
-# nothing to do; the page then shows no block.
+# D-310, D-311, D-368: what the Plan page's two blocks read. An empty list shows no block: no room
+# or no paper, or no directive that waits for his yes.
 SYSTEM_WORK_SCHEMA = _record(
     {
         "papers": _list(
@@ -733,7 +733,7 @@ SYSTEM_WORK_SCHEMA = _record(
 
 
 def _system_work(conn: Connection, user_id: str, today: datetime.date) -> dict:
-    """4.12: zero-estimate past papers and proposed directives, only on a surplus (D-310)."""
+    """4.12: zero-estimate past papers on a surplus (D-310), and proposed directives (D-368)."""
     return system_work(conn, user_id, shortfall(conn, user_id, today))
 
 
