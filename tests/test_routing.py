@@ -3,8 +3,8 @@ bar on its `provisional` flag (2.2; D-165), and the paper that sets format with 
 D-168 - D-170).
 Pure: no database.
 
-The names are his live ones: I3302's course reads "A. Ghrayeb", its 2023-09 paper "Dr. Ali
-Ghorayeb", its 2019-2021 papers "Dr. Mohamad Hamze"; I3305's papers are co-taught.
+The names are his live ones: I3302's course reads "I. Karvelo", its 2023-09 paper "Dr. Ali
+Karavelo", its 2019-2021 papers "Dr. Marek Varen"; I3305's papers are co-taught.
 """
 
 import pytest
@@ -21,14 +21,14 @@ from studysystem.services.claims import (
 )
 
 SAME_PERSON = [
-    ("Dr. Ali Ghorayeb", "A. Ghrayeb", True),  # spelling drift, 0.93
-    ("Dr. Mohamad Hamze", "A. Ghrayeb", False),  # another lecturer, 0.50
-    ("Dr. Mohamad Hamze, Dr. Abed EL Safadi", "A. Safadi", True),  # co-taught, the second name
-    ("DBOUK", "M. Dbouk", True),  # case
-    ("M.Dbouk", "M. Dbouk", True),  # a dot with no space after it
-    (None, "A. Ghrayeb", False),  # the paper names no one (tier unknown)
-    ("Dr. Ali Ghorayeb", None, False),  # the course names no one
-    ("Dr.", "A. Ghrayeb", False),  # a title only: no surname, no crash
+    ("Dr. Ilya Karavelo", "I. Karvelo", True),  # spelling drift, 0.93
+    ("Dr. Marek Varen", "I. Karvelo", False),  # another lecturer, 0.50
+    ("Dr. Marek Varen, Dr. Tove EL Lindem", "T. Lindem", True),  # co-taught, the second name
+    ("STONN", "M. Stonn", True),  # case
+    ("M.Stonn", "M. Stonn", True),  # a dot with no space after it
+    (None, "I. Karvelo", False),  # the paper names no one (tier unknown)
+    ("Dr. Ilya Karavelo", None, False),  # the course names no one
+    ("Dr.", "I. Karvelo", False),  # a title only: no surname, no crash
 ]
 
 
@@ -40,16 +40,16 @@ def test_same_person(paper, course, expected):
 # --- route_claims ---------------------------------------------------------------------------
 
 FMT, INS = "format", "instructor-driven"
-GHORAYEB, HAMZE = "Dr. Ali Ghorayeb", "Dr. Mohamad Hamze"
-NOW = "A. Ghrayeb"  # I3302's course.instructor
+KARAVELO, VAREN = "Dr. Ilya Karavelo", "Dr. Marek Varen"
+NOW = "I. Karvelo"  # I3302's course.instructor
 
 
 def test_route_keeps_the_newest_format_and_the_instructors_own_claims():
     """The main rule: format from the paper `format_paper` picked only, instructor claims by
     who teaches now."""
     papers = [
-        (GHORAYEB, [("obs1", FMT), ("obs2", INS), ("obs3", INS)]),  # 2023-09
-        (HAMZE, [("obs4", FMT), ("obs5", INS)]),  # 2021-09
+        (KARAVELO, [("obs1", FMT), ("obs2", INS), ("obs3", INS)]),  # 2023-09
+        (VAREN, [("obs4", FMT), ("obs5", INS)]),  # 2021-09
         (None, [("obs6", FMT)]),  # 2018, no name
     ]
     assert sorted(route_claims(papers, NOW, 0)) == ["obs1", "obs2", "obs3"]
@@ -57,7 +57,7 @@ def test_route_keeps_the_newest_format_and_the_instructors_own_claims():
 
 def test_route_keeps_every_format_claim_of_that_paper():
     """90 min, 4 questions, no MCQ: one paper's three format claims all stay."""
-    papers = [(GHORAYEB, [("dur", FMT), ("count", FMT), ("mcq", FMT)]), (HAMZE, [("old", FMT)])]
+    papers = [(KARAVELO, [("dur", FMT), ("count", FMT), ("mcq", FMT)]), (VAREN, [("old", FMT)])]
     assert sorted(route_claims(papers, NOW, 0)) == ["count", "dur", "mcq"]
 
 
@@ -69,42 +69,42 @@ def test_route_keeps_format_from_the_picked_paper_even_when_a_newer_one_has_some
 
 def test_route_keeps_no_format_from_a_picked_paper_never_observed():
     """The picked paper has no claims: format is empty, never taken from another (D-169)."""
-    papers = [(GHORAYEB, [("trap", INS)]), (HAMZE, [("dur", FMT)])]
+    papers = [(KARAVELO, [("trap", INS)]), (VAREN, [("dur", FMT)])]
     assert route_claims(papers, NOW, 0) == ["trap"]
     assert route_claims(papers, NOW, None) == ["trap"]
 
 
 def test_route_newest_paper_does_not_make_its_instructor_claims_trusted():
-    """Hamze's paper is newest: its format is kept, its trap is not (D-150)."""
-    papers = [(HAMZE, [("dur", FMT), ("hamze_trap", INS)]), (GHORAYEB, [("ghorayeb_trap", INS)])]
-    assert sorted(route_claims(papers, NOW, 0)) == ["dur", "ghorayeb_trap"]
+    """Varen's paper is newest: its format is kept, its trap is not (D-150)."""
+    papers = [(VAREN, [("dur", FMT), ("varen_trap", INS)]), (KARAVELO, [("karavelo_trap", INS)])]
+    assert sorted(route_claims(papers, NOW, 0)) == ["dur", "karavelo_trap"]
 
 
 def test_route_keeps_instructor_claims_from_every_paper_by_that_instructor():
-    """Two Ghorayeb papers both count - 2.2's threshold needs >= 2 of them (D-14)."""
-    papers = [(GHORAYEB, [("a", INS)]), (HAMZE, [("h", INS)]), ("Dr. A. Ghorayeb", [("b", INS)])]
+    """Two Karavelo papers both count - 2.2's threshold needs >= 2 of them (D-14)."""
+    papers = [(KARAVELO, [("a", INS)]), (VAREN, [("h", INS)]), ("Dr. I. Karavelo", [("b", INS)])]
     assert sorted(route_claims(papers, NOW, None)) == ["a", "b"]
 
 
 def test_route_excludes_instructor_claims_when_the_instructor_changes():
-    """2.1's Done when: the same papers, the course's instructor switched to Hamze. His claims
-    come in, Ghorayeb's go out; format, kept across a change, does not move (D-14)."""
+    """2.1's Done when: the same papers, the course's instructor switched to Varen. His claims
+    come in, Karavelo's go out; format, kept across a change, does not move (D-14)."""
     papers = [
-        (GHORAYEB, [("dur", FMT), ("ghorayeb_trap", INS)]),
-        (HAMZE, [("old_dur", FMT), ("hamze_trap", INS)]),
+        (KARAVELO, [("dur", FMT), ("karavelo_trap", INS)]),
+        (VAREN, [("old_dur", FMT), ("varen_trap", INS)]),
     ]
-    assert sorted(route_claims(papers, NOW, 0)) == ["dur", "ghorayeb_trap"]
-    assert sorted(route_claims(papers, "M. Hamze", 0)) == ["dur", "hamze_trap"]
+    assert sorted(route_claims(papers, NOW, 0)) == ["dur", "karavelo_trap"]
+    assert sorted(route_claims(papers, "M. Varen", 0)) == ["dur", "varen_trap"]
 
 
 def test_route_with_no_format_claim_keeps_instructor_claims_only():
-    papers = [(GHORAYEB, [("trap", INS)]), (HAMZE, [("other", INS)])]
+    papers = [(KARAVELO, [("trap", INS)]), (VAREN, [("other", INS)])]
     assert route_claims(papers, NOW, 0) == ["trap"]
 
 
 def test_route_with_an_unknown_course_instructor_keeps_format_only():
     """No one declared as teaching now: no paper is by them (D-150)."""
-    papers = [(GHORAYEB, [("dur", FMT), ("trap", INS)])]
+    papers = [(KARAVELO, [("dur", FMT), ("trap", INS)])]
     assert route_claims(papers, None, 0) == ["dur"]
 
 
@@ -114,48 +114,48 @@ def test_route_of_no_papers_keeps_nothing():
 
 # --- assume_instructors (2.4; D-174) ----------------------------------------------------------
 
-DBOUK = "M. DBOUK"
-SAFADI_HAMZE = "Dr. Abed El Safadi, Dr. Mohamad Hamze"  # I3305's 2021-09
+STONN = "M. STONN"
+LINDEM_VAREN = "Dr. Tove El Lindem, Dr. Marek Varen"  # I3305's 2021-09
 
 
 def test_named_papers_keep_their_own_names():
-    assert assume_instructors([GHORAYEB, HAMZE], NOW) == [(GHORAYEB, False), (HAMZE, False)]
+    assert assume_instructors([KARAVELO, VAREN], NOW) == [(KARAVELO, False), (VAREN, False)]
 
 
 def test_a_gap_between_two_papers_of_one_instructor_takes_that_name():
-    """I3306 Final's 2022-04, between Dbouk papers."""
-    instructors = [DBOUK] * 3 + [None] + [DBOUK] * 4
-    assert assume_instructors(instructors, "M. Dbouk")[3] == (DBOUK, True)
+    """I3306 Final's 2022-04, between Stonn papers."""
+    instructors = [STONN] * 3 + [None] + [STONN] * 4
+    assert assume_instructors(instructors, "M. Stonn")[3] == (STONN, True)
 
 
 def test_a_gap_between_two_instructors_takes_the_newer():
-    assert assume_instructors([HAMZE, None, GHORAYEB], NOW) == [
-        (HAMZE, False),
-        (HAMZE, True),
-        (GHORAYEB, False),
+    assert assume_instructors([VAREN, None, KARAVELO], NOW) == [
+        (VAREN, False),
+        (VAREN, True),
+        (KARAVELO, False),
     ]
 
 
 def test_unnamed_papers_at_the_old_end_take_the_newest_name_above_them():
-    """I3302 Final: both 2018 papers are Hamze's - the course's instructor is never reached."""
-    instructors = [GHORAYEB] + [HAMZE] * 5 + [None] * 2
-    assert assume_instructors(instructors, NOW)[6:] == [(HAMZE, True), (HAMZE, True)]
+    """I3302 Final: both 2018 papers are Varen's - the course's instructor is never reached."""
+    instructors = [KARAVELO] + [VAREN] * 5 + [None] * 2
+    assert assume_instructors(instructors, NOW)[6:] == [(VAREN, True), (VAREN, True)]
 
 
 def test_unnamed_papers_at_the_new_end_take_the_nearest_older_name():
     """I3305 Final: its three newest papers name no one; the oldest is spelled differently, so
     taking it instead of the nearest shows."""
     instructors = [None] * 3 + [
-        SAFADI_HAMZE,
-        "Dr. Abed El Safadi",
-        "Dr. Mohamad Hamze, Dr. Abed EL Safadi",
+        LINDEM_VAREN,
+        "Dr. Tove El Lindem",
+        "Dr. Marek Varen, Dr. Tove EL Lindem",
     ]
-    assert assume_instructors(instructors, "A. Safadi")[:3] == [(SAFADI_HAMZE, True)] * 3
+    assert assume_instructors(instructors, "T. Lindem")[:3] == [(LINDEM_VAREN, True)] * 3
 
 
 def test_a_set_with_no_name_takes_the_course_instructor():
     """I3301 Final: no paper names anyone."""
-    assert assume_instructors([None] * 5, "K. Beydoun") == [("K. Beydoun", True)] * 5
+    assert assume_instructors([None] * 5, "P. Wexford") == [("P. Wexford", True)] * 5
 
 
 def test_no_name_anywhere_stays_unknown_and_is_not_assumed():
@@ -170,12 +170,12 @@ def test_no_papers_assume_nothing():
 # --- instructor_provisional (2.2, 2.4; D-14, D-165, D-167, D-175) -----------------------------
 
 I3302_FINAL = [  # (instructor, date) per paper, newest first - his live set
-    (GHORAYEB, "2023-09-13"),
-    (HAMZE, "2021-09-20"),
-    (HAMZE, "2020-09-14"),
-    (HAMZE, "2020-02-17"),
-    (HAMZE, "2019-09-06"),
-    (HAMZE, "2019-01-24"),
+    (KARAVELO, "2023-09-13"),
+    (VAREN, "2021-09-20"),
+    (VAREN, "2020-09-14"),
+    (VAREN, "2020-02-17"),
+    (VAREN, "2019-09-06"),
+    (VAREN, "2019-01-24"),
     (None, "2018-07-21"),
     (None, "2018-01-23"),
 ]
@@ -190,40 +190,40 @@ def flag(papers, course_instructor) -> dict:
 
 
 def test_instructor_change_leaves_one_paper_by_who_teaches_now():
-    """(a) I3302 Final: Hamze set 2019-2021, Ghorayeb 2023-09; the two 2018 papers name no one
-    and are assumed Hamze's, so they do not lift Ghrayeb's count - the reason lists them."""
+    """(a) I3302 Final: Varen set 2019-2021, Karavelo 2023-09; the two 2018 papers name no one
+    and are assumed Varen's, so they do not lift Karvelo's count - the reason lists them."""
     assert flag(I3302_FINAL, NOW) == {
         "provisional": True,
-        "why": "1 of 8 papers by A. Ghrayeb; 2 needed - 2018-07-21, 2018-01-23 name no "
+        "why": "1 of 8 papers by I. Karvelo; 2 needed - 2018-07-21, 2018-01-23 name no "
         "instructor, assumed by their nearest named paper's",
     }
 
 
 def test_many_papers_by_the_same_instructor_clear_it():
-    """(b) I3306 Final: Dbouk on 7 of 8; 2022-04 names no one and sits between Dbouk papers."""
+    """(b) I3306 Final: Stonn on 7 of 8; 2022-04 names no one and sits between Stonn papers."""
     dates = ["2025-07-24", "2025-03-07", "2024-07-01", "2022-04-13"]
     dates += ["2021-09-17", "2021-08-06", "2019-09-07", "2019-01-25"]
-    papers = [(None if d == "2022-04-13" else "M. DBOUK", d) for d in dates]
-    assert flag(papers, "M. Dbouk") == {
+    papers = [(None if d == "2022-04-13" else "M. STONN", d) for d in dates]
+    assert flag(papers, "M. Stonn") == {
         "provisional": False,
-        "why": "8 of 8 papers by M. Dbouk; 2 needed - 2022-04-13 names no instructor, assumed "
+        "why": "8 of 8 papers by M. Stonn; 2 needed - 2022-04-13 names no instructor, assumed "
         "by its nearest named paper's",
     }
 
 
 def test_exactly_two_papers_clear_it():
-    """(c) the bar itself: two Ghorayeb papers, spelled two ways; nothing assumed, so the reason
+    """(c) the bar itself: two Karavelo papers, spelled two ways; nothing assumed, so the reason
     says nothing of it."""
-    papers = [(GHORAYEB, "2023-09-13"), (HAMZE, "2021-09-20"), ("Dr. A. Ghorayeb", "2018-11-15")]
+    papers = [(KARAVELO, "2023-09-13"), (VAREN, "2021-09-20"), ("Dr. I. Karavelo", "2018-11-15")]
     assert flag(papers, NOW) == {
         "provisional": False,
-        "why": "2 of 3 papers by A. Ghrayeb; 2 needed",
+        "why": "2 of 3 papers by I. Karvelo; 2 needed",
     }
 
 
 def test_a_course_naming_no_instructor_is_provisional():
     """(d) like DHR300: no one declared as teaching now, so no paper is by them (D-150)."""
-    assert flag([(GHORAYEB, "2023-09-13"), (GHORAYEB, "2021-09-20")], None) == {
+    assert flag([(KARAVELO, "2023-09-13"), (KARAVELO, "2021-09-20")], None) == {
         "provisional": True,
         "why": "the course names no instructor; 2 papers by them needed",
     }
@@ -231,7 +231,7 @@ def test_a_course_naming_no_instructor_is_provisional():
 
 def test_a_course_naming_no_instructor_still_lists_the_assumed_papers():
     """(d2) the row counts 2 assumed papers, so the reason says which (D-175)."""
-    papers = [(GHORAYEB, "2023-09-13"), (None, "2018-07-21"), (None, "2018-01-23")]
+    papers = [(KARAVELO, "2023-09-13"), (None, "2018-07-21"), (None, "2018-01-23")]
     assert flag(papers, None) == {
         "provisional": True,
         "why": "the course names no instructor; 2 papers by them needed - 2018-07-21, "
@@ -243,31 +243,31 @@ def test_a_set_naming_no_one_counts_as_the_course_instructors():
     """(e) I3301 Final: five papers, none names an instructor - each is assumed the course's,
     and the bar clears on the assumption, said in the reason (D-175)."""
     dates = ["2025-02-27", "2024-07-22", "2024-01-22", "2023-09-11", "2023-03-16"]
-    assert flag([(None, d) for d in dates], "K. Beydoun") == {
+    assert flag([(None, d) for d in dates], "P. Wexford") == {
         "provisional": False,
-        "why": "5 of 5 papers by K. Beydoun; 2 needed - 2025-02-27, 2024-07-22, 2024-01-22, "
+        "why": "5 of 5 papers by P. Wexford; 2 needed - 2025-02-27, 2024-07-22, 2024-01-22, "
         "2023-09-11, 2023-03-16 name no instructor, assumed by the course's",
     }
 
 
 def test_one_paper_naming_no_one_takes_the_course_instructors():
     """(e2) a slot with a single paper, unnamed: the singular reason."""
-    assert flag([(None, "2025-02-27")], "K. Beydoun") == {
+    assert flag([(None, "2025-02-27")], "P. Wexford") == {
         "provisional": True,
-        "why": "1 of 1 papers by K. Beydoun; 2 needed - 2025-02-27 names no instructor, assumed "
+        "why": "1 of 1 papers by P. Wexford; 2 needed - 2025-02-27 names no instructor, assumed "
         "by the course's",
     }
 
 
 def test_a_co_taught_paper_counts_for_either_name():
-    """(f) I3305: 2019-09 names Hamze and Safadi - it is a Safadi paper too (D-152)."""
+    """(f) I3305: 2019-09 names Varen and Lindem - it is a Lindem paper too (D-152)."""
     papers = [
-        ("Dr. Mohamad Hamze, Dr. Abed EL Safadi", "2019-09-05"),
-        ("Dr. Abed El Safadi", "2020-02-12"),
+        ("Dr. Marek Varen, Dr. Tove EL Lindem", "2019-09-05"),
+        ("Dr. Tove El Lindem", "2020-02-12"),
     ]
-    assert flag(papers, "A. Safadi") == {
+    assert flag(papers, "T. Lindem") == {
         "provisional": False,
-        "why": "2 of 2 papers by A. Safadi; 2 needed",
+        "why": "2 of 2 papers by T. Lindem; 2 needed",
     }
 
 

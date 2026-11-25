@@ -112,7 +112,7 @@ def transcribe(engine, tmp_path, host: str, answer) -> tuple[str, list[tuple]]:
         tmp_path / host, "I3302_First.pdf", pdf_pages(["Problem I", "Problem II"], pictured={2})
     )
     paper = add_past_exam(
-        engine, user_id, "I3302", "Final exam", "first", "2020-02-17", path, "Dr. Hamze"
+        engine, user_id, "I3302", "Final exam", "first", "2020-02-17", path, "Dr. Varen"
     )["past_exam_id"]
 
     async def go():

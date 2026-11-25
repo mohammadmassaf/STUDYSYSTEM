@@ -220,7 +220,7 @@ def test_a_second_set_overwrites_the_first(service_engine, user_id, web):
         ("target_grade", -1),
         ("target_grade", None),
         # the export writes under this folder, so it may never leave the vault root (D-72)
-        ("vault_folder", "C:/Users/MsiPc/Desktop/myvault.obsd"),
+        ("vault_folder", "C:/Users/student/Desktop/vault"),
         ("vault_folder", "/home/vault/uni"),
         ("vault_folder", "uni/../../Windows"),
         ("vault_folder", "uni//Semester"),

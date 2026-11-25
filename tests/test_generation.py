@@ -31,7 +31,7 @@ def register(engine, owner, folder, name, data, date="2020-02-17"):
     """One paper under `owner`'s I3302 Final exam; returns its past_exam_id."""
     path = write(folder, name, data)
     return add_past_exam(
-        engine, owner, "I3302", "Final exam", "first", date, path, "Dr. Mohamad Hamze"
+        engine, owner, "I3302", "Final exam", "first", date, path, "Dr. Marek Varen"
     )["past_exam_id"]
 
 

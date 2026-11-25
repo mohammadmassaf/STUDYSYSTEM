@@ -1,7 +1,7 @@
 """Coverage-at-exam (4.6; D-12, D-268 - D-271): per course, the share of its nearest exam that
 the student has reached, stored with its denominator tier at every plan run.
 
-I3304 on 2026-11-12 -> its Partial (25 days, profile v1): reached shares 66.1 of 99.8 = 66.2%,
+A course 25 days before its Partial (profile v1): reached shares 66.1 of 99.8 = 66.2%,
 tier `weighted`, note "Partial exam: 7 profile; 0 unexamined topics excluded".
 """
 

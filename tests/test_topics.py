@@ -46,7 +46,7 @@ def web(service_engine, user_id):
 def transcribe(engine, user_id, tmp_path, session_type, date, names, slot="Final exam") -> str:
     """Register a paper in one of I3302's slots and transcribe it: one item per name, in order."""
     path = write(tmp_path / date, f"I3302_{date}.pdf", pdf_pages([f"paper of {date}"]))
-    paper_id = add_past_exam(engine, user_id, "I3302", slot, session_type, date, path, "Dr. Hamze")[
+    paper_id = add_past_exam(engine, user_id, "I3302", slot, session_type, date, path, "Dr. Varen")[
         "past_exam_id"
     ]
     task_id = start_generation(engine, user_id, "transcription", paper_id).payload["task_id"]
