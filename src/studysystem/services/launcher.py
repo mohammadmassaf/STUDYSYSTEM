@@ -31,7 +31,7 @@ from pathlib import Path
 
 from studysystem.db.engine import data_dir
 from studysystem.errors import StudyError
-from studysystem.services import values
+from studysystem.services import private_view, values
 
 HOST = "127.0.0.1"
 PORT = 8765  # `study dashboard`'s default
@@ -243,7 +243,8 @@ def _asked() -> bool:
         return False
 
 
-def _mark_asked() -> None:
+def keep_answer() -> None:
+    """He answered the question: no host asks it again."""
     _settings_path().write_text(json.dumps({"autostart_asked": True}), encoding="utf-8")
 
 
@@ -254,16 +255,17 @@ def open_dashboard(port: int = PORT) -> dict:
     """Start the dashboard if it does not answer, wait for it, open the browser.
 
     Returns {"url", "started" (true when this call started it), "browser_opened", "autostart"
-    (true, false, or null where there is no start at sign-in), "ask_user" (the question for the
-    host, or null)}. A dashboard of another version counts as running: two installs on one machine
-    must not keep replacing each other's (D-342).
+    (true, false, or null where there is no start at sign-in, or where this process cannot see the
+    real one, D-358), "ask_user" (the question for the host, or null)}. A dashboard
+    of another version counts as running: two installs on one machine must not keep replacing each
+    other's (D-342).
 
     Refused: dashboard_not_started, as `_start` says.
     """
     started = not answering(port)
     if started:
         _start(port)
-    enabled = autostart_enabled()
+    enabled = None if private_view.active() else autostart_enabled()
     ask = enabled is False and not _asked()
     return {
         "url": url(port),
@@ -281,7 +283,8 @@ def set_autostart(on: bool) -> dict:
 
     Refused: autostart_unsupported off Windows and macOS; autostart_custom_data_dir while
     STUDYSYSTEM_DATA_DIR points elsewhere - the one start on this machine is for the default folder,
-    so a server on another one must not set it, nor remove it (D-340).
+    so a server on another one must not set it, nor remove it (D-340); autostart_private_view
+    inside Claude on Windows - only Claude would see the change (D-358).
     """
     if sys.platform not in ("win32", "darwin"):
         raise _unsupported()
@@ -291,8 +294,16 @@ def set_autostart(on: bool) -> dict:
             message="this server uses a custom data folder; the start at sign-in uses the default",
             fix="turn it on or off from a server that uses the default data folder",
         )
+    if private_view.active():
+        raise StudyError(
+            code="autostart_private_view",
+            message="inside Claude, Windows does not see a change to the start at sign-in; nothing "
+            "was changed",
+            fix="ask the student to run `study setup` in a terminal outside Claude; to turn the "
+            "start off, they use the computer's own startup settings",
+        )
     _set_autostart(on)
-    _mark_asked()
+    keep_answer()
     return {"autostart": on, "command": _autostart_command() if on else None}
 
 

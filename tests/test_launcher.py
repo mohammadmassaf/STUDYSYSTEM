@@ -15,7 +15,7 @@ import pytest
 from click.testing import CliRunner
 
 from studysystem.cli import study
-from studysystem.services import launcher
+from studysystem.services import launcher, private_view
 
 VERSION = importlib.metadata.version("studysystem")
 
@@ -119,6 +119,35 @@ def test_an_answer_of_no_stops_the_question(machine, monkeypatch):
     assert off == {"autostart": False, "command": None}
     sent = launcher.dashboard("open")
     assert (sent["autostart"], sent["ask_user"]) == (False, None)
+
+
+@pytest.mark.parametrize("action", ["autostart_on", "autostart_off"])
+@pytest.mark.parametrize("was", [None, "study dashboard"])
+def test_inside_claude_the_start_is_refused_and_nothing_changes(machine, monkeypatch, action, was):
+    """Claude's copy of the Run key would change, and Windows would start nothing (D-358)."""
+    monkeypatch.delenv("STUDYSYSTEM_DATA_DIR")  # the default folder, as a real install has
+    monkeypatch.setattr(private_view, "active", lambda: True)
+    machine["run"] = was
+
+    with pytest.raises(launcher.StudyError) as err:
+        launcher.dashboard(action)
+
+    assert err.value.code == "autostart_private_view"
+    assert "study setup" in err.value.fix and "outside Claude" in err.value.fix
+    assert machine["run"] == was
+    assert not launcher._settings_path().exists()
+
+
+@pytest.mark.parametrize("seen", [None, "study dashboard"])
+def test_inside_claude_open_works_and_does_not_ask(machine, monkeypatch, seen):
+    """The start that Claude sees is not the real one, so it is unknown (D-358)."""
+    monkeypatch.setattr(private_view, "active", lambda: True)
+    machine["run"] = seen
+
+    sent = launcher.dashboard("open")
+
+    assert machine["opened"] == ["http://127.0.0.1:8765/"]
+    assert (sent["autostart"], sent["ask_user"]) == (None, None)
 
 
 def test_an_answer_of_yes_writes_the_windows_start(machine, monkeypatch):

@@ -16,10 +16,10 @@ def register(mcp: MCPServer) -> None:
             "start the dashboard or the stopwatch. action: 'open' (the default) starts the "
             "dashboard if it is not running and opens it; 'autostart_on' makes the computer "
             "(Windows or macOS) start it at every sign-in, in the background; 'autostart_off' "
-            "stops that. When the reply's "
-            "ask_user is not null, put that question to the student in your own words, then call "
-            "this tool again with 'autostart_on' for yes or 'autostart_off' for no. Share the "
-            "url in case the browser did not open."
+            "stops that. Inside Claude on Windows both refuse: tell the student the fix. When the "
+            "reply's ask_user is not null, put that question to the student in your own words, "
+            "then call this tool again with 'autostart_on' for yes or 'autostart_off' for no. "
+            "Share the url in case the browser did not open."
         ),
     )
     def study_dashboard(action: str = "open") -> CallToolResult:

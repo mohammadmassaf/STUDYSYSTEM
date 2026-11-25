@@ -185,18 +185,18 @@ def test_an_empty_summary_is_refused(service_engine, user_id, ch6, vault, declar
     assert not (vault / FOLDER / "summaries").exists()
 
 
-def test_no_vault_root_saves_nothing(service_engine, user_id, ch6, declared):
+def test_no_output_folder_saves_nothing(service_engine, user_id, ch6, declared):
     err = refused(lambda: save_summary(service_engine, user_id, ch6, SUMMARY))
     assert err.code == "vault_not_ready"
-    assert "STUDYSYSTEM_VAULT_DIR" in err.fix
+    assert "study setup" in err.fix
     assert "study_save_summary" in err.fix  # send the same text again
 
 
-def test_no_vault_folder_saves_nothing(service_engine, user_id, ch6, vault):
-    err = refused(lambda: save_summary(service_engine, user_id, ch6, SUMMARY))
-    assert err.code == "vault_not_ready"
-    assert "vault_folder" in err.fix
-    assert not (vault / FOLDER / "summaries").exists()
+def test_a_course_with_no_folder_gets_one(service_engine, user_id, ch6, vault):
+    out = save_summary(service_engine, user_id, ch6, SUMMARY)
+
+    assert "/I3302 - " in out["md_path"]
+    assert (vault / out["md_path"]).is_file()
 
 
 def test_a_mistyped_folder_is_never_created(service_engine, user_id, ch6, vault):

@@ -134,7 +134,7 @@ def folder(field: str, value: object) -> str:
     """A folder path relative to a root the server owns, stored with `/` separators. The server
     writes files under it, so a path that could leave the root - absolute, or through `..` - is
     refused here, before it is ever joined to the root."""
-    shape = "send a path relative to the vault root, e.g. uni/Semester 1 2026-2027/Web Development"
+    shape = "send a path under the output folder, e.g. uni/Semester 1 2026-2027/Web Development"
     value = text(field, value).replace("\\", "/")
     if re.match(r"[A-Za-z]:", value) or value.startswith("/"):
         raise invalid(field, f"{value!r} is an absolute path", shape)

@@ -1,8 +1,9 @@
-"""The `study` command: migrate, downgrade, serve, dashboard, start, stop, demo. Only migrate and
-downgrade alter an existing schema (D-22); serve and dashboard build a brand-new one (D-324,
-D-335)."""
+"""The `study` command: setup, migrate, downgrade, serve, dashboard, start, stop, demo. Only
+migrate and downgrade alter an existing schema (D-22); serve and dashboard build a brand-new one
+(D-324, D-335)."""
 
 import datetime
+import json
 from pathlib import Path
 
 import click
@@ -48,6 +49,160 @@ def _busy(e: OperationalError, path: Path) -> click.ClickException:
 @click.group()
 def study() -> None:
     """Plan and track a semester: migrate the database, serve MCP, or serve the dashboard."""
+
+
+@study.command()
+def setup() -> None:
+    """Set up this computer: the output folder, Claude, and the dashboard at sign-in. Run it once
+    after the install, in a terminal outside Claude (D-332)."""
+    from studysystem.services import setup as machine  # imported here for the reason serve gives
+
+    problems = []
+    try:
+        # Everything that refuses the whole run comes before the first change (D-354, D-356).
+        machine.refuse_custom_data_dir()
+        machine.refuse_private_view()
+        new = machine.entry()
+        config = _choose_config(machine.config_files())
+        old = None
+        if config is not None:
+            try:
+                old = machine.current_entry(config)
+            except StudyError as e:
+                if e.code == "setup_custom_data_dir":
+                    raise
+                problems.append(e)
+                config = None
+    except StudyError as e:
+        raise _line(e) from None
+
+    _ask_output_folder()
+    for step in (lambda: _connect_claude(config, old, problems), _ask_sign_in):
+        try:
+            step()
+        except StudyError as e:
+            problems.append(e)
+
+    click.echo("\nFor another host (Claude Code, Codex, Gemini CLI), paste this entry:")
+    click.echo(json.dumps({"mcpServers": {machine.SERVER: new}}, indent=2))
+    if problems:
+        raise click.ClickException("; ".join(_line(e).message for e in problems))
+    click.echo("\nSetup is done.")
+
+
+def _choose_config(found: list[Path]) -> Path | None:
+    """The Claude config to write: the only one, or the one the student picks (D-344)."""
+    if len(found) < 2:
+        return found[0] if found else None
+    click.echo("This computer has more than one Claude config. The first was used last:")
+    for n, path in enumerate(found, 1):
+        click.echo(f"  {n}. {path}")
+    picked = click.prompt("Which one?", type=click.IntRange(1, len(found)), default=1)
+    return found[picked - 1]
+
+
+def _ask_output_folder() -> None:
+    """Ask for the output folder, once; a different one later changes only on a clear yes (D-350,
+    D-351)."""
+    from studysystem.services import settings
+    from studysystem.services import setup as machine
+
+    saved = settings.saved_output_dir()
+    variable = settings.variable_output_dir()
+    click.echo("The study system writes your notes and summaries in one folder, for all courses.")
+    suggested = saved or variable
+    while True:
+        answer = click.prompt(
+            "Full path of that folder", default=str(suggested) if suggested else None
+        )
+        try:
+            folder = machine.output_folder(answer)
+            break
+        except StudyError as e:
+            click.echo(f"{e.message}. {e.fix}.")
+
+    if saved is not None and machine.same_folder(folder, saved) and variable is not None:
+        try:
+            folder = machine.output_folder(str(variable))
+            click.echo(f"{settings.VAULT_ENV} is set on this computer.")
+        except StudyError:
+            pass  # the variable names no folder: nothing to change to
+    if saved is not None and not machine.same_folder(folder, saved):
+        click.echo(f"The saved folder is {saved}\nThe other folder is {folder}")
+        click.echo(
+            "If you change it, files already written stay in the saved folder. Move them yourself "
+            "if you want them in the other one."
+        )
+        picked = click.prompt(
+            "Change to the other folder, or was it a mistake?",
+            type=click.Choice(["change", "mistake"]),
+        )
+        if picked == "mistake":
+            click.echo(f"Kept: {saved}")
+            return
+    settings.save_output_dir(folder)
+    click.echo(f"Saved: {folder}")
+
+
+def _connect_claude(config: Path | None, old: dict | None, problems: list[StudyError]) -> None:
+    """Put the server entry in Claude's config: the student agrees to replace a different one
+    (D-349), and says that Claude is closed (D-345)."""
+    from studysystem.services import setup as machine
+
+    if config is None:
+        if not problems:  # none found, rather than one that could not be read
+            click.echo(
+                "\nNo Claude config was found. Install Claude, start it once, quit it, then run "
+                "`study setup` again."
+            )
+        return
+    new = machine.wanted_entry(old)
+    if old == new:
+        click.echo(f"\nClaude is already connected: {config}")
+        return
+    if old is not None:
+        click.echo(f"\nClaude already starts a study system, from {config}:")
+        click.echo(json.dumps(old, indent=2))
+        click.echo("Setup would replace it with the installed one:")
+        click.echo(json.dumps(new, indent=2))
+        click.echo(
+            "Yes: Claude starts the installed study system from now on. No: Claude keeps the one "
+            "it starts today. Your courses, hours and notes stay the same either way, and a copy "
+            "of the config is kept."
+        )
+        if not click.confirm("Replace it?", default=None):
+            click.echo("Kept. Claude's config was not changed.")
+            return
+    else:
+        click.echo(f"\nSetup adds the study system to Claude's config: {config}")
+    click.echo(f"\n{machine.how_to_quit()}")
+    if not click.confirm("Is Claude closed now?", default=None):
+        click.echo("Claude's config was not changed. Quit Claude, then run `study setup` again.")
+        return
+    copy = machine.write_entry(config, new)
+    click.echo(f"Claude is connected: {config}\nA copy of the old config: {copy}")
+
+
+def _ask_sign_in() -> None:
+    """Ask about the dashboard's start at sign-in; a no changes nothing (D-289, D-353)."""
+    from studysystem.services import launcher
+
+    enabled = launcher.autostart_enabled()
+    if enabled is None:
+        click.echo(
+            "\nThe dashboard cannot start at sign-in on this system. `study start` starts it."
+        )
+        return
+    click.echo()
+    if click.confirm(launcher.ASK, default=None):
+        launcher.set_autostart(True)
+        sent = launcher.start_dashboard()
+        click.echo(f"The dashboard starts at every sign-in. It runs now: {sent['url']}")
+        return
+    launcher.keep_answer()
+    if enabled:
+        click.echo("It was on already and stays on. Your computer's startup settings turn it off.")
+    click.echo("Start the dashboard whenever you want it: `study start`.")
 
 
 @study.command("migrate")

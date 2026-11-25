@@ -52,10 +52,13 @@ answer: turn them on only if you want to judge the generator.
 2. The first start of the server or the dashboard builds the database and its one user. After
    every upgrade run `uv run study migrate`: until then the tools and the dashboard refuse, and
    name this command.
-3. Set `STUDYSYSTEM_VAULT_DIR` to the notes folder (e.g. an Obsidian vault's study folder).
-   Each course's `vault_folder` sits under it, and its notes and summaries are written there as
-   markdown and PDF. Without it notes are still saved in the database, but every export reports
-   the missing setting.
+3. Run `uv run study setup` once, before you connect a host by hand, in a terminal outside Claude:
+   Windows keeps what is made inside Claude private to it, so setup refuses there. It asks for the
+   output folder (e.g. an Obsidian vault's study folder), connects Claude Desktop, and asks whether
+   the dashboard starts at sign-in. Notes and summaries are written under the output folder as markdown and PDF,
+   in each course's `vault_folder`; a course with none gets `<semester>/<code> - <name>`. With no
+   output folder, notes are still saved in the database, but every export reports it.
+   `STUDYSYSTEM_VAULT_DIR` is used only while no folder is saved.
 4. Note PDFs are printed with a local Chrome, Chromium or Edge. If none is found on the usual
    paths, set `STUDYSYSTEM_CHROME` to the browser's executable.
 
@@ -68,8 +71,7 @@ The server speaks MCP on stdio. In the host's MCP config:
   "mcpServers": {
     "studysystem": {
       "command": "uv",
-      "args": ["--directory", "/path/to/STUDYSYSTEM", "run", "study", "serve"],
-      "env": { "STUDYSYSTEM_VAULT_DIR": "/path/to/vault/study" }
+      "args": ["--directory", "/path/to/STUDYSYSTEM", "run", "study", "serve"]
     }
   }
 }
