@@ -18,21 +18,22 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Education",
 ]
+# uv tool install ignores uv.lock: each limit stops below the next untested release (D-360).
 dependencies = [
-    "alembic>=1.20.0",
-    "click>=8.5.0",
+    "alembic>=1.20.0,<2",
+    "click>=8.5.0,<9",
     "fsrs==6.3.2",
-    "jsonschema>=4.26.0",
+    "jsonschema>=4.26.0,<5",
     "mcp>=2,<3",
-    "pillow>=12.3.0",
-    "platformdirs>=4.11.9",
-    "pypandoc-binary>=1.17",
-    "pypdf>=6.19.0",
-    "pypdfium2>=5.13.0",
-    "python-ulid>=4.0.1",
-    "sqlalchemy>=2.0.54",
-    "starlette>=1.6.0",
-    "uvicorn>=0.52.4",
+    "pillow>=12.3.0,<14",
+    "platformdirs>=4.11.9,<5",
+    "pypandoc-binary>=1.17,<2",
+    "pypdf>=6.19.0,<8",
+    "pypdfium2>=5.13.0,<6",
+    "python-ulid>=4.0.1,<5",
+    "sqlalchemy>=2.0.54,<2.2",
+    "starlette>=1.6.0,<2",
+    "uvicorn>=0.52.4,<1",
 ]
 
 [project.urls]
