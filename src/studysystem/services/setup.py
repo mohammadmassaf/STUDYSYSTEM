@@ -21,6 +21,7 @@ from studysystem.services.settings import VAULT_ENV
 DATA_ENV = "STUDYSYSTEM_DATA_DIR"
 SERVER = "studysystem"
 CONFIG = "claude_desktop_config.json"
+LONG_PATH = 247  # characters: Windows' usual limit for a folder
 
 
 def refuse_custom_data_dir() -> None:
@@ -59,6 +60,13 @@ def output_folder(text: str) -> Path:
     """
     folder = Path(text.strip().strip("\"'").strip()).expanduser()
     if not folder.is_absolute() or not folder.is_dir():
+        if len(str(folder)) > LONG_PATH:
+            raise StudyError(
+                code="output_folder_invalid",
+                message=f"that path has {len(str(folder))} characters and leads to no folder on "
+                "this computer; it may be too long",
+                fix="paste a shorter path, to a folder that exists",
+            )
         raise StudyError(
             code="output_folder_invalid",
             message=f"{folder} is not a folder on this computer",
@@ -147,7 +155,10 @@ def _unreadable(path: Path, why: str) -> StudyError:
 
 def _read(path: Path) -> dict:
     try:
-        config = json.loads(path.read_text(encoding="utf-8-sig"))
+        text = path.read_text(encoding="utf-8-sig")
+        if not text.strip():
+            raise _unreadable(path, "is empty")
+        config = json.loads(text)
     except (OSError, ValueError) as e:
         raise _unreadable(path, f"could not be read: {e}") from None
     if not isinstance(config, dict) or not isinstance(config.get("mcpServers", {}), dict):

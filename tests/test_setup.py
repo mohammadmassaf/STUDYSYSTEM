@@ -107,6 +107,15 @@ def test_a_path_that_is_not_full_is_refused(text):
     assert caught.value.code == "output_folder_invalid"
 
 
+def test_a_path_that_is_too_long_is_not_repeated(tmp_path):
+    text = str(tmp_path.joinpath(*["a long folder name"] * 20))
+    with pytest.raises(StudyError) as caught:
+        machine.output_folder(text)
+    assert caught.value.code == "output_folder_invalid"
+    assert text not in caught.value.message and f"{len(text)} characters" in caught.value.message
+    assert "shorter" in caught.value.fix
+
+
 def test_a_folder_that_does_not_exist_is_asked_again_and_not_created(pc, tmp_path):
     typo = tmp_path / "study fodler"
 
@@ -406,6 +415,16 @@ def test_a_config_that_is_not_claudes_is_untouched_and_the_rest_goes_on(pc, tmp_
     assert str(settings.saved_output_dir()) == pc["folder"]
 
 
+@pytest.mark.parametrize("text", ["", " \n"])
+def test_an_empty_config_is_named_as_empty(pc, tmp_path, text):
+    path = claude(tmp_path)
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(StudyError) as caught:
+        machine.current_entry(path)
+    assert caught.value.code == "claude_config_unreadable"
+    assert "is empty" in caught.value.message and "line 1" not in caught.value.message
+
+
 def test_a_failed_write_leaves_the_old_file_whole(pc, tmp_path, monkeypatch):
     path = claude(tmp_path, {"preferences": {}})
     before = path.read_bytes()
@@ -449,6 +468,10 @@ def test_no_installed_command_is_refused(tmp_path, monkeypatch):
 # --- the start at sign-in ------------------------------------------------------------------------
 
 
+def test_the_sign_in_question_promises_nothing_claude_cannot_do():
+    assert "anytime" not in launcher.ASK and "startup settings" in launcher.ASK  # D-358, D-362
+
+
 def test_a_yes_turns_the_start_on_and_starts_it_now(pc):
     out = run(pc["folder"], "y")
 
@@ -466,7 +489,7 @@ def test_a_no_leaves_the_start_as_it_is_and_is_not_asked_again(pc, was_on):
     assert out.exit_code == 0, out.output
     assert (pc["on"], pc["started"]) == (was_on, 0)
     assert "study start" in out.output
-    assert ("startup settings" in out.output) is was_on
+    assert ("stays on" in out.output) is was_on
     assert launcher._asked() is True
 
 

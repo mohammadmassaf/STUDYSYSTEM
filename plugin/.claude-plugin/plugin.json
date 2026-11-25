@@ -1,7 +1,7 @@
 {
   "name": "studysystem",
-  "version": "0.1.0",
-  "description": "Slash commands for the studysystem MCP server: make a plan, run a study day, add a chapter, explain a chapter.",
+  "version": "1.0.0",
+  "description": "Slash commands for the studysystem MCP server: make a plan, run a study day, add a chapter, explain a chapter. Install the server first (see the README). After every upgrade of the server, run `study migrate`.",
   "author": {
     "name": "Mohammad"
   },

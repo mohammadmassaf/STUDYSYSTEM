@@ -1,0 +1,14 @@
+{
+  "name": "studysystem",
+  "owner": {
+    "name": "Mohammad"
+  },
+  "description": "The slash commands of the studysystem MCP server.",
+  "plugins": [
+    {
+      "name": "studysystem",
+      "source": "./plugin",
+      "description": "Slash commands: make a plan, run a study day, add a chapter, explain a chapter."
+    }
+  ]
+}
