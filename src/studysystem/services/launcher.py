@@ -125,7 +125,8 @@ def _start(port: int) -> None:
 
 
 def _ask_to_stop(port: int) -> int | None:
-    """Ask the dashboard to stop. Returns its process id; None when the reply names none."""
+    """Ask the dashboard to stop. Returns its process id; None when the reply has no usable one
+    (D-343): no reply of ours, no id, or an id that is not a whole number."""
     ask = urllib.request.Request(
         url(port) + "shutdown", data=b"{}", headers={"Content-Type": "application/json"}
     )
