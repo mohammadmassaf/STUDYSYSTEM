@@ -17,7 +17,7 @@ def register(mcp: MCPServer, engine: Engine) -> None:
             "Write a course's notes into the vault wherever a file is missing: the markdown, "
             "the PDF copy, or both. A note's export normally runs inside "
             "study_submit_generation; call this when that reply named a problem and it is "
-            "fixed (vault folder declared, folder made writable, a file moved out of the way), "
+            "fixed (`study setup` run, folder made writable, a file moved out of the way), "
             "or to give older notes their PDF. Safe to call twice - the second call writes "
             "nothing. Never overwrites a file. Course found by its code; semester_name only "
             "when the code exists in two semesters."

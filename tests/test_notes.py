@@ -10,8 +10,9 @@ import json
 import pytest
 from sqlalchemy import select, update
 
-from studysystem.db.tables import note
+from studysystem.db.tables import course, note
 from studysystem.errors import StudyError
+from studysystem.services import course_folder, settings
 from studysystem.services.courses import set_course_input
 from studysystem.services.generation import submit_generation
 from studysystem.services.notes import (
@@ -69,6 +70,12 @@ def submit_note(engine, user_id, task_id, body=BODY) -> dict:
 def exported_path(engine):
     with engine.connect() as conn:
         return conn.execute(select(note.c.exported_path)).scalar_one()
+
+
+def vault_folder(engine):
+    with engine.connect() as conn:
+        query = select(course.c.vault_folder).where(course.c.code == "I3302")
+        return conn.execute(query).scalar_one()
 
 
 def pdf_path(engine):
@@ -159,25 +166,99 @@ def test_an_exported_note_is_not_exported_again(service_engine, user_id, vault, 
 # --- not written: the note is saved anyway ---------------------------------------------
 
 
-def test_no_vault_root_names_the_env_var(service_engine, user_id, declared, task_id):
+def test_no_output_folder_names_the_setup_command(service_engine, user_id, declared, task_id):
     reply = submit_note(service_engine, user_id, task_id)
 
     (export,) = reply["exports"]
     assert export["exported_path"] is None
-    assert "STUDYSYSTEM_VAULT_DIR" in export["fix"]
+    assert "study setup" in export["fix"]
     assert "study_export_notes" in export["fix"]  # the way to send it out later (D-79)
     assert reply["status"] == "closed"  # the note is saved all the same
     assert exported_path(service_engine) is None
     assert pdf_path(service_engine) is None
 
 
-def test_no_vault_folder_names_the_tool(service_engine, user_id, vault, i3302, task_id):  # noqa: F811
+def test_a_course_with_no_folder_gets_one_by_code_and_name(
+    service_engine,
+    user_id,
+    vault,
+    i3302,  # noqa: F811
+    task_id,
+):
     reply = submit_note(service_engine, user_id, task_id)
 
     (export,) = reply["exports"]
+    own = vault_folder(service_engine)
+    assert own == "Semester 1 2026-2027/I3302 - Server-Side Web Development"
+    assert export["exported_path"] == f"{own}/notes/md/{NOTE_FILE}"
+    assert (vault / export["exported_path"]).is_file()
+
+
+def test_a_folder_the_server_named_is_made_again_under_a_new_output_folder(
+    service_engine,
+    user_id,
+    vault,
+    i3302,  # noqa: F811
+    task_id,
+    tmp_path,
+):
+    """He changed the output folder (D-351): only a declared folder may be missing (D-355)."""
+    submit_note(service_engine, user_id, task_id)
+    with write_unit(service_engine) as conn:
+        conn.execute(update(note).values(exported_path=None, pdf_path=None))
+    new = tmp_path / "new"
+    new.mkdir()
+    settings.save_output_dir(new)
+
+    (export,) = export_notes(service_engine, user_id, task_id)
+
+    assert (new / export["exported_path"]).is_file()
+
+
+def test_a_missing_output_folder_is_not_created(
+    service_engine,
+    user_id,
+    i3302,  # noqa: F811
+    task_id,
+    tmp_path,
+):
+    """An unplugged drive, or a deleted folder (D-352)."""
+    gone = tmp_path / "gone"
+    settings.save_output_dir(gone)
+
+    (export,) = submit_note(service_engine, user_id, task_id)["exports"]
+
     assert export["exported_path"] is None
-    assert "study_set_course_input" in export["fix"]
-    assert not (vault / FOLDER / "notes").exists()
+    assert "study setup" in export["fix"]
+    assert not gone.exists()
+    assert vault_folder(service_engine) is None
+
+
+def test_the_folder_saved_is_the_one_declared_meanwhile(
+    service_engine,
+    user_id,
+    vault,
+    i3302,  # noqa: F811
+):
+    set_course_input(service_engine, user_id, "I3302", "vault_folder", FOLDER)
+
+    assert course_folder._save(service_engine, i3302["course_id"], "sem5/I3302 - x") == FOLDER
+    assert vault_folder(service_engine) == FOLDER
+
+
+@pytest.mark.parametrize(
+    ("code", "name", "semester", "own"),
+    [
+        ("I3302", "Web", "sem5", "sem5/I3302 - Web"),
+        ("C/C++", 'What? "Why": a|b', "2026/2027", "2026-2027/C-C++ - What- -Why-- a-b"),
+        ("I3302", "ends in a dot. ", "con", "_con/I3302 - ends in a dot"),
+        ("I3302", "Web", "..", "_/I3302 - Web"),
+        ("I3302", "Web", "NUL.txt", "_NUL.txt/I3302 - Web"),
+        ("I1", "برمجة", "sem5", "sem5/I1 - برمجة"),
+    ],
+)
+def test_the_name_is_one_every_system_takes(code, name, semester, own):
+    assert course_folder.own_name(code, name, semester) == own
 
 
 def test_a_typo_in_the_folder_creates_nothing(service_engine, user_id, vault, i3302, task_id):  # noqa: F811
@@ -424,9 +505,10 @@ def test_the_course_export_stamps_each_note_with_its_own_task(
     i3302,  # noqa: F811
     task_id,
 ):
-    """A note saved before the folder was declared goes out later, stamped with the task that
-    made it - not with whatever task the export was called from."""
-    submit_note(service_engine, user_id, task_id)  # no vault_folder yet: nothing written
+    """A note saved while its declared folder was missing goes out later, stamped with the task
+    that made it - not with whatever task the export was called from."""
+    set_course_input(service_engine, user_id, "I3302", "vault_folder", "uni/not there")
+    submit_note(service_engine, user_id, task_id)  # nothing written
     set_course_input(service_engine, user_id, "I3302", "vault_folder", FOLDER)
 
     (export,) = export_course_notes(service_engine, user_id, "I3302")["exports"]

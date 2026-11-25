@@ -69,7 +69,7 @@ def test_chapter_6_s_note_lands_and_closes_the_task(
     # no vault on a test machine (conftest): the note saves, its export says why it did not
     (export,) = reply.pop("exports")
     assert (export["section"], export["exported_path"]) == (1, None)
-    assert "STUDYSYSTEM_VAULT_DIR" in export["fix"]
+    assert "study setup" in export["fix"]
     assert reply == {
         "task_id": task_id,
         "submission": 1,

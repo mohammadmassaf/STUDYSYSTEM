@@ -22,7 +22,6 @@ from sqlalchemy import Connection, Engine, func, select
 
 from studysystem.db.tables import (
     assessment_slot,
-    course,
     coverage,
     exam_profile,
     material,
@@ -32,7 +31,7 @@ from studysystem.db.tables import (
     topic_weight,
 )
 from studysystem.errors import StudyError
-from studysystem.services import notes, values
+from studysystem.services import course_folder, notes, values
 from studysystem.services.generation import (
     Task,
     _find_material,
@@ -271,7 +270,7 @@ def _memorize_table(body: str) -> str | None:
 
 def save_summary(engine: Engine, user_id: str, material_id: str, markdown: str) -> dict:
     """Write the summary's md, then its PDF, under the course's `summaries/`. Returns {"material",
-    "md_path", "pdf_path", "renamed"} - paths relative to the vault root, with `/` - plus
+    "md_path", "pdf_path", "renamed"} - paths relative to the output folder, with `/` - plus
     "problem" and "fix" when the md went out but its PDF did not. Raises when nothing could be
     written, so the host keeps its text."""
     if not markdown.strip():
@@ -279,9 +278,9 @@ def save_summary(engine: Engine, user_id: str, material_id: str, markdown: str) 
 
     with read_unit(engine) as conn:
         found = conn.execute(
-            select(material.c.id, material.c.filename, course.c.vault_folder)
-            .join(course, course.c.id == material.c.course_id)
-            .where(material.c.id == material_id, material.c.user_id == user_id)
+            select(material.c.id, material.c.filename, material.c.course_id).where(
+                material.c.id == material_id, material.c.user_id == user_id
+            )
         ).one_or_none()
     if found is None:
         raise StudyError(
@@ -291,41 +290,24 @@ def save_summary(engine: Engine, user_id: str, material_id: str, markdown: str) 
             field_errors=[{"field": "material_id", "problem": "no such material"}],
         )
 
-    # the note export's guards, raised instead of reported (module docstring)
-    root = notes.vault_dir()
-    folder = found.vault_folder
-    if root is None:
-        raise _not_ready(
-            "this machine has no vault root set",
-            f"set {notes.VAULT_ENV} to the vault's study folder in the server's config, "
-            "restart it, " + RESEND,
-        )
-    if folder is None:
-        raise _not_ready(
-            "the course has no vault folder declared",
-            "declare it with study_set_course_input(field='vault_folder'), " + RESEND,
-        )
-    if not (root / folder).is_dir():
-        # never created: a typo in vault_folder must not grow a new course folder in the vault
-        raise _not_ready(
-            f"{folder} is not a folder under the vault root",
-            "fix vault_folder with study_set_course_input, " + RESEND,
-        )
-
     text = _stamp(found.filename) + markdown.rstrip("\n") + "\n"
     name = f"{Path(found.filename).stem}_summary"
     try:
+        # the note export's guards, raised instead of reported (module docstring)
+        root, folder = course_folder.ready(engine, found.course_id)
         target_md, target_pdf = notes._free_name(root / folder / "summaries", name)
         # summaries/ and md/ only - the course folder exists
         target_md.parent.mkdir(parents=True, exist_ok=True)
         # "x" creates or fails: a file that appeared since _free_name looked is never overwritten
         with target_md.open("x", encoding="utf-8", newline="\n") as f:
             f.write(text)
+    except course_folder.NotReady as e:
+        raise _not_ready(e.problem, f"{e.fix}, {RESEND}") from None
     except OSError as e:
         raise StudyError(
             code="write_failed",
             message=f"the summary could not be written: {e.strerror or e}",
-            fix="check the vault folder is writable, " + RESEND,
+            fix="check the output folder is writable, " + RESEND,
         ) from e
 
     out = {

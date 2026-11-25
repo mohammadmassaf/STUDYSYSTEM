@@ -167,7 +167,7 @@ course = Table(
     Column("semester_end", Text, nullable=True),
     CheckConstraint("semester_end > semester_start", name="semester_order"),
     bool_col("semester_end_approx"),
-    Column("vault_folder", Text, nullable=True),  # under the vault root; NULL = not declared (D-72)
+    Column("vault_folder", Text, nullable=True),  # under the output folder (D-72, D-347)
     # the shortfall's H for this course; NULL / unknown reads the default (D-294). Migration 0025.
     *tier_pair("hours_per_credit", Float, "hours_per_credit > 0", default="unknown"),
     bool_col("elective"),  # 1 = declared elective: listed last by the shortfall alert (D-300)

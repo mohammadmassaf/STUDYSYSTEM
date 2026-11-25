@@ -17,35 +17,28 @@ holds that chapter's new files back until the next export, and never loses the n
 The export never raises. The note is already committed when it runs, so an error here would tell
 the host its note failed when it did not; every problem comes back as an entry with its fix.
 
-The vault root is machine config, like the data dir: `STUDYSYSTEM_VAULT_DIR`. Each course names
-its own folder under it (`course.vault_folder`), and both paths are stored relative to the
-root, with `/`, so they survive the vault moving to another drive or machine.
+The root is the output folder (`settings.py`), and each course has a folder under it
+(`course_folder.py`). Both paths are stored relative to the root, with `/`, so they survive the
+output folder moving to another drive or machine.
 
 Accepted risk: a file written whose path then fails to save is in the vault while the database
 says it is not - the next export writes the md again as `(2)`, or finds the PDF in its way.
 """
 
 import json
-import os
 from pathlib import Path
 
 from sqlalchemy import ColumnElement, Engine, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from studysystem.db.tables import course, exam_profile, material, note
+from studysystem.services import course_folder, settings
 from studysystem.services.lookups import find_course
 from studysystem.services.pdf_render import render_pdf
 from studysystem.services.units import read_unit, write_unit
 
-VAULT_ENV = "STUDYSYSTEM_VAULT_DIR"
 # how every fix that leaves a file unwritten ends: the note waits safely, the tool sends it (D-79)
 RETRY = "then run study_export_notes for this course - the note is saved in the database meanwhile"
-
-
-def vault_dir() -> Path | None:
-    """The vault root the exports go under, or None when this machine has not set one."""
-    out = os.environ.get(VAULT_ENV, "").strip()
-    return Path(out) if out else None
 
 
 def export_notes(engine: Engine, user_id: str, task_id: str) -> list[dict]:
@@ -102,9 +95,9 @@ def _export_where(
 
 def _delete_retired(engine: Engine, user_id: str, scope: ColumnElement[bool]) -> dict[str, dict]:
     """Delete the files of the retired notes in `scope`, and clear their paths (D-250). Returns
-    one problem entry per material whose delete failed, by its id. With no vault root or course
-    folder nothing is deleted: the export reports those itself."""
-    root = vault_dir()
+    one problem entry per material whose delete failed, by its id. With no output folder or
+    course folder nothing is deleted: the export reports those itself."""
+    root = settings.output_dir()
     if root is None:
         return {}
     with read_unit(engine) as conn:
@@ -169,7 +162,7 @@ def _delete_retired(engine: Engine, user_id: str, scope: ColumnElement[bool]) ->
 def _unexported_notes(engine: Engine, user_id: str, scope: ColumnElement[bool]) -> list:
     """The live notes in `scope` missing their md or their PDF, oldest first, with what their
     files need: where the md went (NULL = not written), the task and material that made them,
-    the course's vault folder and the profile's version."""
+    the course and the profile's version."""
     with read_unit(engine) as conn:
         return list(
             conn.execute(
@@ -181,7 +174,7 @@ def _unexported_notes(engine: Engine, user_id: str, scope: ColumnElement[bool]) 
                     note.c.exported_path,
                     note.c.material_id,
                     material.c.filename,
-                    course.c.vault_folder,
+                    material.c.course_id,
                     exam_profile.c.version,
                 )
                 .join(material, material.c.id == note.c.material_id)
@@ -200,32 +193,24 @@ def _unexported_notes(engine: Engine, user_id: str, scope: ColumnElement[bool]) 
 
 def _export(engine: Engine, rows: list) -> list[dict]:
     """Write each note's files and record their paths - the guards first, once (D-72)."""
-    # One course, one vault folder - a task's notes or a course's: the guards run once (D-72).
-    root = vault_dir()
-    folder = rows[0].vault_folder
-    if root is None:
+    # One course, one folder - a task's notes or a course's: the guards run once (D-72).
+    problem = None
+    try:
+        root, folder = course_folder.ready(engine, rows[0].course_id)
+    except course_folder.NotReady as e:
+        problem = (e.problem, f"{e.fix}, {RETRY}")
+    except OSError as e:
         problem = (
-            "this machine has no vault root set",
-            f"set {VAULT_ENV} to the vault's study folder in the server's config, restart "
-            "it, " + RETRY,
+            f"the course's folder could not be made: {e.strerror or e}",
+            "check the output folder is writable, " + RETRY,
         )
-    elif folder is None:
+    except SQLAlchemyError:
         problem = (
-            "the course has no vault folder declared",
-            "declare it with study_set_course_input(field='vault_folder'), e.g. "
-            "'uni/Semester 1 2026-2027/Server-Side Web Development', " + RETRY,
+            "the course's folder could not be read or saved in the database",
+            "check the database is not busy, " + RETRY,
         )
-    elif not (root / folder).is_dir():
-        # never created: a typo in vault_folder must not grow a new course folder in the vault
-        problem = (
-            f"{folder} is not a folder under the vault root",
-            "fix vault_folder with study_set_course_input, " + RETRY,
-        )
-    else:
-        problem = None
     if problem is not None:
         return [_unexported(r.section_ordinal, r.filename, *problem) for r in rows]
-    assert root is not None and folder is not None  # the guards above return otherwise
 
     out = []
     for r in rows:

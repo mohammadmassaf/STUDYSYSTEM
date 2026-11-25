@@ -51,7 +51,11 @@ def isolated_data_dir(tmp_path, monkeypatch):
     """Every test gets its own data dir; nothing touches the real one - nor does a test that takes
     the variable away, as a real install has it."""
     from studysystem.db import engine
+    from studysystem.services import private_view
 
+    # The suite gives one result inside Claude and outside it (D-358). Not its own folder either:
+    # the real check makes one in the real AppData.
+    monkeypatch.setattr(private_view, "active", lambda: False)
     monkeypatch.setenv("STUDYSYSTEM_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(
         engine.platformdirs, "user_data_dir", lambda name, **_: str(tmp_path / "default" / name)

@@ -42,9 +42,11 @@ def register(mcp: MCPServer, engine: Engine) -> None:
         description=(
             "Set one known fact about a course, found by its code. field: 'credits' (a number "
             "above 0), 'instructor' (text), 'target_grade' (0-100, percent of the course "
-            "grade) or 'vault_folder' (the course's folder, relative to the vault root, where "
+            "grade) or 'vault_folder' (the course's folder, relative to the output folder, where "
             "its notes are exported - e.g. 'uni/Semester 1 2026-2027/Server-Side Web "
-            "Development') or 'no_past_papers' (true when the course has no past papers at all, "
+            "Development'. It must exist. Set it only when the student names a folder: unset, "
+            "the server makes one at the first export) or 'no_past_papers' (true when the "
+            "course has no past papers at all, "
             "e.g. a new course - the plan stops asking for papers; false if that was wrong) or "
             "'lab_group' (his group in the course's labs, as the timetable names it, e.g. 'G1' - "
             "his week then shows the whole-class meetings and that group's, not the others) or "
