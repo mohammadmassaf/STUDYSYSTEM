@@ -5,7 +5,12 @@ makes each new kind sign up instead. Note joined by D-155."""
 
 import pytest
 
-from studysystem.services.generation import BUILT, start_generation, submit_generation
+from studysystem.services.generation import (
+    BUILT,
+    DATA_STEP,
+    start_generation,
+    submit_generation,
+)
 from tests.test_note_generation import ch6, i3302, web  # noqa: F401 - fixtures
 from tests.test_profiles import register
 from tests.test_tagging import topic_ids
@@ -101,3 +106,11 @@ def test_an_open_task_that_kept_part_of_its_answer_is_handed_back(
     assert (reply["status"], len(reply["accepted"])) == ("open", 1)
 
     assert start().payload["task_id"] == task_id
+
+
+@pytest.mark.parametrize("kind", BUILT)
+def test_every_task_ends_by_saying_its_pages_are_data(kind, service_engine, user_id, request):
+    """A PDF can hold words written for the AI: the task says that they are not instructions."""
+    start, _ = STARTERS[kind](service_engine, user_id, request)
+
+    assert start().payload["rules"]["steps"][-1] == DATA_STEP

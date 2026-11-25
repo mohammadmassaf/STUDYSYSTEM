@@ -24,6 +24,7 @@ from studysystem.db.tables import (
 from studysystem.errors import StudyError
 from studysystem.server import create_server
 from studysystem.services.courses import set_course_input
+from studysystem.services.generation import DATA_STEP
 from studysystem.services.ids import new_id, now
 from studysystem.services.summaries import SUMMARY_STEPS, save_summary, summary_task
 from studysystem.services.units import write_unit
@@ -238,7 +239,7 @@ def test_both_tools_are_listed(service_engine):
 def test_a_summary_through_the_tools(call, ch6, vault, declared):
     task = call("study_get_summary_task", {"material_id": ch6})
     assert not task.is_error
-    assert json.loads(task.content[0].text)["rules"]["steps"] == SUMMARY_STEPS
+    assert json.loads(task.content[0].text)["rules"]["steps"] == [*SUMMARY_STEPS, DATA_STEP]
 
     saved = call("study_save_summary", {"material_id": ch6, "markdown": SUMMARY})
 

@@ -1,5 +1,5 @@
 """The observation task (2.1a; D-149, D-151, D-154): I3302's 2023-09 resit leaves as its pages and
-comes back as claims - its 90 minutes, its question count, the traps Ghorayeb set. Each claim is
+comes back as claims - its 90 minutes, its question count, the traps Karavelo set. Each claim is
 checked alone against the schema, then all of them together against the paper (`judge_claims`):
 a format key once per paper, an instructor claim once per text. Each kept claim is one
 `observation` row and its `evidence` row."""
@@ -14,6 +14,7 @@ from studysystem.db.tables import evidence, generation_task, observation, past_e
 from studysystem.errors import StudyError
 from studysystem.services.claims import judge_claims
 from studysystem.services.generation import (
+    DATA_STEP,
     OBSERVATION_SCHEMA,
     OBSERVATION_STEPS,
     start_generation,
@@ -119,7 +120,7 @@ def test_no_claims_sort_into_nothing():
 
 # --- start (plumbing) -----------------------------------------------------------------------
 
-HEADER = "Final Exam - Server-Side Web Development - Dr. Ali Ghorayeb - Duration: 90 min"
+HEADER = "Final Exam - Server-Side Web Development - Dr. Ilya Karavelo - Duration: 90 min"
 PAGES = [HEADER, "Question 1 ...", "Question 4 ..."]
 
 
@@ -133,7 +134,7 @@ def add_paper(engine, user_id, folder, pages=PAGES) -> str:
         "second",
         "2023-09-13",
         path,
-        instructor="Dr. Ali Ghorayeb",
+        instructor="Dr. Ilya Karavelo",
     )["past_exam_id"]
 
 
@@ -178,7 +179,7 @@ def test_the_paper_leaves_as_its_pages_with_the_schema_and_steps(service_engine,
 
     assert [p["text"] for p in payload["content"]] == PAGES
     assert payload["schema"] == OBSERVATION_SCHEMA
-    assert payload["rules"] == {"steps": OBSERVATION_STEPS}
+    assert payload["rules"] == {"steps": [*OBSERVATION_STEPS, DATA_STEP]}
     (row,) = tasks(service_engine)
     assert (row.id, row.scope_type, row.scope_id, row.exam_profile_id, row.status) == (
         payload["task_id"],

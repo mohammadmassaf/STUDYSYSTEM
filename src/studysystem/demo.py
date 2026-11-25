@@ -29,6 +29,7 @@ from studysystem.services import (
     capacity,
     courses,
     feedback,
+    intake,
     materials,
     past_exams,
     plan,
@@ -717,4 +718,5 @@ def build(folder: Path | None = None, live: Sequence[Path] = ()) -> tuple[Engine
     assert data_dir() == path.parent
     engine = make_engine(path)
     migrate.upgrade(engine)
-    return engine, seed(engine), path
+    with intake.in_this_process():  # the PDFs are its own
+        return engine, seed(engine), path

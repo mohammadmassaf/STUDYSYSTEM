@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from studysystem.errors import StudyError
-from studysystem.services import intake
+from studysystem.services import intake, pdf_worker
 from tests._papers import JPEG, PNG, pdf_bytes, pdf_pages, write
 
 
@@ -204,7 +204,7 @@ def test_a_pdf_that_breaks_pypdf_inside_is_refused_not_crashed(downloads, monkey
     def broken(_stream):
         raise KeyError("/Root")
 
-    monkeypatch.setattr(intake, "PdfReader", broken)
+    monkeypatch.setattr(pdf_worker, "PdfReader", broken)
 
     err = refusal([write(downloads, "p.pdf", pdf_bytes("x"))])
 
@@ -241,3 +241,16 @@ def test_a_network_path_is_refused_before_anything_looks_at_it(path, monkeypatch
     monkeypatch.setattr(Path, "is_file", looked)
 
     assert "network" in refusal([path]).message
+
+
+def test_a_file_over_the_size_limit_is_refused_unread(downloads, monkeypatch):
+    monkeypatch.setattr(intake, "MAX_FILE", 10)
+    monkeypatch.setattr(Path, "read_bytes", lambda self: pytest.fail("read"))
+
+    assert "is over" in refusal([write(downloads, "p.pdf", pdf_bytes("x"))]).message
+
+
+def test_too_many_photos_are_refused(downloads, monkeypatch):
+    monkeypatch.setattr(intake, "MAX_FILES", 1)
+
+    assert "2 files" in refusal(pages(downloads, 2)).message
