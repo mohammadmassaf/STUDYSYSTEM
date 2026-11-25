@@ -13,3 +13,8 @@ CLAUDE.md
 .claude/
 .pip/
 dist/
+# a real exam paper or chapter must never be committed (tests build their own)
+*.pdf
+*.jpg
+*.jpeg
+*.png
